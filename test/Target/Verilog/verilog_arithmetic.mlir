@@ -1,4 +1,4 @@
-//RUN: llhd-translate --llhd-to-verilog %s | FileCheck %s
+//RUN: circt-translate --llhd-to-verilog %s | FileCheck %s
 
 // CHECK-LABEL: _check_arithmetic
 llhd.entity @check_arithmetic() -> () {
