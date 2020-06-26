@@ -6,7 +6,7 @@ set(LIBS
         ${conversion_libs}
         MLIRLLHD
         MLIRLLHDToLLVM
-        LLHDSimEngine
+        CIRCTLLHDSimEngine
         )
 
 add_llvm_executable(llhd-sim
