@@ -47,7 +47,7 @@ LLHDDialect::LLHDDialect(mlir::MLIRContext *context)
   addAttributes<TimeAttr>();
   addOperations<
 #define GET_OP_LIST
-#include "circt/Dialect/LLHD/LLHDOps.cpp.inc"
+#include "circt/Dialect/LLHD/IR/LLHDOps.cpp.inc"
       >();
   addInterfaces<LLHDInlinerInterface>();
 }

@@ -19,9 +19,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "circt/Dialect/LLHD/IR/LLHDDialect.h"
+#include "circt//Dialect/LLHD/Transforms/Passes.h"
 #include "circt/Conversion/LLHDToLLVM/LLHDToLLVM.h"
-#include "circt/Dialect/LLHD/Transforms/Passes.h"
+#include "circt/Dialect/LLHD/IR/LLHDDialect.h"
 
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/IR/AsmState.h"
