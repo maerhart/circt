@@ -1,4 +1,4 @@
-#include "circt/Dialect/LLHD/LLHDDialect.h"
+#include "circt/Dialect/LLHD/IR/LLHDDialect.h"
 #include "circt/Conversion/LLHDToLLVM/LLHDToLLVM.h"
 #include "circt/Simulator/Engine.h"
 

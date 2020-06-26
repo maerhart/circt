@@ -1,5 +1,5 @@
-#include "circt/Dialect/LLHD/LLHDDialect.h"
-#include "circt/Dialect/LLHD/LLHDOps.h"
+#include "circt/Dialect/LLHD/IR/LLHDDialect.h"
+#include "circt/Dialect/LLHD/IR/LLHDOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/Transforms/InliningUtils.h"

@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "circt/Dialect/LLHD/LLHDDialect.h"
-#include "circt/Target/TranslateToVerilog.h"
+#include "circt/Dialect/LLHD/IR/LLHDDialect.h"
+#include "circt/Target/Verilog/TranslateToVerilog.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/MLIRContext.h"

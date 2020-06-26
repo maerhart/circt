@@ -1,5 +1,5 @@
-#include "circt/Dialect/LLHD/LLHDOps.h"
-#include "circt/Dialect/LLHD/LLHDDialect.h"
+#include "circt/Dialect/LLHD/IR/LLHDOps.h"
+#include "circt/Dialect/LLHD/IR/LLHDDialect.h"
 #include "mlir/Dialect/CommonFolders.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Matchers.h"
@@ -873,10 +873,10 @@ static LogicalResult verify(llhd::RegOp op) {
   return success();
 }
 
-#include "circt/Dialect/LLHD/LLHDOpsEnums.cpp.inc"
+#include "circt/Dialect/LLHD/IR/LLHDOpsEnums.cpp.inc"
 namespace mlir {
 namespace llhd {
 #define GET_OP_CLASSES
-#include "circt/Dialect/LLHD/LLHDOps.cpp.inc"
+#include "circt/Dialect/LLHD/IR/LLHDOps.cpp.inc"
 } // namespace llhd
 } // namespace mlir

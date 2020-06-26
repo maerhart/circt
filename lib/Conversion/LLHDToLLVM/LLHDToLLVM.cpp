@@ -1,6 +1,6 @@
 #include "circt/Conversion/LLHDToLLVM/LLHDToLLVM.h"
-#include "circt/Dialect/LLHD/LLHDDialect.h"
-#include "circt/Dialect/LLHD/LLHDOps.h"
+#include "circt/Dialect/LLHD/IR/LLHDDialect.h"
+#include "circt/Dialect/LLHD/IR/LLHDOps.h"
 
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"

@@ -1,5 +1,5 @@
-#include "circt/Dialect/LLHD/LLHDOps.h"
-#include "circt/Transforms/Passes.h"
+#include "circt/Dialect/LLHD/IR/LLHDOps.h"
+#include "circt/Dialect/LLHD/Transforms/Passes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 
 using namespace mlir;

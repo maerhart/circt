@@ -1,7 +1,7 @@
 #ifndef TARGET_VERILOGPRINTER_H
 #define TARGET_VERILOGPRINTER_H
 
-#include "circt/Dialect/LLHD/LLHDOps.h"
+#include "circt/Dialect/LLHD/IR/LLHDOps.h"
 
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Module.h"

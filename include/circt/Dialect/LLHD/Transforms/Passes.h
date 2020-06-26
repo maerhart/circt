@@ -8,7 +8,7 @@ namespace mlir {
 namespace llhd {
 
 #define GEN_PASS_CLASSES
-#include "circt/Transforms/Passes.h.inc"
+#include "circt/Dialect/LLHD/Transforms/Passes.h.inc"
 
 std::unique_ptr<OperationPass<ModuleOp>> createProcessLoweringPass();
 
@@ -17,7 +17,7 @@ std::unique_ptr<OperationPass<ModuleOp>> createFunctionEliminationPass();
 /// Register the LLHD Transformation passes.
 inline void initLLHDTransformationPasses() {
 #define GEN_PASS_REGISTRATION
-#include "circt/Transforms/Passes.h.inc"
+#include "circt/Dialect/LLHD/Transforms/Passes.h.inc"
 }
 
 } // namespace llhd

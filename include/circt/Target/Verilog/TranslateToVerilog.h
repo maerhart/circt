@@ -1,4 +1,4 @@
-#include "circt/Target/VerilogPrinter.h"
+#include "circt/Target/Verilog/VerilogPrinter.h"
 #include "mlir/Translation.h"
 
 using namespace mlir;

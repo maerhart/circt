@@ -5,7 +5,7 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/IR/SymbolInterfaces.td"
-include "circt/Dialect/LLHD/LLHDBase.td"
+include "circt/Dialect/LLHD/IR/LLHDBase.td"
 
 //===----------------------------------------------------------------------===//
 // Value Manipulation Operations
