@@ -11,7 +11,6 @@ set(CIRCT_TEST_DEPENDS
   circt-translate
   handshake-runner
   firtool
-  llhdc
   llhd-translate
   llhd-sim
   )

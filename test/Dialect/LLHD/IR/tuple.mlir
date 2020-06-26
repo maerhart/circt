@@ -1,4 +1,4 @@
-// RUN: llhdc %s -mlir-print-op-generic -split-input-file -verify-diagnostics | llhdc | llhdc | FileCheck %s
+// RUN: circt-opt %s -mlir-print-op-generic -split-input-file -verify-diagnostics | circt-opt | circt-opt | FileCheck %s
 
 // CHECK-LABEL: @check_tuple
 // CHECK-SAME: %[[C1:.*]]: i1

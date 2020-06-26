@@ -1,4 +1,4 @@
-//RUN: llhdc %s | llhdc | FileCheck %s
+//RUN: circt-opt %s | circt-opt | FileCheck %s
 
 // CHECK: func @check_arithmetic(%[[A:.*]]: i64, %[[B:.*]]: i64) {
 func @check_arithmetic(%a : i64, %b : i64) -> () {

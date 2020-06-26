@@ -1,4 +1,4 @@
-// RUN: llhdc %s | llhdc | FileCheck %s
+// RUN: circt-opt %s | circt-opt | FileCheck %s
 
 // Test Overview:
 //   * 0 observed signals, no time, successor without arguments

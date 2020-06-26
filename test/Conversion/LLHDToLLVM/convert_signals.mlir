@@ -1,4 +1,4 @@
-//RUN: llhdc %s --convert-llhd-to-llvm | FileCheck %s
+//RUN: circt-opt %s --convert-llhd-to-llvm | FileCheck %s
 
 // CHECK-LABEL: @convert_sig
 // CHECK-SAME: %{{.*}}: !llvm<"i8*">,

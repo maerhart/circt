@@ -1,4 +1,4 @@
-//RUN: llhdc %s -split-input-file -verify-diagnostics | llhdc | FileCheck %s
+//RUN: circt-opt %s -split-input-file -verify-diagnostics | circt-opt | FileCheck %s
 
 // Testing Objectives:
 // * inst can only be used in entities

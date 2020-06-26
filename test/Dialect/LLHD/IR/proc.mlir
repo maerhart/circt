@@ -1,4 +1,4 @@
-// RUN: llhdc %s | llhdc | FileCheck %s
+// RUN: circt-opt %s | circt-opt | FileCheck %s
 
 // no inputs and outputs
 // CHECK: llhd.proc @empty() -> () {

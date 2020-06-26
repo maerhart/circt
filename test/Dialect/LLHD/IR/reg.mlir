@@ -1,4 +1,4 @@
-// RUN: llhdc %s -split-input-file -verify-diagnostics | llhdc | FileCheck %s
+// RUN: circt-opt %s -split-input-file -verify-diagnostics | circt-opt | FileCheck %s
 
 // CHECK-LABEL: @check_reg
 // CHECK-SAME: %[[IN64:.*]] : !llhd.sig<i64>

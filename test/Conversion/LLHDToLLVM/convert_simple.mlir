@@ -1,4 +1,4 @@
-//RUN: llhdc %s --convert-llhd-to-llvm | FileCheck %s
+//RUN: circt-opt %s --convert-llhd-to-llvm | FileCheck %s
 
 // CHECK: llvm.func @Foo(%[[STATE:.*]]: !llvm<"i8*">, %[[SIGTAB:.*]]: !llvm<"i32*">, %[[ARGTAB:.*]]: !llvm<"i32*">) {
 // CHECK-NEXT: %{{.*}} = llvm.mlir.constant(false) : !llvm.i1

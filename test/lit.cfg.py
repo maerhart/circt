@@ -57,7 +57,6 @@ tools = [
     'handshake-runner',
     'circt-opt',
     'circt-translate',
-    'llhdc',
     'llhd-translate',
     'llhd-sim'
 ]

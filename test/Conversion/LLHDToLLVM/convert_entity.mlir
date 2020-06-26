@@ -1,4 +1,4 @@
-//RUN: llhdc %s --convert-llhd-to-llvm --split-input-file | FileCheck %s
+//RUN: circt-opt %s --convert-llhd-to-llvm --split-input-file | FileCheck %s
 
 // CHECK: llvm.func @convert_empty(%{{.*}}:  !llvm<"i8*">, %{{.*}}: !llvm<"i32*">, %{{.*}}: !llvm<"i32*">) {
 // CHECK-NEXT: llvm.return

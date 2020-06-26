@@ -1,4 +1,4 @@
-// RUN: llhdc %s -canonicalize | FileCheck %s
+// RUN: circt-opt %s -canonicalize | FileCheck %s
 
 // This test checks the canonicalization of the LLHD arithmetic and bitwise 
 // operations. For each operation it checks:

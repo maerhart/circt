@@ -1,4 +1,4 @@
-// RUN: llhdc %s -llhd-process-lowering -split-input-file -verify-diagnostics | FileCheck %s
+// RUN: circt-opt %s -llhd-process-lowering -split-input-file -verify-diagnostics | FileCheck %s
 
 // no inputs and outputs
 // CHECK: llhd.entity @empty () -> () {

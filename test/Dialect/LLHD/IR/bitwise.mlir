@@ -1,4 +1,4 @@
-//RUN: llhdc %s | llhdc | FileCheck %s
+//RUN: circt-opt %s | circt-opt | FileCheck %s
 
 // CHECK: func @check_bitwise(%[[A:.*]]: i64, %[[B:.*]]: i64, %[[C:.*]]: i8, %[[SIG1:.*]]: !llhd.sig<i32>, %[[SIG2:.*]]: !llhd.sig<i4>) {
 func @check_bitwise(%a : i64, %b : i64, %c : i8, %sig1 : !llhd.sig<i32>, %sig2 : !llhd.sig<i4>) -> () {

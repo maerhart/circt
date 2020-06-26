@@ -1,4 +1,4 @@
-// RUN: llhdc %s | llhdc | FileCheck %s
+// RUN: circt-opt %s | circt-opt | FileCheck %s
 
 
 // check inputs and outputs, usage
