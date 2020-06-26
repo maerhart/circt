@@ -796,8 +796,8 @@ struct ExtsOpConversion : public ConvertToLLVMPattern {
     // get attributes as constants
     auto startConst = rewriter.create<LLVM::ConstantOp>(op->getLoc(), indexTy,
                                                         extsOp.startAttr());
-    auto lenConst = rewriter.create<LLVM::ConstantOp>(op->getLoc(), indexTy,
-                                                      extsOp.lengthAttr());
+    auto lenConst = rewriter.create<LLVM::ConstantOp>(
+        op->getLoc(), indexTy, rewriter.getIndexAttr(extsOp.getSliceSize()));
 
     if (auto retTy = extsOp.result().getType().dyn_cast<IntegerType>()) {
       auto resTy = typeConverter.convertType(extsOp.result().getType());

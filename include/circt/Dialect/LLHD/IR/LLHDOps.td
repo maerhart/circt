@@ -99,38 +99,71 @@ def LLHD_TupleOp : LLHD_Op<"tuple", [NoSideEffect, TypesMatchWith<
     let assemblyFormat = "$values attr-dict `:` type($result)";
 }
 
-def LLHD_ExtsOp : LLHD_Op<"exts"> {
+def LLHD_ExtsOp : LLHD_Op<"exts", [NoSideEffect,
+        PredOpTrait<"'start' + size of the slice have to be smaller or equal to the 'target' size",
+            CPred<"$start.cast<IntegerAttr>().getInt() + this->getSliceSize() <= this->getTargetSize()">>,
+        SameTypeArbitraryWidth<"'target' and 'result' have to be both either signless integers, signals or vectors with the same element type",
+            "$target", "$result">
+        ]> {
     let summary = "Extract a slice of consecutive elements.";
 
     let description = [{
         The `llhd.exts` operation allows access to a slice of the `$target`
-        operand. The `$start` attribute defines the index of the first element,
-        while the `$length` attribute defines the stride of the slice.
-        The return type is the same as `$target` but with width `$length`.
+        operand. The `$start` attribute defines the index of the first element.
+        The return type is the same as `$target` but with the width of the
+        specified result type.
         If `%target` is a signal, a new subsignal aliasing the slice will be
         returned.
 
         **Examples:**
         ```
         %0 = llhd.const 123 : i32
-        %1 = llhd.exts %0, 0, 2 : i32 to i2
+        %1 = llhd.exts %0, 0 : i32 -> i2
 
         %2 = llhd.sig %0 : i32
-        %3 = llhd.exts %2, 0, 5 : !llhd.sig<i32> to !llhd.sig<i5>
+        %3 = llhd.exts %2, 0 : !llhd.sig<i32> -> !llhd.sig<i5>
         ```
     }];
 
-    let arguments = (ins AnyTypeOf<[AnySignlessInteger, LLHD_AnySigType]>: $target,
-                         IndexAttr: $start,
-                         IndexAttr: $length);
-    let results = (outs AnyTypeOf<[AnySignlessInteger, LLHD_AnySigType]>: $result);
+    let arguments = (ins AnyTypeOf<[AnySignlessInteger, LLHD_AnySigType, AnyVector]>: $target,
+                         IndexAttr: $start);
+    let results = (outs AnyTypeOf<[AnySignlessInteger, LLHD_AnySigType, AnyVector]>: $result);
 
     let assemblyFormat = [{
-        $target `,` $start `,` $length  attr-dict `:`
-        type($target) `to` type($result)
-        }];
+        $target `,` $start attr-dict `:` type($target) `->` type($result)
+    }];
 
-    let verifier = [{ return ::verify(*this); }];
+    let extraClassDeclaration = [{
+        unsigned getSliceSize() {
+            Type sliceType = result().getType();
+            if (auto vec = sliceType.dyn_cast<VectorType>())
+                return vec.getNumElements();
+            if (auto sig = sliceType.dyn_cast<llhd::SigType>()) {
+                Type ty = sig.getUnderlyingType();
+                if (auto vec = ty.dyn_cast<VectorType>())
+                    return vec.getNumElements();
+                if (auto tup = ty.dyn_cast<TupleType>())
+                    return tup.size();
+                return ty.getIntOrFloatBitWidth();
+            }
+            return sliceType.getIntOrFloatBitWidth();
+        }
+
+        unsigned getTargetSize() {
+            Type targetType = target().getType();
+            if (auto vec = targetType.dyn_cast<VectorType>())
+                return vec.getNumElements();
+            if (auto sig = targetType.dyn_cast<llhd::SigType>()) {
+                Type ty = sig.getUnderlyingType();
+                if (auto vec = ty.dyn_cast<VectorType>())
+                    return vec.getNumElements();
+                if (auto tup = ty.dyn_cast<TupleType>())
+                    return tup.size();
+                return ty.getIntOrFloatBitWidth();
+            }
+            return targetType.getIntOrFloatBitWidth();
+        }
+    }];
 }
 
 def LLHD_DextsOp : LLHD_Op<"dexts", [NoSideEffect,
