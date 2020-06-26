@@ -174,7 +174,7 @@ mlir::llhd::VerilogPrinter::printOperation(Operation *inst,
   }
   if (auto op = dyn_cast<llhd::DrvOp>(inst)) {
     out.PadToColumn(indentAmount);
-    out << "assign " << getVariableName(op.signal()) << " = (#"
+    out << "assign " << getVariableName(op.signal()) << " = #("
         << timeValueMap.lookup(op.time()) << "ns) ";
     if (op.enable()) {
       out << getVariableName(op.enable()) << " ? "

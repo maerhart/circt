@@ -12,12 +12,12 @@ llhd.entity @check_sig () -> () {
     // CHECK-NEXT: var [63:0] _{{.*}} = _[[B]];
     %4 = llhd.sig "sigI64" %1 : i64
     %5 = llhd.prb %3 : !llhd.sig<i1>
-    // CHECK-NEXT: assign _[[C]] = (#1ns) _[[A]];
+    // CHECK-NEXT: assign _[[C]] = #(1ns) _[[A]];
     llhd.drv %3, %0 after %2 : !llhd.sig<i1>
     %6 = llhd.const #llhd.time<0ns, 1d, 0e> : !llhd.time
-    // CHECK-NEXT: assign _[[C]] = (#0ns) _[[A]];
+    // CHECK-NEXT: assign _[[C]] = #(0ns) _[[A]];
     llhd.drv %3, %0 after %6 : !llhd.sig<i1>
-    // CHECK-NEXT: assign _[[C]] = (#0ns) _[[A]] ? _[[A]] : _[[C]];
+    // CHECK-NEXT: assign _[[C]] = #(0ns) _[[A]] ? _[[A]] : _[[C]];
     llhd.drv %3, %0 after %6 if %0 : !llhd.sig<i1>
 }
 
