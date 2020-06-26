@@ -1,5 +1,5 @@
-#ifndef MLIR_DIALECT_LLHD_LLHDDIALECT_H
-#define MLIR_DIALECT_LLHD_LLHDDIALECT_H
+#ifndef CIRCT_DIALECT_LLHD_IR_LLHDDIALECT_H
+#define CIRCT_DIALECT_LLHD_IR_LLHDDIALECT_H
 
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/Function.h"
@@ -127,4 +127,4 @@ public:
 } // namespace llhd
 } // namespace mlir
 
-#endif // MLIR_DIALECT_LLHD_LLHDDIALECT_H
+#endif // CIRCT_DIALECT_LLHD_IR_LLHDDIALECT_H

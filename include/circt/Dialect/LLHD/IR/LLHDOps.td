@@ -1,5 +1,5 @@
-#ifndef LLHD_OPS
-#define LLHD_OPS
+#ifndef CIRCT_DIALECT_LLHD_IR_LLHDOPS
+#define CIRCT_DIALECT_LLHD_IR_LLHDOPS
 
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -1075,4 +1075,4 @@ def LLHD_RegOp : LLHD_Op<"reg", [HasParent<"EntityOp">, AttrSizedOperandSegments
     let verifier = [{ return ::verify(*this); }];
 }
 
-#endif // LLHD_OPS
+#endif // CIRCT_DIALECT_LLHD_IR_LLHDOPS

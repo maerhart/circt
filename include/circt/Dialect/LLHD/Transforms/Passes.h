@@ -1,5 +1,5 @@
-#ifndef LLHD_TRANSFORMS_PASSES_H
-#define LLHD_TRANSFORMS_PASSES_H
+#ifndef CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES_H
+#define CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES_H
 
 #include "mlir/IR/Module.h"
 #include "mlir/Pass/Pass.h"
@@ -23,4 +23,4 @@ inline void initLLHDTransformationPasses() {
 } // namespace llhd
 } // namespace mlir
 
-#endif // LLHD_TRANSFORMS_PASSES_H
+#endif // CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES_H

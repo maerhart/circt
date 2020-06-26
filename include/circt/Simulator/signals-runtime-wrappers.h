@@ -1,5 +1,5 @@
-#ifndef LLHD_SIMULATOR_SIGNALS_RUNTIME_WRAPPERS_H
-#define LLHD_SIMULATOR_SIGNALS_RUNTIME_WRAPPERS_H
+#ifndef CIRCT_SIMULATOR_SIGNALS_RUNTIME_WRAPPERS_H
+#define CIRCT_SIMULATOR_SIGNALS_RUNTIME_WRAPPERS_H
 
 #include "circt/Simulator/State.h"
 
@@ -47,4 +47,4 @@ void pop_queue(mlir::llhd::sim::State *state);
 void dump_changes(mlir::llhd::sim::State *state);
 }
 
-#endif // LLHD_SIMULATOR_SIGNALS_RUNTIME_WRAPPERS_H
+#endif // CIRCT_SIMULATOR_SIGNALS_RUNTIME_WRAPPERS_H

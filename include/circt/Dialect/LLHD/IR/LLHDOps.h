@@ -1,5 +1,5 @@
-#ifndef MLIR_DIALECT_LLHD_LLHDOPS_H
-#define MLIR_DIALECT_LLHD_LLHDOPS_H
+#ifndef CIRCT_DIALECT_LLHD_IR_LLHDOPS_H
+#define CIRCT_DIALECT_LLHD_IR_LLHDOPS_H
 
 #include "circt/Dialect/LLHD/IR/LLHDDialect.h"
 #include "circt/Dialect/LLHD/IR/LLHDOpsEnums.h.inc"
@@ -119,4 +119,4 @@ struct constant_int_all_ones_matcher {
 } // namespace llhd
 } // namespace mlir
 
-#endif // MLIR_DIALECT_LLHD_LLHDOPS_H
+#endif // CIRCT_DIALECT_LLHD_IR_LLHDOPS_H

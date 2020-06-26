@@ -1,5 +1,5 @@
-#ifndef TARGET_VERILOGPRINTER_H
-#define TARGET_VERILOGPRINTER_H
+#ifndef CIRCT_TARGET_VERILOG_VERILOGPRINTER_H
+#define CIRCT_TARGET_VERILOG_VERILOGPRINTER_H
 
 #include "circt/Dialect/LLHD/IR/LLHDOps.h"
 
@@ -51,4 +51,4 @@ private:
 } // namespace llhd
 } // namespace mlir
 
-#endif // TARGET_VERILOGPRINTER_H
+#endif // CIRCT_TARGET_VERILOG_VERILOGPRINTER_H

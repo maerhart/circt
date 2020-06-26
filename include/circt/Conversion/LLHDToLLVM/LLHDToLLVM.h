@@ -1,5 +1,5 @@
-#ifndef LLHD_DIALECT_LLHD_LLHDTOLLVM_H
-#define LLHD_DIALECT_LLHD_LLHDTOLLVM_H
+#ifndef CIRCT_CONVERSION_LLHDTOLLVM_LLHDTOLLVM_H
+#define CIRCT_CONVERSION_LLHDTOLLVM_LLHDTOLLVM_H
 
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -28,4 +28,4 @@ inline void initLLHDToLLVMPass() {
 } // namespace llhd
 } // namespace mlir
 
-#endif // LLHD_DIALECT_LLHD_LLHDTOLLVM_H
+#endif // CIRCT_CONVERSION_LLHDTOLLVM_LLHDTOLLVM_H

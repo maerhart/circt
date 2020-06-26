@@ -1,3 +1,6 @@
+#ifndef CIRCT_TARGET_VERILOG_TRANSLATETOVERILOG_H
+#define CIRCT_TARGET_VERILOG_TRANSLATETOVERILOG_H
+
 #include "circt/Target/Verilog/VerilogPrinter.h"
 #include "mlir/Translation.h"
 
@@ -18,3 +21,5 @@ void registerToVerilogTranslation() {
 
 } // namespace llhd
 } // namespace mlir
+
+#endif // CIRCT_TARGET_VERILOG_TRANSLATETOVERILOG_H

@@ -1,5 +1,5 @@
-#ifndef LLHD_LLHDTOLLVM_PASSES
-#define LLHD_LLHDTOLLVM_PASSES
+#ifndef CIRCT_CONVERSION_LLHDTOLLVM_PASSES
+#define CIRCT_CONVERSION_LLHDTOLLVM_PASSES
 
 include "mlir/Pass/PassBase.td"
 
@@ -13,4 +13,4 @@ def ConvertLLHDToLLVM : Pass<"convert-llhd-to-llvm", "ModuleOp"> {
     let constructor = "mlir::llhd::createConvertLLHDToLLVMPass()";
 }
 
-#endif // LLHD_LLHDTOLLVM_PASSES
+#endif // CIRCT_CONVERSION_LLHDTOLLVM_PASSES

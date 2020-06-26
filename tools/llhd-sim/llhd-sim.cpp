@@ -1,5 +1,5 @@
-#include "circt/Dialect/LLHD/IR/LLHDDialect.h"
 #include "circt/Conversion/LLHDToLLVM/LLHDToLLVM.h"
+#include "circt/Dialect/LLHD/IR/LLHDDialect.h"
 #include "circt/Simulator/Engine.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"

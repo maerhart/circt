@@ -1,5 +1,5 @@
-#ifndef LLHD_BASE
-#define LLHD_BASE
+#ifndef CIRCT_DIALECT_LLHD_IR_LLHDBASE
+#define CIRCT_DIALECT_LLHD_IR_LLHDBASE
 
 include "mlir/IR/OpBase.td"
 
@@ -91,4 +91,4 @@ class SameTypeArbitraryWidth<string desc, string lhs, string rhs> : PredOpTrait<
 
 
 
-#endif // LLHD_BASE
+#endif // CIRCT_DIALECT_LLHD_IR_LLHDBASE

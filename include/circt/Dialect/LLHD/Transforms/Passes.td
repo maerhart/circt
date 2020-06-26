@@ -1,5 +1,5 @@
-#ifndef MLIR_LLHD_TRANSFORMS_PASSES
-#define MLIR_LLHD_TRANSFORMS_PASSES
+#ifndef CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES
+#define CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES
 
 include "mlir/Pass/PassBase.td"
 
@@ -27,4 +27,4 @@ def FunctionElimination : Pass<"llhd-function-elimination", "ModuleOp"> {
     let constructor = "mlir::llhd::createFunctionEliminationPass()";
 }
 
-#endif // MLIR_LLHD_TRANSFORMS_PASSES
+#endif // CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES
