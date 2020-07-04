@@ -33,4 +33,13 @@ def FunctionElimination : Pass<"llhd-function-elimination", "ModuleOp"> {
     let constructor = "mlir::llhd::createFunctionEliminationPass()";
 }
 
+def Desequentialization : Pass<"llhd-deseq", "ModuleOp"> {
+    let summary = "";
+    let description = [{
+
+    }];
+
+    let constructor = "mlir::llhd::createDesequentializationPass()";
+}
+
 #endif // CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES

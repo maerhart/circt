@@ -2,6 +2,7 @@ add_mlir_dialect_library(MLIRLLHDTransforms
   PassRegistration.cpp
   ProcessLoweringPass.cpp
   FunctionEliminationPass.cpp
+  DesequentializationPass.cpp
 
   DEPENDS
   MLIRLLHDTransformsIncGen
@@ -11,5 +12,6 @@ add_mlir_dialect_library(MLIRLLHDTransforms
   MLIRIR
   MLIRStandardOps
   MLIRLLHD
+  MLIRLLHDAnalysis
   MLIRTransformUtils
 )

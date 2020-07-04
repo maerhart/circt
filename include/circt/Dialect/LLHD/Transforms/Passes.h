@@ -20,6 +20,8 @@ namespace llhd {
 
 std::unique_ptr<OperationPass<ModuleOp>> createProcessLoweringPass();
 
+std::unique_ptr<OperationPass<ModuleOp>> createDesequentializationPass();
+
 std::unique_ptr<OperationPass<ModuleOp>> createFunctionEliminationPass();
 
 /// Register the LLHD Transformation passes.
