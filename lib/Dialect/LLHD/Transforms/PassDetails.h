@@ -6,6 +6,7 @@
 #define DIALECT_LLHD_TRANSFORMS_PASSDETAILS_H
 
 #include "mlir/Pass/Pass.h"
+#include "circt/Dialect/LLHD/IR/LLHDOps.h"
 
 namespace mlir {
 namespace llhd {

@@ -2,6 +2,7 @@ add_mlir_dialect_library(MLIRLLHDTransforms
   PassRegistration.cpp
   ProcessLoweringPass.cpp
   FunctionEliminationPass.cpp
+  LoopUnrollingPass.cpp
 
   DEPENDS
   MLIRLLHDTransformsIncGen

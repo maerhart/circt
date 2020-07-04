@@ -33,4 +33,13 @@ def FunctionElimination : Pass<"llhd-function-elimination", "ModuleOp"> {
     let constructor = "mlir::llhd::createFunctionEliminationPass()";
 }
 
+def LoopUnrolling : Pass<"llhd-unroll", "llhd::ProcOp"> {
+    let summary = "Unrolls ForOp loops.";
+    let description = [{
+        TODO
+    }];
+
+    let constructor = "mlir::llhd::createLoopUnrollingPass()";
+}
+
 #endif // CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES
