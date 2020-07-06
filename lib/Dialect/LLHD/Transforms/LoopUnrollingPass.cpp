@@ -40,7 +40,9 @@ static Optional<uint64_t> getConstantTripCount(llhd::ForOp loop) {
     return None;
 
   APInt difference = upperBound.getValue() - lowerBound.getValue();
-  return llvm::APIntOps::RoundingUDiv(difference, step.getValue(), APInt::Rounding::UP).getZExtValue();
+  return llvm::APIntOps::RoundingUDiv(difference, step.getValue(),
+                                      APInt::Rounding::UP)
+      .getZExtValue();
 }
 
 namespace {
@@ -53,7 +55,7 @@ struct LoopUnrollingPass : public llhd::LoopUnrollingBase<LoopUnrollingPass> {
   void runOnOperation() override;
 };
 
-class UnrollLoopPattern : public OpRewritePattern<llhd::ForOp> {
+struct UnrollLoopPattern : public OpRewritePattern<llhd::ForOp> {
   using OpRewritePattern<llhd::ForOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(llhd::ForOp op,
@@ -133,6 +135,13 @@ void LoopUnrollingPass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<UnrollLoopPattern>(getOperation().getContext());
   applyPatternsAndFoldGreedily(getOperation(), patterns);
+  llhd::ProcOp proc = getOperation();
+  bool hasLoop = false;
+  do {
+    hasLoop = false;
+    proc.walk([&](llhd::ForOp loop) { hasLoop = true; });
+    applyPatternsAndFoldGreedily(getOperation(), patterns);
+  } while (hasLoop);
 }
 
 std::unique_ptr<OperationPass<llhd::ProcOp>>
