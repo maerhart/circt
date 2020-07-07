@@ -187,15 +187,29 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
     }
     if (llhd::TimeAttr timeAttr = op.value().dyn_cast<llhd::TimeAttr>()) {
       // Time Constant
-      if (timeAttr.getTime() == 0 && timeAttr.getDelta() != 1) {
-        return emitError(
-            op.getLoc(),
-            "Not possible to translate a time attribute with 0 real "
-            "time and non-1 delta.");
-      }
+      // if (timeAttr.getTime() == 0 && timeAttr.getDelta() != 1) {
+      //   return emitError(
+      //       op.getLoc(),
+      //       "Not possible to translate a time attribute with 0 real "
+      //       "time and non-1 delta.");
+      // }
       // Track time value for future use
       timeValueMap.insert(
           std::make_pair(inst->getResult(0), timeAttr.getTime()));
+      return success();
+    }
+    return failure();
+  }
+  if (auto op = dyn_cast<ConstantOp>(inst)) {
+    if (op.value().getType().isSignlessInteger()) {
+      // Integer constant
+      out.PadToColumn(indentAmount);
+      out << "wire ";
+      if (failed(printType(inst->getResult(0).getType())))
+        return failure();
+      out << " " << getVariableName(inst->getResult(0)) << " = "
+          << op.getResult().getType().getIntOrFloatBitWidth() << "'d"
+          << op.value().cast<IntegerAttr>().getValue().getZExtValue() << ";\n";
       return success();
     }
     return failure();
@@ -227,16 +241,16 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
     }
     return success();
   }
-  if (auto op = dyn_cast<llhd::AndOp>(inst)) {
+  if (isa<llhd::AndOp>(inst)) {
     return printBinaryOp(inst, "&", indentAmount);
   }
-  if (auto op = dyn_cast<llhd::OrOp>(inst)) {
+  if (isa<llhd::OrOp>(inst)) {
     return printBinaryOp(inst, "|", indentAmount);
   }
-  if (auto op = dyn_cast<llhd::XorOp>(inst)) {
+  if (isa<llhd::XorOp>(inst)) {
     return printBinaryOp(inst, "^", indentAmount);
   }
-  if (auto op = dyn_cast<llhd::NotOp>(inst)) {
+  if (isa<llhd::NotOp>(inst)) {
     return printUnaryOp(inst, "~", indentAmount);
   }
   if (auto op = dyn_cast<llhd::ShlOp>(inst)) {
@@ -295,34 +309,34 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
 
     return success();
   }
-  if (auto op = dyn_cast<llhd::NegOp>(inst)) {
+  if (isa<llhd::NegOp>(inst)) {
     return printUnaryOp(inst, "-", indentAmount);
   }
-  if (auto op = dyn_cast<AddIOp>(inst)) {
+  if (isa<AddIOp>(inst)) {
     return printBinaryOp(inst, "+", indentAmount);
   }
-  if (auto op = dyn_cast<SubIOp>(inst)) {
+  if (isa<SubIOp>(inst)) {
     return printBinaryOp(inst, "-", indentAmount);
   }
-  if (auto op = dyn_cast<MulIOp>(inst)) {
+  if (isa<MulIOp>(inst)) {
     return printBinaryOp(inst, "*", indentAmount);
   }
-  if (auto op = dyn_cast<UnsignedDivIOp>(inst)) {
+  if (isa<UnsignedDivIOp>(inst)) {
     return printBinaryOp(inst, "/", indentAmount);
   }
-  if (auto op = dyn_cast<SignedDivIOp>(inst)) {
+  if (isa<SignedDivIOp>(inst)) {
     return printSignedBinaryOp(inst, "/", indentAmount);
   }
-  if (auto op = dyn_cast<UnsignedRemIOp>(inst)) {
+  if (isa<UnsignedRemIOp>(inst)) {
     // % in Verilog is the remainder in LLHD semantics
     return printBinaryOp(inst, "%", indentAmount);
   }
-  if (auto op = dyn_cast<SignedRemIOp>(inst)) {
+  if (isa<SignedRemIOp>(inst)) {
     // % in Verilog is the remainder in LLHD semantics
     return printSignedBinaryOp(inst, "%", indentAmount);
   }
-  if (auto op = dyn_cast<llhd::SModOp>(inst)) {
-    return emitError(op.getLoc(),
+  if (isa<llhd::SModOp>(inst)) {
+    return emitError(inst->getLoc(),
                      "Signed modulo operation is not yet supported!");
   }
   if (auto op = dyn_cast<CmpIOp>(inst)) {
@@ -371,6 +385,195 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
     out << ";\n";
     return success();
   }
+  if (auto op = dyn_cast<llhd::VecOp>(inst)) {
+    return failure();
+    // TODO
+    out.PadToColumn(indentAmount);
+    out << "reg ";
+    if (failed(printType(*op.values().getType().begin())))
+      return failure();
+    out << " " << getVariableName(op.result())
+        << " [0:" << (op.values().size() - 1) << "];\n";
+    unsigned counter = 0;
+    out.PadToColumn(indentAmount);
+    out << "initial begin\n";
+    for (Value val : op.values()) {
+      out.PadToColumn(2 * indentAmount);
+      out << getVariableName(op.result()) << "[" << counter
+          << "] = " << getVariableName(val) << ";\n";
+      counter++;
+    }
+    out.PadToColumn(indentAmount);
+    out << "end\n";
+    return success();
+  }
+  if (auto op = dyn_cast<llhd::MuxOp>(inst)) {
+    return failure();
+    // TODO
+    out.PadToColumn(indentAmount);
+    out << "wire ";
+    if (failed(printType(op.getType())))
+      return failure();
+    out << " " << getVariableName(op.result()) << " = "
+        << getVariableName(op.vector()) << "[" << getVariableName(op.selector())
+        << "];\n";
+    return success();
+  }
+  if (auto op = dyn_cast<llhd::ExtsOp>(inst)) {
+    out.PadToColumn(indentAmount);
+    out << "wire ";
+    if (failed(printType(op.result().getType())))
+      return failure();
+    out << " " << getVariableName(op.result()) << " = "
+        << getVariableName(op.target()) << "[" << op.startAttr().getInt();
+    // if (op.getSliceSize() > 1) {
+      out << ":" << (op.startAttr().getInt() + op.getSliceSize() - 1) << "];\n";
+    // } else {
+    //   out << "];\n";
+    // }
+    return success();
+  }
+  if (auto op = dyn_cast<llhd::ExtfOp>(inst)) {
+    out.PadToColumn(indentAmount);
+    out << "wire ";
+    if (failed(printType(op.result().getType())))
+      return failure();
+    out << " " << getVariableName(op.result()) << " = "
+        << getVariableName(op.target()) << "[" << op.indexAttr().getInt() << "];\n";
+    return success();
+  }
+  if (auto op = dyn_cast<llhd::DextsOp>(inst)) {
+    out.PadToColumn(indentAmount);
+    out << "wire ";
+    if (failed(printType(op.result().getType())))
+      return failure();
+    out << " " << getVariableName(op.result()) << " = "
+        << getVariableName(op.target()) << "[" << getVariableName(op.start());
+    // if (op.getSliceWidth() > 1) {
+      out << ":(" << getVariableName(op.start()) << " + " << (op.getSliceWidth() - 1)
+          << ")];\n";
+    // } else {
+    //   out << "];\n";
+    // }
+    return success();
+  }
+  if (auto op = dyn_cast<llhd::DextfOp>(inst)) {
+    out.PadToColumn(indentAmount);
+    out << "wire ";
+    if (failed(printType(op.result().getType())))
+      return failure();
+    out << " " << getVariableName(op.result()) << " = "
+        << getVariableName(op.target()) << "[" << getVariableName(op.index()) << "];\n";
+    return success();
+  }
+  if (auto op = dyn_cast<llhd::InssOp>(inst)) {
+    out.PadToColumn(indentAmount);
+    out << "wire ";
+    if (failed(printType(op.result().getType())))
+      return failure();
+    out << " " << getVariableName(op.result()) << " = {";
+    if (op.startAttr().getInt() > 0) {
+      out << getVariableName(op.target()) << "[0:" << (op.startAttr().getInt() - 1) << "], ";
+    }
+    out << getVariableName(op.slice());
+    if (op.startAttr().getInt() + op.getSliceSize() < op.getTargetSize()) {
+      out << ", " << getVariableName(op.target()) << "[" << (op.startAttr().getInt() + op.getSliceSize()) << ":" << (op.getTargetSize() - 1) << "]";
+    }
+    out << "};\n";
+    return success();
+  }
+  if (auto op = dyn_cast<SelectOp>(inst)) {
+    out.PadToColumn(indentAmount);
+    out << "wire ";
+    if (failed(printType(op.result().getType())))
+      return failure();
+    out << " " << getVariableName(op.result()) << " = "
+        << getVariableName(op.condition()) << " ? "
+        << getVariableName(op.getTrueValue()) << " : "
+        << getVariableName(op.getFalseValue()) << ";\n";
+    return success();
+  }
+  if (auto op = dyn_cast<llhd::RegOp>(inst)) {
+    out.PadToColumn(indentAmount);
+    out << "always@(";
+    SmallVector<llhd::RegTrigger, 8> triggers = op.getListOfTriggers();
+    bool first = true;
+    for (llhd::RegTrigger t : triggers) {
+      if (!first)
+        out << ", ";
+      switch (t.mode) {
+      case llhd::RegMode::rise: {
+        out << "posedge ";
+        break;
+        }
+      case llhd::RegMode::fall: {
+        out << "negedge ";
+        break;
+        }
+      case llhd::RegMode::low: {
+        // TODO
+      return failure();
+      break;
+      }
+      case llhd::RegMode::high: {
+        // TODO
+      return failure();
+      break;
+      }
+      default: {}
+      }
+      out << getVariableName(t.trigger);
+      if (t.gate.hasValue()) {
+        out << " iff " << getVariableName(t.gate.getValue());
+      }
+      first = false;
+    }
+    out << ") begin\n";
+    // Inside always block
+    first = true;
+    for (llhd::RegTrigger t : triggers) {
+      out.PadToColumn(2 * indentAmount);
+      if (!first) {
+        out << "end else ";
+      }
+      out << "if (";
+      switch (t.mode) {
+      case llhd::RegMode::rise: {
+        out << "!$past(" << getVariableName(t.trigger) << ") && " << getVariableName(t.trigger);
+        break;
+        }
+      case llhd::RegMode::fall: {
+        out << "$past(" << getVariableName(t.trigger) << ") && !" << getVariableName(t.trigger);
+        break;
+        }
+      case llhd::RegMode::low: {
+        // TODO
+      return failure();
+      break;
+      }
+      case llhd::RegMode::high: {
+        // TODO
+      return failure();
+      break;
+      }
+      case llhd::RegMode::both: {
+        // TODO
+      return failure();
+      break;
+      }
+      }
+      out << ") begin\n";
+      out.PadToColumn(3 * indentAmount);
+      out << getVariableName(op.signal()) << " <= " << getVariableName(t.value) << ";\n";
+      first = false;
+    }
+    out.PadToColumn(2 * indentAmount);
+    out << "end\n";
+    // End always block
+    out.PadToColumn(indentAmount);
+    out << "end\n";
+    return success();
+  }
   // TODO: insert structural operations here
   return failure();
 }
@@ -379,7 +582,7 @@ LogicalResult VerilogPrinter::printType(Type type) {
   if (type.isIntOrFloat()) {
     unsigned int width = type.getIntOrFloatBitWidth();
     if (width != 1)
-      out << '[' << (width - 1) << ":0]";
+      out << "bit [" << (width - 1) << ":0]";
     return success();
   }
   if (llhd::SigType sig = type.dyn_cast<llhd::SigType>()) {
