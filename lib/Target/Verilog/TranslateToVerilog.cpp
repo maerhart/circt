@@ -12,22 +12,70 @@
 #include "mlir/IR/Visitors.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Translation.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/FormattedStream.h"
+#include <cstdlib>
 
 using namespace mlir;
 
 namespace {
+
+enum VerilogOperator {
+  Lit,
+  Not,
+  PlusSign,
+  MinusSign,
+  Concat,
+  Mul,
+  Div,
+  Mod,
+  Add,
+  Sub,
+  Shl,
+  Shr,
+  Ugt,
+  Uge,
+  Ult,
+  Ule,
+  LogEq,
+  LogNe,
+  And,
+  Xor,
+  Or,
+  Conditional,
+};
+
+enum class Associativity {
+  Left,
+  Right,
+};
+
+struct SignalAlias {
+  unsigned offset;
+  unsigned length;
+  Value original;
+  Value index;
+
+  SignalAlias() {}
+
+  SignalAlias(Value original, unsigned offset, unsigned length)
+      : offset(offset), length(length), original(original) {}
+
+  SignalAlias(Value original, Value index, unsigned length)
+      : offset(0), length(length), original(original), index(index) {}
+};
 
 class VerilogPrinter {
 public:
   VerilogPrinter(llvm::formatted_raw_ostream &output) : out(output) {}
 
   LogicalResult printModule(ModuleOp op);
-  LogicalResult printOperation(Operation *op, unsigned indentAmount = 0);
+  LogicalResult printOperation(Operation *op, std::vector<llhd::DrvOp> &drives,
+                               unsigned indentAmount = 0);
 
 private:
-  LogicalResult printType(Type type);
+  LogicalResult printType(Type type, bool isAlias=false);
   LogicalResult printUnaryOp(Operation *op, StringRef opSymbol,
                              unsigned indentAmount = 0);
   LogicalResult printBinaryOp(Operation *op, StringRef opSymbol,
@@ -37,7 +85,7 @@ private:
 
   /// Prints a SSA value. In case no mapping to a name exists yet, a new one is
   /// added.
-  Twine getVariableName(Value value);
+  std::string getVariableName(Value value);
 
   Twine getNewInstantiationName() {
     return Twine("inst_") + Twine(instCount++);
@@ -47,12 +95,140 @@ private:
   /// adds the alias as a new value.
   void addAliasVariable(Value alias, Value existing);
 
+  /// Adds an alias for a part of a signal (slice or field). 'start' denotes the
+  /// lower end of the signal or the index of the field. 'length' denotes the
+  /// length of the slice or 0 for a field.
+  void addAliasSignal(Value signal, Value existing, unsigned start, unsigned length);
+  void addDynAliasSignal(Value signal, Value existing, Value start,
+                         unsigned length);
+
+  void addExpression(Value value, std::string expression, unsigned precedence);
+  void addUnaryExpression(Value result, Value value, VerilogOperator op);
+  void addBinaryExpression(Value result, Value lhs, VerilogOperator op, Value rhs);
+
   unsigned instCount = 0;
   llvm::formatted_raw_ostream &out;
   unsigned nextValueNum = 0;
-  DenseMap<Value, unsigned> mapValueToName;
+  DenseMap<Value, std::pair<std::string, unsigned>> mapValueToExpression;
   DenseMap<Value, unsigned> timeValueMap;
+  DenseMap<Value, SignalAlias> sigAliasMap;
 };
+
+static std::string stringifyOperator(VerilogOperator op) {
+  switch (op) {
+  case VerilogOperator::Add: return " + ";
+  case VerilogOperator::Sub: return " - ";
+  case VerilogOperator::Mul: return " * ";
+  case VerilogOperator::Div: return " / ";
+  case VerilogOperator::And: return " & ";
+  case VerilogOperator::Or: return " | ";
+  case VerilogOperator::Xor: return " ^ ";
+  case VerilogOperator::Not: return "~";
+  case VerilogOperator::MinusSign: return "-";
+  case VerilogOperator::LogEq: return " == ";
+  case VerilogOperator::LogNe: return " != ";
+  case VerilogOperator::Uge: return " >= ";
+  case VerilogOperator::Ugt: return " > ";
+  case VerilogOperator::Ule: return " <= ";
+  case VerilogOperator::Ult: return " < ";
+  case VerilogOperator::Mod: return " % ";
+  case VerilogOperator::Shl: return " << ";
+  case VerilogOperator::Shr: return " >> ";
+  }
+  assert(false && "Operator stringification not supported!");
+}
+
+static Associativity getOpAssoc(VerilogOperator op) {
+  switch (op) {
+  case VerilogOperator::Add:
+  case VerilogOperator::Sub:
+  case VerilogOperator::Mul:
+  case VerilogOperator::Div:
+  case VerilogOperator::Mod:
+  case VerilogOperator::Shl:
+  case VerilogOperator::Shr:
+  case VerilogOperator::And:
+  case VerilogOperator::Or:
+  case VerilogOperator::Xor: return Associativity::Left;
+  case VerilogOperator::Not:
+  case VerilogOperator::MinusSign:
+  case VerilogOperator::LogEq:
+  case VerilogOperator::LogNe:
+  case VerilogOperator::Uge:
+  case VerilogOperator::Ugt:
+  case VerilogOperator::Ule:
+  case VerilogOperator::Ult: return Associativity::Right;
+  }
+  assert(false && "Operator stringification not supported!");
+}
+
+void VerilogPrinter::addUnaryExpression(Value result, Value value,
+                                         VerilogOperator op) {
+  auto expr = mapValueToExpression[value];
+  if (expr.second < op) {
+    addExpression(result, stringifyOperator(op) + expr.first, op);
+  } else {
+    addExpression(result, stringifyOperator(op) + "(" + expr.first + ")", op);
+  }
+}
+
+void VerilogPrinter::addBinaryExpression(Value result, Value lhs,
+                                         VerilogOperator op, Value rhs) {
+  auto lhsExpr = mapValueToExpression[lhs];
+  auto rhsExpr = mapValueToExpression[rhs];
+  std::string expr = "";
+  if (getOpAssoc(op) == Associativity::Left) {
+    if (lhsExpr.second > op)
+      expr += "(";
+    expr += lhsExpr.first;
+    if (lhsExpr.second > op)
+      expr += ")";
+    expr += stringifyOperator(op);
+    if (rhsExpr.second >= op)
+      expr += "(";
+    expr += rhsExpr.first;
+    if (rhsExpr.second >= op)
+      expr += ")";
+  } else { // Right associative
+    if (lhsExpr.second >= op)
+      expr += "(";
+    expr += lhsExpr.first;
+    if (lhsExpr.second >= op)
+      expr += ")";
+    expr += stringifyOperator(op);
+    if (rhsExpr.second > op)
+      expr += "(";
+    expr += rhsExpr.first;
+    if (rhsExpr.second > op)
+      expr += ")";
+  }
+  addExpression(result, expr, op);
+}
+
+void VerilogPrinter::addAliasSignal(Value signal, Value existing,
+                                    unsigned offset, unsigned length) {
+  if (!sigAliasMap.count(existing)) {
+    SignalAlias alias(existing, offset, length);
+    sigAliasMap.try_emplace(signal, alias);
+  } else {
+    SignalAlias &alias = sigAliasMap[existing];
+    alias.length = length;
+    alias.offset += offset;
+  }
+}
+
+void VerilogPrinter::addDynAliasSignal(Value signal, Value existing,
+                                       Value index, unsigned length) {
+  if (!sigAliasMap.count(existing)) {
+    SignalAlias alias(existing, index, length);
+    sigAliasMap.try_emplace(signal, alias);
+  } else {
+    SignalAlias &alias = sigAliasMap[existing];
+    alias.length = length;
+    assert(!alias.index && "Nested aliasing of dynamic slices is currently not supported!");
+    alias.index = index;
+  }
+}
 
 LogicalResult VerilogPrinter::printModule(ModuleOp module) {
   WalkResult result = module.walk([this](llhd::EntityOp entity) -> WalkResult {
@@ -73,14 +249,29 @@ LogicalResult VerilogPrinter::printModule(ModuleOp module) {
     }
     out << ";\n";
 
+    // Collect all drives to perform them all together in an always_comb block
+    // at the end
+    std::vector<llhd::DrvOp> drives;
+
     // Print the operations within the entity
     for (auto iter = entryBlock.begin();
-         iter != entryBlock.end() && !dyn_cast<llhd::TerminatorOp>(iter);
-         ++iter) {
-      if (failed(printOperation(&(*iter), 4))) {
+         iter != entryBlock.end() && !isa<llhd::TerminatorOp>(iter); ++iter) {
+      if (failed(printOperation(&(*iter), drives, 4)))
         return emitError(iter->getLoc(), "Operation not supported!");
-      }
     }
+      // if (!drives.empty()) {
+      //   out.PadToColumn(4);
+      //   out << "always@(*) begin\n";
+      //   for (llhd::DrvOp drv : drives) {
+      //     out.PadToColumn(8);
+      //     if (drv.enable())
+      //       out << "if (" << getVariableName(drv.enable()) << ") ";
+      //     out << getVariableName(drv.signal()) << " <= #("
+      //         << timeValueMap.lookup(drv.time()) << "ns) " << getVariableName(drv.value()) << ";\n";
+      //   }
+      //   out.PadToColumn(4);
+      //   out << "end\n";
+      // }
 
     out << "endmodule\n";
     // Reset variable name counter as variables only have to be unique within a
@@ -106,7 +297,7 @@ LogicalResult VerilogPrinter::printBinaryOp(Operation *inst, StringRef opSymbol,
 
   // Print the operation
   out.PadToColumn(indentAmount);
-  out << "wire ";
+  //out << "wire ";
   if (failed(printType(inst->getResult(0).getType())))
     return failure();
   out << " " << getVariableName(inst->getResult(0)) << " = "
@@ -140,7 +331,7 @@ LogicalResult VerilogPrinter::printSignedBinaryOp(Operation *inst,
 
   // Print the operation
   out.PadToColumn(indentAmount);
-  out << "wire ";
+  //out << "wire ";
   if (failed(printType(inst->getResult(0).getType())))
     return failure();
   out << " " << getVariableName(inst->getResult(0)) << " = $signed("
@@ -163,7 +354,7 @@ LogicalResult VerilogPrinter::printUnaryOp(Operation *inst, StringRef opSymbol,
 
   // Print the operation
   out.PadToColumn(indentAmount);
-  out << "wire ";
+  //out << "wire ";
   if (failed(printType(inst->getResult(0).getType())))
     return failure();
   out << " " << getVariableName(inst->getResult(0)) << " = " << opSymbol
@@ -172,12 +363,17 @@ LogicalResult VerilogPrinter::printUnaryOp(Operation *inst, StringRef opSymbol,
 }
 
 LogicalResult VerilogPrinter::printOperation(Operation *inst,
-                                             unsigned indentAmount) {
+                                             std::vector<llhd::DrvOp> &drives, unsigned indentAmount) {
   if (auto op = dyn_cast<llhd::ConstOp>(inst)) {
     if (IntegerAttr intAttr = op.value().dyn_cast<IntegerAttr>()) {
+      // addExpression(op.getResult(),
+      //               (Twine(op.getResult().getType().getIntOrFloatBitWidth()) +
+      //                "'d" + Twine(intAttr.getValue().getZExtValue()))
+      //                   .str(), VerilogOperator::Lit);
+      // return success();
       // Integer constant
       out.PadToColumn(indentAmount);
-      out << "wire ";
+      //out << "wire ";
       if (failed(printType(inst->getResult(0).getType())))
         return failure();
       out << " " << getVariableName(inst->getResult(0)) << " = "
@@ -201,10 +397,15 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
     return failure();
   }
   if (auto op = dyn_cast<ConstantOp>(inst)) {
-    if (op.value().getType().isSignlessInteger()) {
+    if (IntegerAttr intAttr = op.value().dyn_cast<IntegerAttr>()) {
+      // addExpression(op.getResult(),
+      //               (Twine(op.getResult().getType().getIntOrFloatBitWidth()) +
+      //                "'d" + Twine(intAttr.getValue().getZExtValue()))
+      //                   .str(), VerilogOperator::Lit);
+      // return success();
       // Integer constant
       out.PadToColumn(indentAmount);
-      out << "wire ";
+      //out << "wire ";
       if (failed(printType(inst->getResult(0).getType())))
         return failure();
       out << " " << getVariableName(inst->getResult(0)) << " = "
@@ -216,7 +417,7 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
   }
   if (auto op = dyn_cast<llhd::SigOp>(inst)) {
     out.PadToColumn(indentAmount);
-    out << "var ";
+    //out << "var ";
     if (failed(printType(inst->getResult(0).getType())))
       return failure();
     out << " " << getVariableName(inst->getResult(0)) << " = "
@@ -228,108 +429,136 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
     addAliasVariable(inst->getResult(0), op.signal());
     return success();
   }
-  if (auto op = dyn_cast<llhd::DrvOp>(inst)) {
-    out.PadToColumn(indentAmount);
-    out << "assign " << getVariableName(op.signal()) << " = #("
-        << timeValueMap.lookup(op.time()) << "ns) ";
-    if (op.enable()) {
-      out << getVariableName(op.enable()) << " ? "
-          << getVariableName(op.value()) << " : "
-          << getVariableName(op.signal()) << ";\n";
-    } else {
-      out << getVariableName(op.value()) << ";\n";
-    }
+  if (auto drv = dyn_cast<llhd::DrvOp>(inst)) {
+    drives.push_back(drv);
+    out.PadToColumn(4);
+    out << "always@(*) begin\n";
+      out.PadToColumn(8);
+      if (drv.enable())
+        out << "if (" << getVariableName(drv.enable()) << ") ";
+      out << getVariableName(drv.signal()) << " <= ";
+      if (timeValueMap.lookup(drv.time()) != 0)
+        out << "#(" << timeValueMap.lookup(drv.time()) << "ns) ";
+      out << getVariableName(drv.value()) << ";\n";
+    out.PadToColumn(4);
+    out << "end\n";
     return success();
   }
-  if (isa<llhd::AndOp>(inst)) {
-    return printBinaryOp(inst, "&", indentAmount);
+  if (llhd::AndOp op = dyn_cast<llhd::AndOp>(inst)) {
+    addBinaryExpression(op.getResult(), op.lhs(), VerilogOperator::And, op.rhs());
+    return success();
+    // return printBinaryOp(inst, "&", indentAmount);
   }
-  if (isa<llhd::OrOp>(inst)) {
-    return printBinaryOp(inst, "|", indentAmount);
+  if (llhd::OrOp op = dyn_cast<llhd::OrOp>(inst)) {
+    addBinaryExpression(op.getResult(), op.lhs(), VerilogOperator::Or, op.rhs());
+    return success();
+    // return printBinaryOp(inst, "|", indentAmount);
   }
-  if (isa<llhd::XorOp>(inst)) {
-    return printBinaryOp(inst, "^", indentAmount);
+  if (llhd::XorOp op = dyn_cast<llhd::XorOp>(inst)) {
+    addBinaryExpression(op.getResult(), op.lhs(), VerilogOperator::Xor, op.rhs());
+    return success();
+    // return printBinaryOp(inst, "^", indentAmount);
   }
-  if (isa<llhd::NotOp>(inst)) {
-    return printUnaryOp(inst, "~", indentAmount);
+  if (llhd::EqOp op = dyn_cast<llhd::EqOp>(inst)) {
+    addBinaryExpression(op.getResult(), op.lhs(), VerilogOperator::LogEq, op.rhs());
+    return success();
+  }
+  if (llhd::NeOp op = dyn_cast<llhd::NeOp>(inst)) {
+    addBinaryExpression(op.getResult(), op.lhs(), VerilogOperator::LogNe, op.rhs());
+    return success();
+  }
+  if (llhd::NotOp op = dyn_cast<llhd::NotOp>(inst)) {
+    addUnaryExpression(op.getResult(), op.value(), VerilogOperator::Not);
+    // return printUnaryOp(inst, "~", indentAmount);
+    return success();
   }
   if (auto op = dyn_cast<llhd::ShlOp>(inst)) {
-    unsigned baseWidth = inst->getOperand(0).getType().getIntOrFloatBitWidth();
-    unsigned hiddenWidth =
-        inst->getOperand(1).getType().getIntOrFloatBitWidth();
+    assert(!op.base().getType().isa<llhd::SigType>() && "Shifts of signals not supported!");
+    unsigned baseWidth = op.getBaseWidth();
+    unsigned hiddenWidth = op.getHiddenWidth();
     unsigned combinedWidth = baseWidth + hiddenWidth;
 
     out.PadToColumn(indentAmount);
     out << "wire [" << (combinedWidth - 1) << ":0] "
-        << getVariableName(inst->getResult(0)) << "tmp0 = {"
-        << getVariableName(inst->getOperand(0)) << ", "
-        << getVariableName(inst->getOperand(1)) << "};\n";
+        << getVariableName(op.result()) << "tmp0 = {"
+        << getVariableName(op.base()) << ", "
+        << getVariableName(op.hidden()) << "};\n";
 
     out.PadToColumn(indentAmount);
     out << "wire [" << (combinedWidth - 1) << ":0] "
-        << getVariableName(inst->getResult(0))
-        << "tmp1 = " << getVariableName(inst->getResult(0)) << "tmp0 << "
-        << getVariableName(inst->getOperand(2)) << ";\n";
+        << getVariableName(op.result())
+        << "tmp1 = " << getVariableName(op.result()) << "tmp0 << "
+        << getVariableName(op.amount()) << ";\n";
 
     out.PadToColumn(indentAmount);
-    out << "wire ";
-    if (failed(printType(inst->getResult(0).getType())))
+    if (failed(printType(op.result().getType(), true)))
       return failure();
-    out << " " << getVariableName(inst->getResult(0)) << " = "
-        << getVariableName(inst->getResult(0)) << "tmp1[" << (combinedWidth - 1)
-        << ':' << hiddenWidth << "];\n";
+    out << " " << getVariableName(op.result()) << " = "
+        << getVariableName(op.result()) << "tmp1[" << (combinedWidth - 1)
+        << ":" << hiddenWidth << "];\n";
 
     return success();
   }
   if (auto op = dyn_cast<llhd::ShrOp>(inst)) {
-    unsigned baseWidth = inst->getOperand(0).getType().getIntOrFloatBitWidth();
-    unsigned hiddenWidth =
-        inst->getOperand(1).getType().getIntOrFloatBitWidth();
+    assert(!op.base().getType().isa<llhd::SigType>() && "Shifts of signals not supported!");
+    unsigned baseWidth = op.getBaseWidth();
+    unsigned hiddenWidth = op.getHiddenWidth();
     unsigned combinedWidth = baseWidth + hiddenWidth;
 
     out.PadToColumn(indentAmount);
     out << "wire [" << (combinedWidth - 1) << ":0] "
-        << getVariableName(inst->getResult(0)) << "tmp0 = {"
-        << getVariableName(inst->getOperand(1)) << ", "
-        << getVariableName(inst->getOperand(0)) << "};\n";
+        << getVariableName(op.result()) << "tmp0 = {"
+        << getVariableName(op.hidden()) << ", "
+        << getVariableName(op.base()) << "};\n";
 
     out.PadToColumn(indentAmount);
     out << "wire [" << (combinedWidth - 1) << ":0] "
-        << getVariableName(inst->getResult(0))
-        << "tmp1 = " << getVariableName(inst->getResult(0)) << "tmp0 << "
-        << getVariableName(inst->getOperand(2)) << ";\n";
+        << getVariableName(op.result())
+        << "tmp1 = " << getVariableName(op.result()) << "tmp0 >> "
+        << getVariableName(op.amount()) << ";\n";
 
     out.PadToColumn(indentAmount);
-    out << "wire ";
-    if (failed(printType(inst->getResult(0).getType())))
+    if (failed(printType(op.result().getType(), true)))
       return failure();
-    out << " " << getVariableName(inst->getResult(0)) << " = "
-        << getVariableName(inst->getResult(0)) << "tmp1[" << (baseWidth - 1)
+    out << " " << getVariableName(op.result()) << " = "
+        << getVariableName(op.result()) << "tmp1[" << (baseWidth - 1)
         << ":0];\n";
 
     return success();
   }
   if (isa<llhd::NegOp>(inst)) {
-    return printUnaryOp(inst, "-", indentAmount);
+    addUnaryExpression(inst->getResult(0), inst->getOperand(0), VerilogOperator::MinusSign);
+    return success();
+    // return printUnaryOp(inst, "-", indentAmount);
   }
   if (isa<AddIOp>(inst)) {
-    return printBinaryOp(inst, "+", indentAmount);
+    addBinaryExpression(inst->getResult(0), inst->getOperand(0), VerilogOperator::Add, inst->getOperand(1));
+    return success();
+    // return printBinaryOp(inst, "+", indentAmount);
   }
   if (isa<SubIOp>(inst)) {
-    return printBinaryOp(inst, "-", indentAmount);
+    addBinaryExpression(inst->getResult(0), inst->getOperand(0), VerilogOperator::Sub, inst->getOperand(1));
+    return success();
+    // return printBinaryOp(inst, "-", indentAmount);
   }
   if (isa<MulIOp>(inst)) {
-    return printBinaryOp(inst, "*", indentAmount);
+    addBinaryExpression(inst->getResult(0), inst->getOperand(0), VerilogOperator::Mul, inst->getOperand(1));
+    return success();
+    // return printBinaryOp(inst, "*", indentAmount);
   }
   if (isa<UnsignedDivIOp>(inst)) {
-    return printBinaryOp(inst, "/", indentAmount);
+    addBinaryExpression(inst->getResult(0), inst->getOperand(0), VerilogOperator::Div, inst->getOperand(1));
+    return success();
+    // return printBinaryOp(inst, "/", indentAmount);
   }
   if (isa<SignedDivIOp>(inst)) {
     return printSignedBinaryOp(inst, "/", indentAmount);
   }
   if (isa<UnsignedRemIOp>(inst)) {
+    addBinaryExpression(inst->getResult(0), inst->getOperand(0), VerilogOperator::Mod, inst->getOperand(1));
+    return success();
     // % in Verilog is the remainder in LLHD semantics
-    return printBinaryOp(inst, "%", indentAmount);
+    // return printBinaryOp(inst, "%", indentAmount);
   }
   if (isa<SignedRemIOp>(inst)) {
     // % in Verilog is the remainder in LLHD semantics
@@ -342,8 +571,18 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
   if (auto op = dyn_cast<CmpIOp>(inst)) {
     switch (op.getPredicate()) {
     case mlir::CmpIPredicate::eq:
-      return printBinaryOp(inst, "==", indentAmount);
+    {
+      addBinaryExpression(inst->getResult(0), inst->getOperand(0),
+                          VerilogOperator::LogEq, inst->getOperand(1));
+      return success();
+    }
+      // return printBinaryOp(inst, "==", indentAmount);
     case mlir::CmpIPredicate::ne:
+    {
+      addBinaryExpression(inst->getResult(0), inst->getOperand(0),
+                          VerilogOperator::LogNe, inst->getOperand(1));
+      return success();
+    }
       return printBinaryOp(inst, "!=", indentAmount);
     case mlir::CmpIPredicate::sge:
       return printSignedBinaryOp(inst, ">=", indentAmount);
@@ -354,13 +593,33 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
     case mlir::CmpIPredicate::slt:
       return printSignedBinaryOp(inst, "<", indentAmount);
     case mlir::CmpIPredicate::uge:
-      return printBinaryOp(inst, ">=", indentAmount);
+    {
+      addBinaryExpression(inst->getResult(0), inst->getOperand(0),
+                          VerilogOperator::Uge, inst->getOperand(1));
+      return success();
+    }
+      // return printBinaryOp(inst, ">=", indentAmount);
     case mlir::CmpIPredicate::ugt:
-      return printBinaryOp(inst, ">", indentAmount);
+    {
+      addBinaryExpression(inst->getResult(0), inst->getOperand(0),
+                          VerilogOperator::Ugt, inst->getOperand(1));
+      return success();
+    }
+      // return printBinaryOp(inst, ">", indentAmount);
     case mlir::CmpIPredicate::ule:
-      return printBinaryOp(inst, "<=", indentAmount);
+    {
+      addBinaryExpression(inst->getResult(0), inst->getOperand(0),
+                          VerilogOperator::Ule, inst->getOperand(1));
+      return success();
+    }
+      // return printBinaryOp(inst, "<=", indentAmount);
     case mlir::CmpIPredicate::ult:
-      return printBinaryOp(inst, "<", indentAmount);
+    {
+      addBinaryExpression(inst->getResult(0), inst->getOperand(0),
+                          VerilogOperator::Ult, inst->getOperand(1));
+      return success();
+    }
+      // return printBinaryOp(inst, "<", indentAmount);
     }
     return failure();
   }
@@ -407,35 +666,32 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
     out << "end\n";
     return success();
   }
-  if (auto op = dyn_cast<llhd::MuxOp>(inst)) {
-    return failure();
-    // TODO
-    out.PadToColumn(indentAmount);
-    out << "wire ";
-    if (failed(printType(op.getType())))
-      return failure();
-    out << " " << getVariableName(op.result()) << " = "
-        << getVariableName(op.vector()) << "[" << getVariableName(op.selector())
-        << "];\n";
-    return success();
-  }
   if (auto op = dyn_cast<llhd::ExtsOp>(inst)) {
+    // out << "wire ";
+    if (op.target().getType().isa<llhd::SigType>()) {
+      addAliasSignal(op.result(), op.target(), op.startAttr().getInt(),
+                     op.getSliceSize());
+      return success();
+    }
     out.PadToColumn(indentAmount);
-    out << "wire ";
-    if (failed(printType(op.result().getType())))
+    if (failed(printType(op.result().getType(), true)))
       return failure();
     out << " " << getVariableName(op.result()) << " = "
-        << getVariableName(op.target()) << "[" << op.startAttr().getInt();
+        << getVariableName(op.target()) << "[" << (op.startAttr().getInt() + op.getSliceSize() - 1);
     // if (op.getSliceSize() > 1) {
-      out << ":" << (op.startAttr().getInt() + op.getSliceSize() - 1) << "];\n";
+      out << ":" << op.startAttr().getInt() << "];\n";
     // } else {
     //   out << "];\n";
     // }
     return success();
   }
   if (auto op = dyn_cast<llhd::ExtfOp>(inst)) {
+    if (op.target().getType().isa<llhd::SigType>()) {
+      addAliasSignal(op.result(), op.target(), op.indexAttr().getInt(), 0);
+      return success();
+    }
     out.PadToColumn(indentAmount);
-    out << "wire ";
+    //out << "wire ";
     if (failed(printType(op.result().getType())))
       return failure();
     out << " " << getVariableName(op.result()) << " = "
@@ -443,8 +699,13 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
     return success();
   }
   if (auto op = dyn_cast<llhd::DextsOp>(inst)) {
+    if (op.target().getType().isa<llhd::SigType>()) {
+      addDynAliasSignal(op.result(), op.target(), op.start(),
+                        op.getSliceWidth());
+      return success();
+    }
     out.PadToColumn(indentAmount);
-    out << "wire ";
+    //out << "wire ";
     if (failed(printType(op.result().getType())))
       return failure();
     out << " " << getVariableName(op.result()) << " = "
@@ -458,8 +719,12 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
     return success();
   }
   if (auto op = dyn_cast<llhd::DextfOp>(inst)) {
+    if (op.target().getType().isa<llhd::SigType>()) {
+      addDynAliasSignal(op.result(), op.target(), op.index(), 0);
+      return success();
+    }
     out.PadToColumn(indentAmount);
-    out << "wire ";
+    //out << "wire ";
     if (failed(printType(op.result().getType())))
       return failure();
     out << " " << getVariableName(op.result()) << " = "
@@ -468,23 +733,23 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
   }
   if (auto op = dyn_cast<llhd::InssOp>(inst)) {
     out.PadToColumn(indentAmount);
-    out << "wire ";
+    //out << "wire ";
     if (failed(printType(op.result().getType())))
       return failure();
     out << " " << getVariableName(op.result()) << " = {";
-    if (op.startAttr().getInt() > 0) {
-      out << getVariableName(op.target()) << "[0:" << (op.startAttr().getInt() - 1) << "], ";
+    if (op.startAttr().getInt() + op.getSliceSize() < op.getTargetSize()) {
+      out  << getVariableName(op.target()) << "[" << (op.getTargetSize() - 1) << ":" << (op.startAttr().getInt() + op.getSliceSize()) << "], ";
     }
     out << getVariableName(op.slice());
-    if (op.startAttr().getInt() + op.getSliceSize() < op.getTargetSize()) {
-      out << ", " << getVariableName(op.target()) << "[" << (op.startAttr().getInt() + op.getSliceSize()) << ":" << (op.getTargetSize() - 1) << "]";
+    if (op.startAttr().getInt() > 0) {
+      out << ", " << getVariableName(op.target()) << "[" << (op.startAttr().getInt()-1) << ":0]";
     }
     out << "};\n";
     return success();
   }
   if (auto op = dyn_cast<SelectOp>(inst)) {
     out.PadToColumn(indentAmount);
-    out << "wire ";
+    //out << "wire ";
     if (failed(printType(op.result().getType())))
       return failure();
     out << " " << getVariableName(op.result()) << " = "
@@ -494,14 +759,18 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
     return success();
   }
   if (auto op = dyn_cast<llhd::RegOp>(inst)) {
+    std::vector<Value> triggers(op.triggers().begin(), op.triggers().end());
+    std::vector<Value> values(op.values().begin(), op.values().end());
+    std::vector<Value> delays(op.delays().begin(), op.delays().end());
+    auto iter = llvm::map_range(op.modes().getValue(), [](Attribute mode) { return llhd::symbolizeRegMode(mode.cast<IntegerAttr>().getInt()).getValue(); });
+    std::vector<llhd::RegMode> modes(iter.begin(), iter.end());
     out.PadToColumn(indentAmount);
     out << "always@(";
-    SmallVector<llhd::RegTrigger, 8> triggers = op.getListOfTriggers();
     bool first = true;
-    for (llhd::RegTrigger t : triggers) {
+    for (unsigned i = 0; i < triggers.size(); ++i) {
       if (!first)
         out << ", ";
-      switch (t.mode) {
+      switch (modes[i]) {
       case llhd::RegMode::rise: {
         out << "posedge ";
         break;
@@ -522,28 +791,35 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
       }
       default: {}
       }
-      out << getVariableName(t.trigger);
-      if (t.gate.hasValue()) {
-        out << " iff " << getVariableName(t.gate.getValue());
+      out << getVariableName(triggers[i]);
+      if (op.hasGate(i)) {
+        out << " iff " << getVariableName(op.getGateAt(i));
       }
       first = false;
     }
     out << ") begin\n";
     // Inside always block
     first = true;
-    for (llhd::RegTrigger t : triggers) {
+    if (std::equal(values.begin() + 1, values.end(), values.begin()) && std::equal(delays.begin() + 1, delays.end(), delays.begin())) {
+      out.PadToColumn(2 * indentAmount);
+      out << getVariableName(op.signal()) << " <= ";
+      if (timeValueMap.lookup(delays[0]) != 0)
+        out << "#(" << timeValueMap.lookup(delays[0]) << "ns) ";
+      out << getVariableName(values[0]) << ";\n";
+    } else {
+    for (unsigned i = 0; i < triggers.size(); ++i) {
       out.PadToColumn(2 * indentAmount);
       if (!first) {
         out << "end else ";
       }
       out << "if (";
-      switch (t.mode) {
+      switch (modes[i]) {
       case llhd::RegMode::rise: {
-        out << "!$past(" << getVariableName(t.trigger) << ") && " << getVariableName(t.trigger);
+        out << "!$past(" << getVariableName(triggers[i]) << ") && " << getVariableName(triggers[i]);
         break;
         }
       case llhd::RegMode::fall: {
-        out << "$past(" << getVariableName(t.trigger) << ") && !" << getVariableName(t.trigger);
+        out << "$past(" << getVariableName(triggers[i]) << ") && !" << getVariableName(triggers[i]);
         break;
         }
       case llhd::RegMode::low: {
@@ -564,11 +840,15 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
       }
       out << ") begin\n";
       out.PadToColumn(3 * indentAmount);
-      out << getVariableName(op.signal()) << " <= " << getVariableName(t.value) << ";\n";
+      out << getVariableName(op.signal()) << " <= ";
+      if (timeValueMap.lookup(delays[i]) != 0)
+        out << "#(" << timeValueMap.lookup(delays[i]) << "ns) ";
+      out << getVariableName(values[i]) << ";\n";
       first = false;
     }
     out.PadToColumn(2 * indentAmount);
     out << "end\n";
+    }
     // End always block
     out.PadToColumn(indentAmount);
     out << "end\n";
@@ -578,35 +858,56 @@ LogicalResult VerilogPrinter::printOperation(Operation *inst,
   return failure();
 }
 
-LogicalResult VerilogPrinter::printType(Type type) {
+LogicalResult VerilogPrinter::printType(Type type, bool isAlias) {
   if (type.isIntOrFloat()) {
     unsigned int width = type.getIntOrFloatBitWidth();
+    out << "wire ";
     if (width != 1)
-      out << "bit [" << (width - 1) << ":0]";
+      out << "[" << (width - 1) << ":0]";
     return success();
   }
   if (llhd::SigType sig = type.dyn_cast<llhd::SigType>()) {
-    return printType(sig.getUnderlyingType());
+    if (sig.getUnderlyingType().isIntOrFloat()) {
+      unsigned int width = sig.getUnderlyingType().getIntOrFloatBitWidth();
+      out << (isAlias ? "wire " : "bit ");
+      if (width != 1)
+        out << "[" << (width - 1) << ":0]";
+      return success();
+    }
   }
   return failure();
 }
 
-Twine VerilogPrinter::getVariableName(Value value) {
-  if (!mapValueToName.count(value)) {
-    mapValueToName.insert(std::make_pair(value, nextValueNum));
-    nextValueNum++;
+std::string VerilogPrinter::getVariableName(Value value) {
+  if (sigAliasMap.count(value)) {
+    SignalAlias alias = sigAliasMap.lookup(value);
+    std::string result =
+        mapValueToExpression.lookup(alias.original).first + "[";
+
+    if (alias.index) {
+      return (result + getVariableName(alias.index) + "+" +
+             Twine(alias.offset) + "+:" + Twine(alias.length) +
+             "]").str();
+    }
+    return (result + Twine(alias.offset + alias.length - 1) + ":" +
+           Twine(alias.offset) + "]").str();
   }
-  return Twine("_") + Twine(mapValueToName.lookup(value));
+  if(mapValueToExpression.insert(std::make_pair(value, std::make_pair(("_" + Twine(nextValueNum)).str(), VerilogOperator::Lit))).second)
+    nextValueNum++;
+  auto expr = mapValueToExpression[value];
+  if (expr.second != VerilogOperator::Lit)
+    return "(" + expr.first + ")";
+  return expr.first;
 }
 
 void VerilogPrinter::addAliasVariable(Value alias, Value existing) {
-  if (!mapValueToName.count(existing)) {
-    mapValueToName.insert(std::make_pair(alias, nextValueNum));
-    nextValueNum++;
-  } else {
-    mapValueToName.insert(
-        std::make_pair(alias, mapValueToName.lookup(existing)));
-  }
+  assert(mapValueToExpression.count(existing) && "Value to alias already has to be added");
+  mapValueToExpression.insert(
+      std::make_pair(alias, mapValueToExpression.lookup(existing)));
+}
+
+void VerilogPrinter::addExpression(Value value, std::string expression, unsigned precedence) {
+  mapValueToExpression.try_emplace(value, std::make_pair(expression, precedence));
 }
 
 } // anonymous namespace
