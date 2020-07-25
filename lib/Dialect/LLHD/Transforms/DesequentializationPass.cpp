@@ -5,312 +5,18 @@
 //===----------------------------------------------------------------------===//
 
 #include "PassDetails.h"
-#include "circt/Dialect/LLHD/Analysis/TemporalRegions.h"
-#include "circt/Dialect/LLHD/IR/LLHDDialect.h"
-#include "circt/Dialect/LLHD/IR/LLHDOps.h"
+#include "DNFUtil.h"
+#include "TemporalRegions.h"
 #include "circt/Dialect/LLHD/Transforms/Passes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/Dialect/Vector/VectorOps.h"
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/Diagnostics.h"
-#include "mlir/IR/Dominance.h"
-#include "mlir/IR/Location.h"
-#include "mlir/IR/Operation.h"
-#include "mlir/IR/StandardTypes.h"
-#include "mlir/IR/Visitors.h"
-#include "mlir/Support/LLVM.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/Twine.h"
-#include <algorithm>
-#include <cmath>
-#include <functional>
-#include <iterator>
-#include <memory>
-#include <utility>
-#include <vector>
 
 using namespace mlir;
 using namespace mlir::llhd;
 
 namespace {
-
 struct DesequentializationPass
     : public llhd::DesequentializationBase<DesequentializationPass> {
   void runOnOperation() override;
-};
-
-/// Represents the type of a node in the DNF tree
-enum class DnfNodeType {
-  Const,
-  Val,
-  And,
-  Or,
-};
-
-/// A tree representing a DNF formula
-struct Dnf {
-  Dnf() = delete;
-  /// Create a copy of a DNF tree
-  Dnf(const Dnf &e) : type(e.type), value(e.value), inv(e.inv) {
-    for (auto &child : e.children) {
-      children.push_back(std::make_unique<Dnf>(*child));
-    }
-  }
-  /// Create a new Constant leaf node
-  Dnf(bool constant, bool inv)
-      : type(DnfNodeType::Const), constant(constant), inv(inv) {}
-  /// Create a new value leaf node, this should either be a sample of a signal
-  /// or an opaque value
-  Dnf(Value val, bool inv) : type(DnfNodeType::Val), value(val), inv(inv) {}
-  /// Create a new Dnf tree from two children connected bei either an AND or OR,
-  /// given that the two children are both a DNF tree representing a valid DNF
-  /// formula, the newly created DNF tree will also be a valid DNF formula
-  Dnf(DnfNodeType ty, std::unique_ptr<Dnf> lhs, std::unique_ptr<Dnf> rhs)
-      : type(ty) {
-    assert(lhs && rhs && "Passed expressions should not be a nullptr!");
-    switch (ty) {
-    case DnfNodeType::And: {
-      if (lhs->isOr() && rhs->isOr()) {
-        // (A v B) ^ (C v D) => (A ^ C) v (B ^ C) v (A ^ D) v (B ^ D)
-        type = DnfNodeType::Or;
-        for (auto &&lhsChild : lhs->children) {
-          for (auto &&rhsChild : rhs->children) {
-            children.push_back(std::make_unique<Dnf>(
-                DnfNodeType::And, std::make_unique<Dnf>(*lhsChild),
-                std::make_unique<Dnf>(*rhsChild)));
-          }
-        }
-      } else if (lhs->isOr() && rhs->isAnd()) {
-        // (A v B) ^ (C ^ D) => (A ^ C ^ D) v (B ^ C ^ D)
-        type = DnfNodeType::Or;
-        for (auto &&lhsChild : lhs->children) {
-          children.push_back(
-              std::make_unique<Dnf>(DnfNodeType::And, std::move(lhsChild),
-                                    std::make_unique<Dnf>(*rhs)));
-        }
-      } else if (lhs->isAnd() && rhs->isOr()) {
-        // (A ^ B) ^ (C v D) => (A ^ B ^ C) v (A ^ B ^ D)
-        type = DnfNodeType::Or;
-        for (auto &&rhsChild : rhs->children) {
-          children.push_back(std::make_unique<Dnf>(DnfNodeType::And,
-                                                   std::make_unique<Dnf>(*lhs),
-                                                   std::move(rhsChild)));
-        }
-      } else if (lhs->isAnd() && rhs->isAnd()) {
-        // (A ^ B) ^ (C ^ D) => A ^ B ^ C ^ D
-        std::move(begin(lhs->children), end(lhs->children),
-                  std::back_inserter(children));
-        std::move(begin(rhs->children), end(rhs->children),
-                  std::back_inserter(children));
-      } else if (lhs->isLeaf() && rhs->isAnd()) {
-        // A ^ (B ^ C) => A ^ B ^ C
-        children.push_back(std::move(lhs));
-        std::move(begin(rhs->children), end(rhs->children),
-                  std::back_inserter(children));
-      } else if (lhs->isAnd() && rhs->isLeaf()) {
-        // (A ^ B) ^ C => A ^ B ^ C
-        std::move(begin(lhs->children), end(lhs->children),
-                  std::back_inserter(children));
-        children.push_back(std::move(rhs));
-      } else if (lhs->isLeaf() && rhs->isLeaf()) {
-        // A ^ B
-        children.push_back(std::move(lhs));
-        children.push_back(std::move(rhs));
-      } else if (lhs->isOr() && rhs->isLeaf()) {
-        // (A v B) ^ C => (A ^ C) v (B ^ C)
-        type = DnfNodeType::Or;
-        // std::move(begin(lhs->children), end(lhs->children),
-        // std::back_inserter(children));
-        for (auto &&lhsChild : lhs->children) {
-          children.push_back(
-              std::make_unique<Dnf>(DnfNodeType::And, std::move(lhsChild),
-                                    std::make_unique<Dnf>(*rhs)));
-        }
-      } else if (lhs->isLeaf() && rhs->isOr()) {
-        // A v (B ^ C) => (A ^ B) v (A ^ C)
-        type = DnfNodeType::Or;
-        // std::move(begin(rhs->children), end(rhs->children),
-        // std::back_inserter(children));
-        for (auto &&rhsChild : rhs->children) {
-          children.push_back(std::make_unique<Dnf>(DnfNodeType::And,
-                                                   std::make_unique<Dnf>(*lhs),
-                                                   std::move(rhsChild)));
-        }
-      } else {
-        assert(false && "Unreachable!");
-      }
-      break;
-    }
-    case DnfNodeType::Or: {
-      if ((lhs->isAnd() && rhs->isAnd()) || (lhs->isLeaf() && rhs->isLeaf()) ||
-          (lhs->isLeaf() && rhs->isAnd()) || (lhs->isAnd() && rhs->isLeaf())) {
-        // (A ^ B) v (C ^ D)
-        // or
-        // A v B
-        children.push_back(std::move(lhs));
-        children.push_back(std::move(rhs));
-      } else if (lhs->isOr() && (rhs->isAnd() || rhs->isLeaf())) {
-        // (A v B) v (C ^ D) => A v B v (C ^ D)
-        // or
-        // (A v B) v C => A v B v C
-        std::move(begin(lhs->children), end(lhs->children),
-                  std::back_inserter(children));
-        children.push_back(std::move(rhs));
-      } else if ((lhs->isAnd() || lhs->isLeaf()) && rhs->isOr()) {
-        // (A ^ B) v (C v D) => (A ^ B) v C v D
-        // or
-        // A v (B v C) => A v B v C
-        children.push_back(std::move(lhs));
-        std::move(begin(rhs->children), end(rhs->children),
-                  std::back_inserter(children));
-      } else if (lhs->isOr() && rhs->isOr()) {
-        // (A v B) v (C v D) => A v B v C v D
-        std::move(begin(rhs->children), end(rhs->children),
-                  std::back_inserter(children));
-        std::move(begin(lhs->children), end(lhs->children),
-                  std::back_inserter(children));
-      } else {
-        assert(false && "Unreachable!");
-      }
-      break;
-    }
-    default: {
-      assert(false &&
-             "To create a Const or Val node, use the other constructors!");
-      break;
-    }
-    }
-    canonicalize();
-  }
-
-  bool isConst() { return type == DnfNodeType::Const; }
-  bool isVal() { return type == DnfNodeType::Val; }
-  bool isLeaf() { return isConst() || isVal(); }
-  bool isAnd() { return type == DnfNodeType::And; }
-  bool isOr() { return type == DnfNodeType::Or; }
-  bool isNegatedVal() { return isVal() && inv; }
-  bool isProbedSignal() {
-    return isVal() && isa<llhd::PrbOp>(value.getDefiningOp());
-  }
-
-  bool getConst() {
-    assert(isConst() && "node has to be Const to return the constant");
-    return constant ^ inv;
-  }
-  Value getProbedSignal() {
-    assert(isProbedSignal() && "Can only return probed signal if the value "
-                               "actually got probed from a signal!");
-    return cast<llhd::PrbOp>(value.getDefiningOp()).signal();
-  }
-
-  DnfNodeType type;
-  std::vector<std::unique_ptr<Dnf>> children;
-  Value value;
-  bool constant;
-  bool inv;
-
-private:
-  void canonicalize() {
-    for (auto it1 = children.begin(); it1 != children.end(); ++it1) {
-      auto &c1 = *it1;
-      if (!c1)
-        continue;
-
-      if (c1->isConst()) {
-        if (c1->getConst() == true) {
-          if (isAnd()) {
-            // Remove a constant TRUE in an AND node, because it doesn't change
-            // anything about the formula, except if it is the only child
-            if (children.size() > 1)
-              children.erase(it1--);
-          } else if (isOr()) {
-            // If there is a constant TRUE in this OR node, remove all other
-            // nodes, and replace this node with a constant TRUE, because it
-            // will always evaluate to TRUE
-            children.clear();
-            type = DnfNodeType::Const;
-            constant = true;
-            inv = false;
-            return;
-          }
-        } else {
-          if (isAnd()) {
-            // If there is a constant FALSE in this AND node, remove all
-            // children and become a constant FALSE node
-            children.clear();
-            type = DnfNodeType::Const;
-            constant = false;
-            inv = false;
-            return;
-          } else if (isOr()) {
-            // If there is a constant FALSE in an OR node, remove it because the
-            // other nodes alone determine what the OR evaluates to, except if
-            // it is the only child
-            if (children.size() > 1)
-              children.erase(it1--);
-          }
-        }
-      }
-
-      for (auto it = std::next(it1); it != children.end(); ++it) {
-        auto &c2 = *it;
-        if (c1->isVal() && c2->isVal()) {
-          if ((c1->value == c2->value)) {
-            if (c1->inv == c2->inv) {
-              // Remove duplicate Val children, if this node will end up with
-              // only one child, it will become this child at the end of this
-              // method
-              children.erase(it--);
-            } else {
-              if (isAnd()) {
-                // If this node is an AND node and it has two children which are
-                // the opposite (one is the negation of the other), delete all
-                // children of this node and replace this node with a constant
-                // FALSE because this node will always be FALSE
-                children.clear();
-                type = DnfNodeType::Const;
-                constant = false;
-                inv = false;
-                return;
-              } else if (isOr()) {
-                // If this node is an OR node and it has two children which are
-                // the opposite (one is the negation of the other), delete all
-                // children of this node and replace this node with a constant
-                // TRUE because this node will always be TRUE
-                children.clear();
-                type = DnfNodeType::Const;
-                constant = true;
-                inv = false;
-                return;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // Erase AND and OR children which do not have children anymore
-    for (auto it = children.begin(); it != children.end(); ++it) {
-      auto &child = *it;
-      if (child->isAnd() || child->isOr()) {
-        if (child->children.empty()) {
-          children.erase(it--);
-        }
-      }
-    }
-
-    // If you have one child only, become the child
-    // if (children.size() == 1) {
-    //   auto &child = *children.begin();
-    //   type = child->type;
-    //   inv = child->inv;
-    //   value = child->value;
-    //   std::vector<std::unique_ptr<Dnf>> c = std::move(child->children);
-    //   children.clear();
-    //   children = std::move(c);
-    // }
-  }
 };
 
 /// Represents the data necessary to construct a llhd::RegOp and provides helper
@@ -346,6 +52,7 @@ struct RegData {
 private:
   int64_t lastGate = 0;
 };
+} // namespace
 
 /// Takes a SSA-value and a boolean which specifies whether this value is
 /// inverted and builds a DNF tree from the expression this ssa-value represents
@@ -353,7 +60,7 @@ private:
 /// NOTE: only llhd.not, llhd.and, llhd.or, llhd.xor, cmpi "ne", cmpi "eq",
 /// constant, llhd.const and llhd.prb are supported directly, values defined by
 /// other operations are treated as opaque values
-std::unique_ptr<Dnf> buildDnf(Value value, bool inv) {
+static std::unique_ptr<Dnf> buildDnf(Value value, bool inv) {
   if (!value.getType().isSignlessInteger(1))
     emitError(value.getLoc(), "Only one-bit signless integers supported!");
 
@@ -415,7 +122,7 @@ std::unique_ptr<Dnf> buildDnf(Value value, bool inv) {
   return std::make_unique<Dnf>(value, inv);
 }
 
-Value getInvertedValueIfNeeded(OpBuilder builder, std::unique_ptr<Dnf> &expr) {
+static Value getInvertedValueIfNeeded(OpBuilder builder, std::unique_ptr<Dnf> &expr) {
   assert(expr->isVal() && "Only Value expressions supported!");
   if (expr->isNegatedVal()) {
     return builder.create<llhd::NotOp>(expr->value.getLoc(), expr->value);
@@ -424,7 +131,7 @@ Value getInvertedValueIfNeeded(OpBuilder builder, std::unique_ptr<Dnf> &expr) {
   }
 }
 
-void dnfToTriggers(OpBuilder &builder, TemporalRegionAnalysis &trAnalysis,
+static void dnfToTriggers(OpBuilder &builder, TemporalRegionAnalysis &trAnalysis,
                    RegData &regData, DrvOp op, int pastTR, int presentTR,
                    std::unique_ptr<Dnf> &expr) {
   if (expr->isConst()) {
@@ -643,7 +350,6 @@ void DesequentializationPass::runOnOperation() {
     proc.getOperation()->erase();
   });
 }
-} // namespace
 
 std::unique_ptr<OperationPass<ModuleOp>>
 mlir::llhd::createDesequentializationPass() {

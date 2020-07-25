@@ -16,6 +16,5 @@ add_mlir_dialect_library(MLIRLLHDTransforms
   MLIRIR
   MLIRStandardOps
   MLIRLLHD
-  MLIRLLHDAnalysis
   MLIRTransformUtils
 )
