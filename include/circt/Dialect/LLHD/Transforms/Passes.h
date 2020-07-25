@@ -26,6 +26,8 @@ std::unique_ptr<OperationPass<ModuleOp>> createFunctionEliminationPass();
 
 std::unique_ptr<OperationPass<ProcOp>> createTemporalCodeMotionPass();
 
+std::unique_ptr<OperationPass<ProcOp>> createEarlyCodeMotionPass();
+
 /// Register the LLHD Transformation passes.
 void initLLHDTransformationPasses();
 
