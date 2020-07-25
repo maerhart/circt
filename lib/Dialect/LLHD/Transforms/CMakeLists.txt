@@ -1,6 +1,7 @@
 add_mlir_dialect_library(MLIRLLHDTransforms
   PassRegistration.cpp
   ProcessLoweringPass.cpp
+  TemporalCodeMotionPass.cpp
   FunctionEliminationPass.cpp
 
   DEPENDS
@@ -11,5 +12,6 @@ add_mlir_dialect_library(MLIRLLHDTransforms
   MLIRIR
   MLIRStandardOps
   MLIRLLHD
+  MLIRLLHDAnalysis
   MLIRTransformUtils
 )

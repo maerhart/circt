@@ -33,4 +33,13 @@ def FunctionElimination : Pass<"llhd-function-elimination", "ModuleOp"> {
     let constructor = "mlir::llhd::createFunctionEliminationPass()";
 }
 
+def TemporalCodeMotion : Pass<"llhd-tcm", "llhd::ProcOp"> {
+    let summary = "";
+    let description = [{
+
+    }];
+
+    let constructor = "mlir::llhd::createTemporalCodeMotionPass()";
+}
+
 #endif // CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES
