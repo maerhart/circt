@@ -6,136 +6,42 @@
 //===----------------------------------------------------------------------===//
 
 #include "PassDetails.h"
-#include "circt/Dialect/LLHD/Analysis/TemporalRegions.h"
-#include "circt/Dialect/LLHD/IR/LLHDOps.h"
+#include "DNFUtil.h"
+#include "TemporalRegions.h"
 #include "circt/Dialect/LLHD/Transforms/Passes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/Dialect/Vector/VectorOps.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Dominance.h"
-#include "mlir/IR/Operation.h"
-#include "mlir/Support/LLVM.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/Twine.h"
-#include <algorithm>
-#include <functional>
-#include <iterator>
-#include <utility>
-#include <vector>
 
 using namespace mlir;
 using namespace mlir::llhd;
 
-namespace {
-
-void moveDrvInBlock(ProcOp proc, TemporalRegionAnalysis &analysis, DrvOp drvOp,
-                    Block *dominator, Block *target, Operation *moveBefore) {
+static void moveDrvInBlock(DrvOp drvOp, Block *dominator,
+                           Operation *moveBefore) {
   OpBuilder builder(drvOp);
   builder.setInsertionPoint(moveBefore);
   Block *drvParentBlock = drvOp.getOperation()->getBlock();
 
-  int tr = analysis.getBlockTR(drvParentBlock);
-
   // Find sequence of branch decisions and add them as a sequence of
   // instructions to the TR exiting block
-  //
-  // Mark all the blocks as not visited
-  unsigned numBlocksInTR = analysis.numBlocksInTR(tr);
-  DenseMap<Block *, bool> visited;
+  auto dnf = getBooleanExprFromSourceToTarget(dominator, drvParentBlock);
+  Value finalValue = dnf->buildOperations(builder);
 
-  // Create an array to store paths
-  Block *path[numBlocksInTR];
-  int path_index = 0; // Initialize path[] as empty
-
-  // Initialize all blocks as not visited
-  for (Block *block : analysis.getBlocksInTR(tr))
-    visited.insert(std::make_pair(block, false));
-
-  // A recursive function to get all paths from dominator
-  // to drvParentBlock. visited[] keeps track of blocks in
-  // current path. path[] stores actual blocks and
-  // path_index is current index in path[]
-  Value finalValue = Value();
-  std::function<void(Block *)> getAllPathsUtil = [&](Block *curr) {
-    // Mark the current node and store it in path[]
-    visited[curr] = true;
-    path[path_index] = curr;
-    path_index++;
-
-    // If current vertex is same as destination, then
-    // print current path[]
-    if (curr == drvParentBlock) {
-      Value prevVal = Value();
-      for (int i = 0; i < path_index; i++) {
-        if (CondBranchOp br =
-                dyn_cast<CondBranchOp>(path[i]->getTerminator())) {
-          if (path[i] != drvParentBlock) {
-            Value val;
-            if (br.falseDest() == path[i + 1]) {
-              val = builder
-                        .create<llhd::NotOp>(target->begin()->getLoc(),
-                                             br.condition())
-                        .getResult();
-            } else {
-              val = br.condition();
-            }
-            if (prevVal) {
-              prevVal = builder
-                            .create<llhd::AndOp>(target->begin()->getLoc(),
-                                                 prevVal, val)
-                            .getResult();
-            } else {
-              prevVal = val;
-            }
-          }
-        }
-      }
-      if (finalValue) {
-        finalValue = builder
-                         .create<llhd::OrOp>(target->begin()->getLoc(),
-                                             finalValue, prevVal)
-                         .getResult();
-      } else {
-        finalValue = prevVal;
-      }
-    } else {
-      // Recur for all the vertices adjacent to current
-      // vertex
-      for (Block *succ : curr->getSuccessors())
-        if (!visited[succ])
-          getAllPathsUtil(succ);
-    }
-
-    // Remove current vertex from path[] and mark it as
-    // unvisited
-    path_index--;
-    visited[curr] = false;
-  };
-
-  // Call the recursive helper function to get all paths
-  if (dominator) {
-    getAllPathsUtil(dominator);
-
-    if (drvOp.getOperation()->getNumOperands() == 4 && finalValue) {
-      drvOp.getOperation()->setOperand(
-          3, builder
-                 .create<llhd::AndOp>(target->begin()->getLoc(), drvOp.enable(),
-                                      finalValue)
-                 .getResult());
-    } else if (finalValue) {
-      drvOp.getOperation()->insertOperands(3, finalValue);
-    }
+  if (drvOp.getOperation()->getNumOperands() == 4) {
+    finalValue =
+        builder.create<llhd::AndOp>(drvOp.getLoc(), drvOp.enable(), finalValue);
+    drvOp.getOperation()->setOperand(3, finalValue);
   } else {
-    emitRemark(drvOp.getLoc(), "Dominator is nullptr");
+    drvOp.getOperation()->insertOperands(3, finalValue);
   }
   drvOp.getOperation()->moveBefore(moveBefore);
 } // namespace
 
+namespace {
 struct TemporalCodeMotionPass
     : public llhd::TemporalCodeMotionBase<TemporalCodeMotionPass> {
   void runOnOperation() override;
 };
+} // namespace
 
 void TemporalCodeMotionPass::runOnOperation() {
   ProcOp proc = getOperation();
@@ -267,24 +173,27 @@ void TemporalCodeMotionPass::runOnOperation() {
                       "block and the block containing drv");
     }
 
+    if (trAnalysis.getBlockTR(dominator) != currTR)
+      dominator = trAnalysis.getTREntryBlock(currTR);
+
     if (!moveBefore) {
       builder.setInsertionPointToEnd(exitingBlock);
       moveBefore = exitingBlock->getTerminator();
     }
 
-    std::set<Block *> workQueue;
-    std::set<Block *> workDone;
+    SmallPtrSet<Block *, 32> workQueue;
+    SmallPtrSet<Block *, 32> workDone;
 
     workQueue.insert(entryBlock);
 
     while (!workQueue.empty()) {
       auto iter = workQueue.begin();
       Block *block = *iter;
-      workQueue.erase(iter);
+      workQueue.erase(block);
       workDone.insert(block);
 
       block->walk([&](DrvOp op) {
-        moveDrvInBlock(proc, trAnalysis, op, dominator, exitingBlock, moveBefore);
+        moveDrvInBlock(op, dominator, moveBefore);
       });
 
       for (Block *succ : block->getSuccessors()) {
@@ -350,7 +259,6 @@ void TemporalCodeMotionPass::runOnOperation() {
     });
   }
 }
-} // namespace
 
 std::unique_ptr<OperationPass<ProcOp>>
 mlir::llhd::createTemporalCodeMotionPass() {
