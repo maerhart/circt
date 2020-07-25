@@ -18,6 +18,10 @@ class OperationPass;
 namespace mlir {
 namespace llhd {
 
+class ProcOp;
+
+std::unique_ptr<OperationPass<ProcOp>> createBlockArgumentToSelectPass();
+
 std::unique_ptr<OperationPass<ModuleOp>> createProcessLoweringPass();
 
 std::unique_ptr<OperationPass<ModuleOp>> createFunctionEliminationPass();
