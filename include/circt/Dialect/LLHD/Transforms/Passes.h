@@ -18,11 +18,15 @@ class OperationPass;
 namespace mlir {
 namespace llhd {
 
+class ProcOp;
+
 std::unique_ptr<OperationPass<ModuleOp>> createProcessLoweringPass();
 
 std::unique_ptr<OperationPass<ModuleOp>> createDesequentializationPass();
 
 std::unique_ptr<OperationPass<ModuleOp>> createFunctionEliminationPass();
+
+std::unique_ptr<OperationPass<ProcOp>> createEarlyCodeMotionPass();
 
 /// Register the LLHD Transformation passes.
 void initLLHDTransformationPasses();
