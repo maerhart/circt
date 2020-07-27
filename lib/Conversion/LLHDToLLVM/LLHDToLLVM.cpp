@@ -1122,6 +1122,7 @@ struct DrvOpConversion : public ConvertToLLVMPattern {
     // Collect used llvm types.
     auto voidTy = getVoidType();
     auto i8PtrTy = getVoidPtrType();
+    auto i1Ty = LLVM::LLVMType::getInt1Ty(typeConverter.getDialect());
     auto i32Ty = LLVM::LLVMType::getInt32Ty(typeConverter.getDialect());
     auto i64Ty = LLVM::LLVMType::getInt64Ty(typeConverter.getDialect());
     auto sigTy = getSigType(&getDialect());
@@ -1139,6 +1140,25 @@ struct DrvOpConversion : public ConvertToLLVMPattern {
 
     int sigWidth = getStdOrLLVMIntegerWidth(
         drvOp.signal().getType().dyn_cast<SigType>().getUnderlyingType());
+
+    // Insert enable comparison. Skip if the enable operand is 0.
+    if (auto gate = drvOp.enable()) {
+      auto block = op->getBlock();
+      auto continueBlock = block->splitBlock(op);
+      auto drvBlock = rewriter.createBlock(continueBlock);
+      rewriter.setInsertionPointToEnd(drvBlock);
+      rewriter.create<LLVM::BrOp>(op->getLoc(), ValueRange(), continueBlock);
+
+      rewriter.setInsertionPointToEnd(block);
+      auto oneC = rewriter.create<LLVM::ConstantOp>(
+          op->getLoc(), i1Ty, rewriter.getI16IntegerAttr(1));
+      auto cmp = rewriter.create<LLVM::ICmpOp>(
+          op->getLoc(), LLVM::ICmpPredicate::eq, transformed.enable(), oneC);
+      rewriter.create<LLVM::CondBrOp>(op->getLoc(), cmp, drvBlock,
+                                      continueBlock);
+
+      rewriter.setInsertionPointToStart(drvBlock);
+    }
 
     auto widthConst = rewriter.create<LLVM::ConstantOp>(
         op->getLoc(), i64Ty, rewriter.getI64IntegerAttr(sigWidth));
