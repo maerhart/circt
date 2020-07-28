@@ -24,6 +24,10 @@ int alloc_signal(mlir::llhd::sim::State *state, int index, char *owner,
 void alloc_proc(mlir::llhd::sim::State *state, char *owner,
                 mlir::llhd::sim::ProcState *procState);
 
+/// Add allocated entity state to the given instance.
+void alloc_entity(mlir::llhd::sim::State *state, char *owner,
+                  uint8_t *entityState);
+
 /// Drive a value onto a signal.
 void drive_signal(mlir::llhd::sim::State *state,
                   mlir::llhd::sim::SignalDetail *index, uint8_t *value,
