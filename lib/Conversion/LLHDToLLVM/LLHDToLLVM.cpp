@@ -1535,7 +1535,6 @@ struct InsertSliceOpConversion : public ConvertToLLVMPattern {
       unsigned start = inssOp.startAttr().getInt();
       unsigned end = start + width - 1;
       APInt mask(width, 0);
-      // mask.setAllBits();
       mask.setBits(start, end);
       auto maskConst = rewriter.create<LLVM::ConstantOp>(
           op->getLoc(), transformed.target().getType(),
