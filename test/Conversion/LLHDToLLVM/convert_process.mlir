@@ -171,3 +171,68 @@ llhd.proc @convert_resume (%in0 : !llhd.sig<i1>) -> () {
 ^resume:
   llhd.halt
 }
+
+
+// CHECK-LABEL:   llvm.func @convert_persistent_block_argument(
+// CHECK-SAME:                                                 %[[VAL_0:.*]]: !llvm<"i8*">,
+// CHECK-SAME:                                                 %[[VAL_1:.*]]: !llvm<"{ i8*, i32, [0 x i1]*, { i1, i32 } }*">,
+// CHECK-SAME:                                                 %[[VAL_2:.*]]: !llvm<"{ i8*, i64, i64, i64 }*">) {
+// CHECK:           %[[VAL_3:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK:           %[[VAL_4:.*]] = llvm.mlir.constant(1 : i32) : !llvm.i32
+// CHECK:           %[[VAL_5:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_3]], %[[VAL_4]]] : (!llvm<"{ i8*, i32, [0 x i1]*, { i1, i32 } }*">, !llvm.i32, !llvm.i32) -> !llvm<"i32*">
+// CHECK:           %[[VAL_6:.*]] = llvm.load %[[VAL_5]] : !llvm<"i32*">
+// CHECK:           llvm.br ^bb1
+// CHECK:         ^bb1:
+// CHECK:           %[[VAL_7:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK:           %[[VAL_8:.*]] = llvm.icmp "eq" %[[VAL_6]], %[[VAL_7]] : !llvm.i32
+// CHECK:           llvm.cond_br %[[VAL_8]], ^bb2, ^bb5
+// CHECK:         ^bb2:
+// CHECK:           %[[VAL_9:.*]] = llvm.mlir.constant(false) : !llvm.i1
+// CHECK:           %[[VAL_10:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK:           llvm.br ^bb3(%[[VAL_9]], %[[VAL_10]] : !llvm.i1, !llvm.i32)
+// CHECK:         ^bb3(%[[VAL_11:.*]]: !llvm.i1, %[[VAL_12:.*]]: !llvm.i32):
+// CHECK:           %[[VAL_13:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK:           %[[VAL_14:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
+// CHECK:           %[[VAL_15:.*]] = llvm.mlir.constant(1 : i32) : !llvm.i32
+// CHECK:           %[[VAL_16:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_13]], %[[VAL_14]], %[[VAL_15]]] : (!llvm<"{ i8*, i32, [0 x i1]*, { i1, i32 } }*">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"i32*">
+// CHECK:           llvm.store %[[VAL_12]], %[[VAL_16]] : !llvm<"i32*">
+// CHECK:           %[[VAL_17:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK:           %[[VAL_18:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
+// CHECK:           %[[VAL_19:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK:           %[[VAL_20:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_17]], %[[VAL_18]], %[[VAL_19]]] : (!llvm<"{ i8*, i32, [0 x i1]*, { i1, i32 } }*">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"i1*">
+// CHECK:           llvm.store %[[VAL_11]], %[[VAL_20]] : !llvm<"i1*">
+// CHECK:           llvm.br ^bb4
+// CHECK:         ^bb4:
+// CHECK:           %[[VAL_21:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK:           %[[VAL_22:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
+// CHECK:           %[[VAL_23:.*]] = llvm.mlir.constant(1 : i32) : !llvm.i32
+// CHECK:           %[[VAL_24:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_21]], %[[VAL_22]], %[[VAL_23]]] : (!llvm<"{ i8*, i32, [0 x i1]*, { i1, i32 } }*">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"i32*">
+// CHECK:           %[[VAL_25:.*]] = llvm.load %[[VAL_24]] : !llvm<"i32*">
+// CHECK:           %[[VAL_26:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK:           %[[VAL_27:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
+// CHECK:           %[[VAL_28:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK:           %[[VAL_29:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_26]], %[[VAL_27]], %[[VAL_28]]] : (!llvm<"{ i8*, i32, [0 x i1]*, { i1, i32 } }*">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"i1*">
+// CHECK:           %[[VAL_30:.*]] = llvm.load %[[VAL_29]] : !llvm<"i1*">
+// CHECK:           llvm.call @dummy_i1(%[[VAL_30]]) : (!llvm.i1) -> ()
+// CHECK:           llvm.call @dummy_i32(%[[VAL_25]]) : (!llvm.i32) -> ()
+// CHECK:           %[[VAL_31:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK:           %[[VAL_32:.*]] = llvm.mlir.constant(2 : i32) : !llvm.i32
+// CHECK:           %[[VAL_33:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_31]], %[[VAL_32]]] : (!llvm<"{ i8*, i32, [0 x i1]*, { i1, i32 } }*">, !llvm.i32, !llvm.i32) -> !llvm<"[0 x i1]**">
+// CHECK:           %[[VAL_34:.*]] = llvm.load %[[VAL_33]] : !llvm<"[0 x i1]**">
+// CHECK:           llvm.return
+// CHECK:         ^bb5:
+// CHECK:           llvm.return
+// CHECK:         }
+llhd.proc @convert_persistent_block_argument () -> () {
+    br ^entry
+^entry:
+    %0 = llhd.const 0 : i1
+    %1 = llhd.const 0 : i32
+    br ^argBB(%0, %1 : i1, i32)
+^argBB(%i : i1, %j : i32):
+    br ^end
+^end:
+    call @dummy_i1(%i) : (i1) -> ()
+    call @dummy_i32(%j) : (i32) -> ()
+    llhd.halt
+}
