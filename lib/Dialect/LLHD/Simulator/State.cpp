@@ -43,7 +43,7 @@ bool Time::isZero() { return (time == 0 && delta == 0 && eps == 0); }
 std::string Time::dump() {
   std::string ret;
   raw_string_ostream ss(ret);
-  ss << time << "ns " << delta << "d " << eps << "e";
+  ss << time << "ps " << delta << "d " << eps << "e";
   return ss.str();
 }
 
