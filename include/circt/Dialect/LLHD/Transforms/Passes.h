@@ -24,6 +24,8 @@ std::unique_ptr<OperationPass<ProcOp>> createBlockArgumentToSelectPass();
 
 std::unique_ptr<OperationPass<ModuleOp>> createProcessLoweringPass();
 
+std::unique_ptr<OperationPass<ModuleOp>> createDesequentializationPass();
+
 std::unique_ptr<OperationPass<ModuleOp>> createFunctionEliminationPass();
 
 std::unique_ptr<OperationPass<ProcOp>> createEarlyCodeMotionPass();

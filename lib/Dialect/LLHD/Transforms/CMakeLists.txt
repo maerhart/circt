@@ -9,6 +9,7 @@ add_mlir_dialect_library(MLIRLLHDTransforms
   EarlyCodeMotionPass.cpp
   BlockArgumentToSelect.cpp
   MemoryToBlockArgumentPass.cpp
+  DesequentializationPass.cpp
 
   DEPENDS
   MLIRLLHDTransformsIncGen
