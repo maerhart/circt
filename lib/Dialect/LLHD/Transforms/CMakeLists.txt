@@ -6,6 +6,7 @@ add_mlir_dialect_library(MLIRLLHDTransforms
   ProcessLoweringPass.cpp
   FunctionEliminationPass.cpp
   BlockArgumentToSelect.cpp
+  MemoryToBlockArgumentPass.cpp
 
   DEPENDS
   MLIRLLHDTransformsIncGen
