@@ -1,9 +1,11 @@
 add_mlir_dialect_library(MLIRLLHDTransforms
   TemporalRegions.cpp
+  EarlyCodeMotionPass.cpp
+  DNFUtil.cpp
   PassRegistration.cpp
   ProcessLoweringPass.cpp
   FunctionEliminationPass.cpp
-  EarlyCodeMotionPass.cpp
+  BlockArgumentToSelect.cpp
 
   DEPENDS
   MLIRLLHDTransformsIncGen

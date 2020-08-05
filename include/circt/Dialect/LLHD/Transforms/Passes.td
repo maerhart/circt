@@ -9,6 +9,24 @@
 
 include "mlir/Pass/PassBase.td"
 
+def BlockArgumentToSelect : Pass<"llhd-block-argument-to-select",
+                                 "llhd::ProcOp"> {
+  let summary = "Convert block arguments to select operations.";
+  let description = [{
+    Convert block arguments to select operations by extracting the condition
+    under which the block with the block argument is reached from a given
+    predecessor block. Given this condition for all predecessor blocks, we
+    can insert select operations to multiplex the passed values.
+    This enables the Early Code Motion pass to move operations, which use
+    block arguments as operands, further up in the CFG as well as the
+    select operations created with this pass. It also enables the
+    canonicalization pass to merge blocks which previously had block
+    arguments which is necessary to completely remove all the control flow.
+  }];
+
+  let constructor = "mlir::llhd::createBlockArgumentToSelectPass()";
+}
+
 def ProcessLowering : Pass<"llhd-process-lowering", "ModuleOp"> {
   let summary = "Lowers LLHD Processes to Entities.";
   let description = [{
