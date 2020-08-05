@@ -24,7 +24,7 @@ struct Time {
   Time() = default;
 
   /// Construct with given time values.
-  Time(unsigned time, unsigned delta, unsigned eps)
+  Time(uint64_t time, uint64_t delta, uint64_t eps)
       : time(time), delta(delta), eps(eps) {}
 
   /// Compare the time values in order of time, delta, eps.
@@ -42,9 +42,9 @@ struct Time {
   /// Get the stored time in a printable format.
   std::string dump();
 
-  unsigned time;
-  unsigned delta;
-  unsigned eps;
+  uint64_t time;
+  uint64_t delta;
+  uint64_t eps;
 
 private:
 };
@@ -140,12 +140,14 @@ struct Instance {
   Instance() = default;
 
   Instance(std::string name, std::string parent)
-      : name(name), parent(parent), procState(nullptr) {}
+      : name(name), parent(parent), procState(nullptr), entityState(nullptr) {}
 
   // The instance name.
   std::string name;
   // The instance parent's name.
   std::string parent;
+  // The instance's hierarchical path.
+  std::string path;
   // The instance's base unit.
   std::string unit;
   bool isEntity;
@@ -153,6 +155,8 @@ struct Instance {
   // The arguments and signals of this instance.
   std::vector<SignalDetail> sensitivityList;
   ProcState *procState;
+  Time expectedWakeup;
+  uint8_t *entityState;
 };
 
 /// The simulator's state. It contains the current simulation time, signal

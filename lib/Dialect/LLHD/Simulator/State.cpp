@@ -43,7 +43,7 @@ bool Time::isZero() { return (time == 0 && delta == 0 && eps == 0); }
 std::string Time::dump() {
   std::string ret;
   raw_string_ostream ss(ret);
-  ss << time << "ns " << delta << "d " << eps << "e";
+  ss << time << "ps " << delta << "d " << eps << "e";
   return ss.str();
 }
 
@@ -135,10 +135,12 @@ State::~State() {
 
   for (auto &entry : instances) {
     auto inst = entry.getValue();
-    if (!inst.isEntity && inst.procState) {
+    if (inst.procState) {
       std::free(inst.procState->inst);
       std::free(inst.procState->senses);
       std::free(inst.procState);
+    } else if (inst.entityState) {
+      std::free(inst.entityState);
     }
   }
 }
@@ -157,6 +159,7 @@ void State::pushQueue(Time t, int index, int bitOffset, APInt &bytes) {
 void State::pushQueue(Time t, std::string inst) {
   Time newTime = time + t;
   queue.insertOrUpdate(newTime, inst);
+  instances[inst].expectedWakeup = newTime;
 }
 
 int State::addSignal(std::string name, std::string owner) {
@@ -197,13 +200,8 @@ int State::addSignalData(int index, std::string owner, uint8_t *value,
 void State::dumpSignal(llvm::raw_ostream &out, int index) {
   auto &sig = signals[index];
   for (auto inst : sig.triggers) {
-    std::string curr = inst, path = inst;
-    while (instances[curr].name != sig.owner) {
-      curr = instances[curr].parent;
-      path = curr + "/" + path;
-    }
-    out << time.dump() << "  " << path << "/" << sig.name << "  " << sig.dump()
-        << "\n";
+    out << time.dump() << "  " << instances[inst].path << "/" << sig.name
+        << "  " << sig.dump() << "\n";
   }
 }
 
@@ -212,6 +210,7 @@ void State::dumpLayout() {
   for (auto &inst : instances) {
     llvm::errs() << inst.getKey().str() << ":\n";
     llvm::errs() << "---parent: " << inst.getValue().parent << "\n";
+    llvm::errs() << "---path: " << inst.getValue().path << "\n";
     llvm::errs() << "---isEntity: " << inst.getValue().isEntity << "\n";
     llvm::errs() << "---sensitivity list: ";
     for (auto in : inst.getValue().sensitivityList) {
