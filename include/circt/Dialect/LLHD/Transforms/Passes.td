@@ -120,4 +120,13 @@ def EarlyCodeMotion : Pass<"llhd-early-code-motion", "llhd::ProcOp"> {
   let constructor = "mlir::llhd::createEarlyCodeMotionPass()";
 }
 
+def TemporalCodeMotion : Pass<"llhd-tcm", "llhd::ProcOp"> {
+    let summary = "";
+    let description = [{
+
+    }];
+
+    let constructor = "mlir::llhd::createTemporalCodeMotionPass()";
+}
+
 #endif // CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES
