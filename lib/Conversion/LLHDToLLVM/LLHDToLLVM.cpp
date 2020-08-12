@@ -173,6 +173,8 @@ static LLVM::LLVMType getProcPersistenceTy(LLVM::LLVMDialect *dialect,
         // Persist the unwrapped value.
         auto converted = converter.convertType(ptr.getUnderlyingType());
         types.push_back(converted.cast<LLVM::LLVMType>());
+      } else if (op->getResult(0).getType().isa<SigType>()) {
+        types.push_back(getSigType(dialect));
       } else {
         types.push_back(converter.convertType(op->getResult(0).getType())
                             .cast<LLVM::LLVMType>());
@@ -276,8 +278,9 @@ static void persistValue(LLVM::LLVMDialect *dialect, Location loc,
       rewriter.setInsertionPointToStart(user->getBlock());
 
       auto gep1 = gepPersistenceState(dialect, loc, rewriter, elemTy, i, state);
-      // Use the pointer in the state struct directly for pointer types.
-      if (persist.getType().isa<PtrType>()) {
+      // Use the pointer in the state struct directly for pointer and signal
+      // types.
+      if (persist.getType().isa<PtrType, SigType>()) {
         use.set(gep1);
       } else {
         auto load1 = rewriter.create<LLVM::LoadOp>(loc, elemTy, gep1);
@@ -335,8 +338,12 @@ static void insertPersistence(LLVMTypeConverter &converter,
   converted.walk([&](Operation *op) -> void {
     if (op->isUsedOutsideOfBlock(op->getBlock()) &&
 <<<<<<< HEAD
+<<<<<<< HEAD
         op->getResult(0) != larg.getResult() &&
         !(op->getResult(0).getType().isa<SigType>())) {
+=======
+        op->getResult(0) != larg.getResult()) {
+>>>>>>> llhd-sim-time-granularity
       persistValue(dialect, loc, converter, rewriter, stateTy, i,
                    converted.getArgument(1), op->getResult(0));
 =======
