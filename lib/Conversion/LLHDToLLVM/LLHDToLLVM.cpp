@@ -1818,7 +1818,7 @@ shiftIntegerSigPointer(Location loc, LLVM::LLVMDialect *dialect,
   // Compute the new offset into the first byte.
   auto bitOffset = rewriter.create<LLVM::URemOp>(loc, index, const8);
 
-  return std::make_tuple(newPtr, bitOffset);
+  return std::make_pair(newPtr, bitOffset);
 }
 
 static Value shiftArraySigPointer(Location loc,
