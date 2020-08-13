@@ -4,6 +4,7 @@ add_mlir_dialect_library(MLIRLLHDTransforms
   ProcessLoweringPass.cpp
   FunctionEliminationPass.cpp
   EarlyCodeMotionPass.cpp
+  InstanceInliningPass.cpp
 
   DEPENDS
   MLIRLLHDTransformsIncGen

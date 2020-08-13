@@ -51,4 +51,13 @@ def EarlyCodeMotion : Pass<"llhd-early-code-motion", "llhd::ProcOp"> {
   let constructor = "mlir::llhd::createEarlyCodeMotionPass()";
 }
 
+def InstanceInlining : Pass<"llhd-ii", "ModuleOp"> {
+    let summary = "";
+    let description = [{
+
+    }];
+
+    let constructor = "mlir::llhd::createInstanceInliningPass()";
+}
+
 #endif // CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES
