@@ -253,6 +253,8 @@ static void persistValue(LLVM::LLVMDialect *dialect, Location loc,
     // Unwrap the pointer and store it's value.
     auto elemTy = converter.convertType(ptr.getUnderlyingType());
     toStore = rewriter.create<LLVM::LoadOp>(loc, elemTy, persist);
+  } else if (persist.getType().isa<SigType>()) {
+    toStore = rewriter.create<LLVM::LoadOp>(loc, getSigType(dialect), persist);
   } else {
     // Store the value directly.
     toStore = persist;

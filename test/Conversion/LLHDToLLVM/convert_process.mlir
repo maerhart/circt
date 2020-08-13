@@ -100,41 +100,42 @@ func @dummy_subsig(%0 : !llhd.sig<i10>) {
 // CHECK:           %[[VAL_60:.*]] = llvm.mlir.constant(1 : i32) : !llvm.i32
 // CHECK:           %[[VAL_61:.*]] = llvm.alloca %[[VAL_60]] x !llvm<"{ i8*, i64, i64, i64 }"> {alignment = 4 : i64} : (!llvm.i32) -> !llvm<"{ i8*, i64, i64, i64 }*">
 // CHECK:           llvm.store %[[VAL_59]], %[[VAL_61]] : !llvm<"{ i8*, i64, i64, i64 }*">
-// CHECK:           %[[VAL_62:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
-// CHECK:           %[[VAL_63:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
-// CHECK:           %[[VAL_64:.*]] = llvm.mlir.constant(4 : i32) : !llvm.i32
-// CHECK:           %[[VAL_65:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_62]], %[[VAL_63]], %[[VAL_64]]] : (!llvm<"{ i8*, i32, [2 x i1]*, { i1, i32, [3 x i32], i32, { i8*, i64, i64, i64 } } }*">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"{ i8*, i64, i64, i64 }*">
-// CHECK:           llvm.store %[[VAL_61]], %[[VAL_65]] : !llvm<"{ i8*, i64, i64, i64 }*">
+// CHECK:           %[[VAL_62:.*]] = llvm.load %[[VAL_61]] : !llvm<"{ i8*, i64, i64, i64 }*">
+// CHECK:           %[[VAL_63:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK:           %[[VAL_64:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
+// CHECK:           %[[VAL_65:.*]] = llvm.mlir.constant(4 : i32) : !llvm.i32
+// CHECK:           %[[VAL_66:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_63]], %[[VAL_64]], %[[VAL_65]]] : (!llvm<"{ i8*, i32, [2 x i1]*, { i1, i32, [3 x i32], i32, { i8*, i64, i64, i64 } } }*">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"{ i8*, i64, i64, i64 }*">
+// CHECK:           llvm.store %[[VAL_62]], %[[VAL_66]] : !llvm<"{ i8*, i64, i64, i64 }*">
 // CHECK:           llvm.br ^bb3
 // CHECK:         ^bb3:
-// CHECK:           %[[VAL_66:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
-// CHECK:           %[[VAL_67:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
-// CHECK:           %[[VAL_68:.*]] = llvm.mlir.constant(4 : i32) : !llvm.i32
-// CHECK:           %[[VAL_69:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_66]], %[[VAL_67]], %[[VAL_68]]] : (!llvm<"{ i8*, i32, [2 x i1]*, { i1, i32, [3 x i32], i32, { i8*, i64, i64, i64 } } }*">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"{ i8*, i64, i64, i64 }*">
-// CHECK:           %[[VAL_70:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
-// CHECK:           %[[VAL_71:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
+// CHECK:           %[[VAL_67:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK:           %[[VAL_68:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
+// CHECK:           %[[VAL_69:.*]] = llvm.mlir.constant(4 : i32) : !llvm.i32
+// CHECK:           %[[VAL_70:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_67]], %[[VAL_68]], %[[VAL_69]]] : (!llvm<"{ i8*, i32, [2 x i1]*, { i1, i32, [3 x i32], i32, { i8*, i64, i64, i64 } } }*">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"{ i8*, i64, i64, i64 }*">
+// CHECK:           %[[VAL_71:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
 // CHECK:           %[[VAL_72:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
-// CHECK:           %[[VAL_73:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_70]], %[[VAL_71]], %[[VAL_72]]] : (!llvm<"{ i8*, i32, [2 x i1]*, { i1, i32, [3 x i32], i32, { i8*, i64, i64, i64 } } }*">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"i32*">
-// CHECK:           %[[VAL_74:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
-// CHECK:           %[[VAL_75:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
-// CHECK:           %[[VAL_76:.*]] = llvm.mlir.constant(2 : i32) : !llvm.i32
-// CHECK:           %[[VAL_77:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_74]], %[[VAL_75]], %[[VAL_76]]] : (!llvm<"{ i8*, i32, [2 x i1]*, { i1, i32, [3 x i32], i32, { i8*, i64, i64, i64 } } }*">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"[3 x i32]*">
-// CHECK:           %[[VAL_78:.*]] = llvm.load %[[VAL_77]] : !llvm<"[3 x i32]*">
-// CHECK:           %[[VAL_79:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
-// CHECK:           %[[VAL_80:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
-// CHECK:           %[[VAL_81:.*]] = llvm.mlir.constant(1 : i32) : !llvm.i32
-// CHECK:           %[[VAL_82:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_79]], %[[VAL_80]], %[[VAL_81]]] : (!llvm<"{ i8*, i32, [2 x i1]*, { i1, i32, [3 x i32], i32, { i8*, i64, i64, i64 } } }*">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"i32*">
-// CHECK:           %[[VAL_83:.*]] = llvm.load %[[VAL_82]] : !llvm<"i32*">
-// CHECK:           %[[VAL_84:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
-// CHECK:           %[[VAL_85:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
-// CHECK:           %[[VAL_86:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
-// CHECK:           %[[VAL_87:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_84]], %[[VAL_85]], %[[VAL_86]]] : (!llvm<"{ i8*, i32, [2 x i1]*, { i1, i32, [3 x i32], i32, { i8*, i64, i64, i64 } } }*">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"i1*">
-// CHECK:           %[[VAL_88:.*]] = llvm.load %[[VAL_87]] : !llvm<"i1*">
-// CHECK:           llvm.call @dummy_i1(%[[VAL_88]]) : (!llvm.i1) -> ()
-// CHECK:           llvm.call @dummy_i32(%[[VAL_83]]) : (!llvm.i32) -> ()
-// CHECK:           llvm.call @dummy_time(%[[VAL_78]]) : (!llvm<"[3 x i32]">) -> ()
-// CHECK:           llvm.call @dummy_ptr(%[[VAL_73]]) : (!llvm<"i32*">) -> ()
-// CHECK:           llvm.call @dummy_subsig(%[[VAL_69]]) : (!llvm<"{ i8*, i64, i64, i64 }*">) -> ()
+// CHECK:           %[[VAL_73:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
+// CHECK:           %[[VAL_74:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_71]], %[[VAL_72]], %[[VAL_73]]] : (!llvm<"{ i8*, i32, [2 x i1]*, { i1, i32, [3 x i32], i32, { i8*, i64, i64, i64 } } }*">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"i32*">
+// CHECK:           %[[VAL_75:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK:           %[[VAL_76:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
+// CHECK:           %[[VAL_77:.*]] = llvm.mlir.constant(2 : i32) : !llvm.i32
+// CHECK:           %[[VAL_78:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_75]], %[[VAL_76]], %[[VAL_77]]] : (!llvm<"{ i8*, i32, [2 x i1]*, { i1, i32, [3 x i32], i32, { i8*, i64, i64, i64 } } }*">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"[3 x i32]*">
+// CHECK:           %[[VAL_79:.*]] = llvm.load %[[VAL_78]] : !llvm<"[3 x i32]*">
+// CHECK:           %[[VAL_80:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK:           %[[VAL_81:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
+// CHECK:           %[[VAL_82:.*]] = llvm.mlir.constant(1 : i32) : !llvm.i32
+// CHECK:           %[[VAL_83:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_80]], %[[VAL_81]], %[[VAL_82]]] : (!llvm<"{ i8*, i32, [2 x i1]*, { i1, i32, [3 x i32], i32, { i8*, i64, i64, i64 } } }*">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"i32*">
+// CHECK:           %[[VAL_84:.*]] = llvm.load %[[VAL_83]] : !llvm<"i32*">
+// CHECK:           %[[VAL_85:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK:           %[[VAL_86:.*]] = llvm.mlir.constant(3 : i32) : !llvm.i32
+// CHECK:           %[[VAL_87:.*]] = llvm.mlir.constant(0 : i32) : !llvm.i32
+// CHECK:           %[[VAL_88:.*]] = llvm.getelementptr %[[VAL_1]]{{\[}}%[[VAL_85]], %[[VAL_86]], %[[VAL_87]]] : (!llvm<"{ i8*, i32, [2 x i1]*, { i1, i32, [3 x i32], i32, { i8*, i64, i64, i64 } } }*">, !llvm.i32, !llvm.i32, !llvm.i32) -> !llvm<"i1*">
+// CHECK:           %[[VAL_89:.*]] = llvm.load %[[VAL_88]] : !llvm<"i1*">
+// CHECK:           llvm.call @dummy_i1(%[[VAL_89]]) : (!llvm.i1) -> ()
+// CHECK:           llvm.call @dummy_i32(%[[VAL_84]]) : (!llvm.i32) -> ()
+// CHECK:           llvm.call @dummy_time(%[[VAL_79]]) : (!llvm<"[3 x i32]">) -> ()
+// CHECK:           llvm.call @dummy_ptr(%[[VAL_74]]) : (!llvm<"i32*">) -> ()
+// CHECK:           llvm.call @dummy_subsig(%[[VAL_70]]) : (!llvm<"{ i8*, i64, i64, i64 }*">) -> ()
 // CHECK:           llvm.br ^bb3
 // CHECK:         ^bb4:
 // CHECK:           llvm.return
