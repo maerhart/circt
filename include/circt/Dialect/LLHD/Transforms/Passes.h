@@ -33,6 +33,8 @@ std::unique_ptr<OperationPass<ProcOp>> createMemoryToBlockArgumentPass();
 std::unique_ptr<OperationPass<ProcOp>> createTemporalCodeMotionPass();
 
 
+std::unique_ptr<OperationPass<ModuleOp>> createInstanceInliningPass();
+
 /// Register the LLHD Transformation passes.
 void initLLHDTransformationPasses();
 

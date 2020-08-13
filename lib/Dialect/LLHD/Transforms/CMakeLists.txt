@@ -10,6 +10,7 @@ add_mlir_dialect_library(MLIRLLHDTransforms
   BlockArgumentToSelect.cpp
   MemoryToBlockArgumentPass.cpp
   DesequentializationPass.cpp
+  InstanceInliningPass.cpp
 
   DEPENDS
   MLIRLLHDTransformsIncGen

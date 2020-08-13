@@ -127,6 +127,8 @@ def TemporalCodeMotion : Pass<"llhd-tcm", "llhd::ProcOp"> {
     }];
 
     let constructor = "mlir::llhd::createTemporalCodeMotionPass()";
+}
+
 def Desequentialization : Pass<"llhd-deseq", "ModuleOp"> {
   let summary = "";
   let description = [{
@@ -134,6 +136,10 @@ def Desequentialization : Pass<"llhd-deseq", "ModuleOp"> {
   }];
 
   let constructor = "mlir::llhd::createDesequentializationPass()";
+}
+
+def InstanceInlining : Pass<"llhd-ii", "ModuleOp"> {
+  let constructor = "mlir::llhd::createInstanceInliningPass()";
 }
 
 #endif // CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES
