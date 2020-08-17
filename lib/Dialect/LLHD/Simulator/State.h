@@ -79,6 +79,11 @@ struct Signal {
   /// Return the signal value in dumpable format: "0x<value>".
   std::string dump();
 
+  /// Return the value of the i-th element of the signal in dumpable format. If
+  /// the signal is not of tuple or array type (i.e. has no sub-elements), an
+  /// assertion is thrown.
+  std::string dump(unsigned);
+
   std::string name;
   std::string owner;
   // The list of instances this signal triggers.
@@ -86,6 +91,7 @@ struct Signal {
   int origin = -1;
   uint64_t size;
   uint8_t *value;
+  std::vector<std::pair<unsigned, unsigned>> elements;
 };
 
 /// The simulator's internal representation of one queue slot.
@@ -186,6 +192,8 @@ struct State {
 
   int addSignalData(int index, std::string owner, uint8_t *value,
                     uint64_t size);
+
+  void addSignalElement(unsigned, unsigned, unsigned);
 
   /// Add a pointer to the process persistence state to a process instance.
   void addProcPtr(std::string name, ProcState *procStatePtr);

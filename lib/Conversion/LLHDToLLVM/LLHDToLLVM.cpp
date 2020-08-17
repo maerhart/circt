@@ -928,6 +928,23 @@ struct InstOpConversion : public ConvertToLLVMPattern {
     auto sigFunc = getOrInsertFunction(module, rewriter, op->getLoc(),
                                        "alloc_signal", allocSigFuncTy);
 
+    // Add information about the elements of an array stored in a signal.
+    // Signature: (i8* state, i32 signalIndex, i32 size, i32 numElements) ->
+    // void
+    auto addSigArrElemFuncTy = LLVM::LLVMType::getFunctionTy(
+        voidTy, {i8PtrTy, i32Ty, i32Ty, i32Ty}, /*isVarArg=*/false);
+    auto addSigElemFunc =
+        getOrInsertFunction(module, rewriter, op->getLoc(),
+                            "add_sig_array_elements", addSigArrElemFuncTy);
+
+    // Add information about one element of a struct stored in a signal.
+    // Signature: (i8* state, i32 signalIndex, i32 offset, i32 size) -> void
+    auto addSigStructElemFuncTy = LLVM::LLVMType::getFunctionTy(
+        voidTy, {i8PtrTy, i32Ty, i32Ty, i32Ty}, /*isVarArg=*/false);
+    auto addSigStructFunc =
+        getOrInsertFunction(module, rewriter, op->getLoc(),
+                            "add_sig_struct_element", addSigStructElemFuncTy);
+
     // Get or insert Alloc_proc library call definition.
     auto allocProcFuncTy = LLVM::LLVMType::getFunctionTy(
         voidTy, {i8PtrTy, i8PtrTy, i8PtrTy}, /*isVarArg=*/false);
@@ -1047,9 +1064,73 @@ struct InstOpConversion : public ConvertToLLVMPattern {
 
         std::array<Value, 5> args(
             {initStatePtr, indexConst, owner, mall, size});
-        initBuilder.create<LLVM::CallOp>(
+        auto index = initBuilder.create<LLVM::CallOp>(
             op.getLoc(), i32Ty, rewriter.getSymbolRefAttr(sigFunc), args);
-        // }
+
+        // Add structured underlying type information.
+        if (underlyingTy.isArrayTy()) {
+          auto zeroC = initBuilder.create<LLVM::ConstantOp>(
+              op.getLoc(), i32Ty, rewriter.getI32IntegerAttr(0));
+
+          auto numElements = initBuilder.create<LLVM::ConstantOp>(
+              op.getLoc(), i32Ty,
+              rewriter.getI32IntegerAttr(underlyingTy.getArrayNumElements()));
+
+          // Get element size.
+          auto null = initBuilder.create<LLVM::NullOp>(
+              op.getLoc(), underlyingTy.getPointerTo());
+          auto gepFirst = initBuilder.create<LLVM::GEPOp>(
+              op.getLoc(), underlyingTy.getArrayElementType().getPointerTo(),
+              null, ArrayRef<Value>({zeroC, oneC}));
+          auto toInt = initBuilder.create<LLVM::PtrToIntOp>(op.getLoc(), i32Ty,
+                                                            gepFirst);
+
+          // Add information to the state.
+          initBuilder.create<LLVM::CallOp>(
+              op.getLoc(), llvm::None,
+              rewriter.getSymbolRefAttr(addSigElemFunc),
+              ArrayRef<Value>(
+                  {initStatePtr, index.getResult(0), toInt, numElements}));
+        } else if (underlyingTy.isStructTy()) {
+          auto zeroC = initBuilder.create<LLVM::ConstantOp>(
+              op.getLoc(), i32Ty, rewriter.getI32IntegerAttr(0));
+
+          auto null = initBuilder.create<LLVM::NullOp>(
+              op.getLoc(), underlyingTy.getPointerTo());
+          for (size_t i = 0, e = underlyingTy.getStructNumElements(); i < e;
+               ++i) {
+            auto oneC = initBuilder.create<LLVM::ConstantOp>(
+                op.getLoc(), i32Ty, rewriter.getI32IntegerAttr(1));
+            auto indexC = initBuilder.create<LLVM::ConstantOp>(
+                op.getLoc(), i32Ty, rewriter.getI32IntegerAttr(i));
+
+            // Get pointer offset.
+            auto gepElem = initBuilder.create<LLVM::GEPOp>(
+                op.getLoc(),
+                underlyingTy.getStructElementType(i).getPointerTo(), null,
+                ArrayRef<Value>({zeroC, indexC}));
+            auto elemToInt = initBuilder.create<LLVM::PtrToIntOp>(
+                op.getLoc(), i32Ty, gepElem);
+
+            // Get element size.
+            auto elemNull = initBuilder.create<LLVM::NullOp>(
+                op.getLoc(),
+                underlyingTy.getStructElementType(i).getPointerTo());
+            auto gepElemSize = initBuilder.create<LLVM::GEPOp>(
+                op.getLoc(),
+                underlyingTy.getStructElementType(i).getPointerTo(), elemNull,
+                ArrayRef<Value>({oneC}));
+            auto elemSizeToInt = initBuilder.create<LLVM::PtrToIntOp>(
+                op.getLoc(), i32Ty, gepElemSize);
+
+            // Add information to the state.
+            initBuilder.create<LLVM::CallOp>(
+                op.getLoc(), llvm::None,
+                rewriter.getSymbolRefAttr(addSigStructFunc),
+                ArrayRef<Value>({initStatePtr, index.getResult(0), elemToInt,
+                                 elemSizeToInt}));
+          }
+        }
       });
     } else if (auto proc = module.lookupSymbol<ProcOp>(instOp.callee())) {
       // Handle process instantiation.
