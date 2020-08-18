@@ -3,6 +3,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "circt/Dialect/LLHD/Transforms/Passes.h"
+#include "circt/Dialect/LLHD/IR/LLHDOps.h"
 #include "mlir/Pass/Pass.h"
 
 void mlir::llhd::initLLHDTransformationPasses() {

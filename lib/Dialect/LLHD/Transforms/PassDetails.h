@@ -7,6 +7,7 @@
 
 #include "circt/Dialect/LLHD/IR/LLHDOps.h"
 #include "mlir/Pass/Pass.h"
+#include "circt/Dialect/LLHD/IR/LLHDOps.h"
 
 namespace mlir {
 namespace llhd {

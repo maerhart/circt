@@ -142,4 +142,13 @@ def InstanceInlining : Pass<"llhd-ii", "ModuleOp"> {
   let constructor = "mlir::llhd::createInstanceInliningPass()";
 }
 
+def LoopUnrolling : Pass<"llhd-unroll", "llhd::ProcOp"> {
+    let summary = "Unrolls ForOp loops.";
+    let description = [{
+        TODO
+    }];
+
+    let constructor = "mlir::llhd::createLoopUnrollingPass()";
+}
+
 #endif // CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES

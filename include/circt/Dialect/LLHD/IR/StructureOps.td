@@ -274,3 +274,152 @@ def LLHD_HaltOp : LLHD_Op<"halt", [Terminator, HasParent<"ProcOp">]> {
 
   let assemblyFormat = "attr-dict";
 }
+
+def LLHD_ForOp : LLHD_Op<"for", [
+      DeclareOpInterfaceMethods<LoopLikeOpInterface>,
+      DeclareOpInterfaceMethods<RegionBranchOpInterface>,
+      RecursiveSideEffects,
+      AllTypesMatch<["lowerBound", "upperBound", "step"]>
+  ]> {
+  let summary = "For-loop operation";
+  let description = [{
+    The "llhd.for" operation represents a loop taking 3 SSA values as operands
+    that represent the lower bound, upper bound and step respectively. The
+    operation defines an SSA value for its induction variable. It has one
+    region capturing the loop body. The induction variable is represented as an
+    argument of this region. This SSA value always has type index, which is the
+    size of the machine word. The step is a value of type index, required to be
+    positive.
+    The lower and upper bounds specify a half-open range: the range includes
+    the lower bound but does not include the upper bound.
+
+    The body region can contain arbitrarily many blocks, but the CGF has to be a
+    DAG, so no backwards edges are allowed. At least one block has to use the
+    "llhd.continue" terminator, but there can also be arbitrarily many of them.
+    Calling ForOp::build will create such a region and insert
+    the terminator implicitly if none is defined, so will the parsing even in
+    cases when it is absent from the custom format. For example:
+
+    ```mlir
+    llhd.for %iv = %lb to %ub step %step {
+      ... // body
+    }
+    ```
+
+    `llhd.for` can also operate on loop-carried variables and returns the final
+    values after loop termination. The initial values of the variables are
+    passed as additional SSA operands to the "llhd.for" following the 3 loop
+    control SSA values mentioned above (lower bound, upper bound and step). The
+    operation region has equivalent arguments for each variable representing
+    the value of the variable at the current iteration.
+
+    The region must terminate with a "llhd.continue" that passes all the current
+    iteration variables to the next iteration, or to the "llhd.for" result, if
+    at the last iteration. Note, that when the loop-carried variables are
+    present, calling ForOp::build will not insert the terminator implicitly.
+    The caller must insert "llhd.continue" in that case.
+
+    "llhd.for" results hold the final values after the last iteration.
+    For example, to sum-reduce a memref:
+
+    ```mlir
+    func @reduce(%buffer: memref<1024xf32>, %lb: index,
+                 %ub: index, %step: index) -> (f32) {
+      // Initial sum set to 0.
+      %sum_0 = constant 0.0 : f32
+      // iter_args binds initial values to the loop's region arguments.
+      %sum = scf.for %iv = %lb to %ub step %step
+          iter_args(%sum_iter = %sum_0) -> (f32) {
+        %t = load %buffer[%iv] : memref<1024xf32>
+        %sum_next = addf %sum_iter, %t : f32
+        // Yield current iteration sum to next iteration %sum_iter or to %sum
+        // if final iteration.
+        scf.yield %sum_next : f32
+      }
+      return %sum : f32
+    }
+    ```
+
+    If the "llhd.for" defines any values, a yield must be explicitly present.
+    The number and types of the "llhd.for" results must match the initial
+    values in the "iter_args" binding and the yield operands.
+  }];
+  let arguments = (ins AnySignlessInteger:$lowerBound,
+                       AnySignlessInteger:$upperBound,
+                       AnySignlessInteger:$step,
+                       Variadic<AnyType>:$initArgs);
+  let results = (outs Variadic<AnyType>:$results);
+  let regions = (region AnyRegion:$region);
+
+  let skipDefaultBuilders = 1;
+  let builders = [
+    OpBuilder<"OpBuilder &builder, OperationState &result, "
+              "Value lowerBound, Value upperBound, Value step, "
+              "ValueRange iterArgs = llvm::None, "
+              "function_ref<void(OpBuilder &, Location, Value, ValueRange)>"
+              "    = nullptr">
+  ];
+
+  let extraClassDeclaration = [{
+    using BodyBuilderFn =
+        function_ref<void(OpBuilder &, Location, Value, ValueRange)>;
+
+    Value getInductionVar() { return getLoopBody().front().getArgument(0); }
+    Block::BlockArgListType getRegionIterArgs() {
+      return getLoopBody().front().getArguments().drop_front();
+    }
+    Operation::operand_range getIterOperands() {
+      return getOperands().drop_front(getNumControlOperands());
+    }
+
+    void setLowerBound(Value bound) { getOperation()->setOperand(0, bound); }
+    void setUpperBound(Value bound) { getOperation()->setOperand(1, bound); }
+    void setStep(Value step) { getOperation()->setOperand(2, step); }
+
+    /// Number of region arguments for loop-carried values
+    unsigned getNumRegionIterArgs() {
+      return getLoopBody().front().getNumArguments() - 1;
+    }
+    /// Number of operands controlling the loop: lb, ub, step
+    unsigned getNumControlOperands() { return 3; }
+    /// Does the operation hold operands for loop-carried values
+    bool hasIterOperands() {
+      return getOperation()->getNumOperands() > getNumControlOperands();
+    }
+    /// Get Number of loop-carried values
+    unsigned getNumIterOperands() {
+      return getOperation()->getNumOperands() - getNumControlOperands();
+    }
+
+    /// Return operands used when entering the region at 'index'. These operands
+    /// correspond to the loop iterator operands, i.e., those exclusing the
+    /// induction variable. LoopOp only has one region, so 0 is the only valid
+    /// value for `index`.
+    OperandRange getSuccessorEntryOperands(unsigned index);
+  }];
+
+  let verifier = [{ return ::verify(*this); }];
+}
+
+def LLHD_YieldOp : LLHD_Op<"yield", [NoSideEffect, ReturnLike, Terminator, HasParent<"ForOp">]> {
+  let summary = "loop yield and termination operation";
+  let description = [{
+    "scf.yield" yields an SSA value from the SCF dialect op region and
+    terminates the regions. The semantics of how the values are yielded is
+    defined by the parent operation.
+    If "scf.yield" has any operands, the operands must match the parent
+    operation's results.
+    If the parent operation defines no values, then the "scf.yield" may be
+    left out in the custom syntax and the builders will insert one implicitly.
+    Otherwise, it has to be present in the syntax to indicate which values are
+    yielded.
+  }];
+
+  let arguments = (ins Variadic<AnyType>:$results);
+  let builders = [
+    OpBuilder<"OpBuilder &builder, OperationState &result",
+              [{ /* nothing to do */ }]>
+  ];
+
+  let assemblyFormat = "attr-dict ($results^ `:` type($results))?";
+}

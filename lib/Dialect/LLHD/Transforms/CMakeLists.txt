@@ -11,6 +11,7 @@ add_mlir_dialect_library(MLIRLLHDTransforms
   MemoryToBlockArgumentPass.cpp
   DesequentializationPass.cpp
   InstanceInliningPass.cpp
+  LoopUnrollingPass.cpp
 
   DEPENDS
   MLIRLLHDTransformsIncGen

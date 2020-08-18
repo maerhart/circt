@@ -34,6 +34,7 @@ std::unique_ptr<OperationPass<ProcOp>> createTemporalCodeMotionPass();
 
 
 std::unique_ptr<OperationPass<ModuleOp>> createInstanceInliningPass();
+std::unique_ptr<OperationPass<ProcOp>> createLoopUnrollingPass();
 
 /// Register the LLHD Transformation passes.
 void initLLHDTransformationPasses();
