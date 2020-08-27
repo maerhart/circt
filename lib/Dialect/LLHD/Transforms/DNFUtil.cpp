@@ -292,7 +292,7 @@ recursiveHelper(Block *curr, Block *source,
   if (mem.count(curr))
     return mem[curr];
 
-  if (curr == source) {
+  if (curr == source || curr->getPredecessors().empty()) {
     mem.try_emplace(curr, std::make_unique<llhd::Dnf>(true, false));
     return mem[curr];
   }
@@ -358,4 +358,51 @@ mlir::llhd::getBooleanExprFromSourceToTarget(Block *source, Block *target) {
   DenseMap<Block *, bool> visited;
 
   return std::move(recursiveHelper(target, source, memorization, visited));
+}
+
+static mlir::Value recursiveHelper2(OpBuilder &builder, Block *curr,
+                                    Block *source,
+                                    DenseMap<Block *, Value> &mem,
+                                    DenseMap<Block *, bool> &visited) {
+
+  Location loc = curr->getTerminator()->getLoc();
+  if (mem.count(curr))
+    return mem[curr];
+
+  if (curr == source || curr->getPredecessors().empty()) {
+    Value init = builder.create<llhd::ConstOp>(loc, builder.getI1Type(), builder.getBoolAttr(true));
+    mem.insert(std::make_pair(curr, init));
+    return mem[curr];
+  }
+
+  Value runner = Value();
+  for (auto iter = curr->pred_begin(); iter != curr->pred_end(); ++iter) {
+    if ((*iter)->getTerminator()->getNumSuccessors() == 1) {
+      if (!runner)
+        runner = recursiveHelper2(builder, *iter, source, mem, visited);
+      else
+        runner = builder.create<llhd::OrOp>(loc, runner, recursiveHelper2(builder, *iter, source, mem, visited));
+    } else {
+      auto condBr = cast<CondBranchOp>((*iter)->getTerminator());
+      Value cond = condBr.condition();
+      if (condBr.falseDest() == curr)
+        cond = builder.create<llhd::NotOp>(loc, cond);
+      Value tmp = builder.create<llhd::AndOp>(loc, recursiveHelper2(builder, *iter, source, mem, visited), cond);
+      if (!runner)
+        runner = tmp;
+      else
+        runner = builder.create<llhd::OrOp>(loc, runner, tmp);
+    }
+  }
+  mem.insert(std::make_pair(curr, runner));
+  return mem[curr];
+}
+mlir::Value
+mlir::llhd::getBooleanExprFromSourceToTargetNonDnf(OpBuilder &builder, Block *source, Block *target) {
+  assert(source->getParent() == target->getParent() &&
+         "Blocks are required to be in the same region!");
+  DenseMap<Block *, Value> memorization;
+  DenseMap<Block *, bool> visited;
+
+  return recursiveHelper2(builder, target, source, memorization, visited);
 }

@@ -10,6 +10,8 @@
 #include "circt/Dialect/LLHD/Transforms/Passes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Dominance.h"
+#include "mlir/Support/LLVM.h"
+#include <memory>
 
 using namespace mlir;
 
@@ -38,15 +40,46 @@ void BlockArgumentToSelectPass::runOnOperation() {
     if (block.getNumArguments() == 0)
       continue;
 
+    // If any of the passed block arguments is not defined in a block that dominates this block, don't convert the block argument to a select
+
+
     // Find the nearest common dominator of all predecessors.
     // If a block dominates all predecessors of a block, it also dominates this
     // block
+    OpBuilder builder(proc);
     Block *domBlock = &block;
+    bool doesNotDominate = false;
     for (Block *pred : block.getPredecessors()) {
       domBlock = dom.findNearestCommonDominator(domBlock, pred);
-    }
+      // Check if the predecessor has a conditional branch where both destinations are the same block but with different block arguments, then replace it with a select for each argument and a unconditional branch
+      if (auto br = dyn_cast<CondBranchOp>(pred->getTerminator())) {
+        if (br.trueDest() == &block && br.falseDest() == &block) {
+          SmallVector<Value, 4> newArgs;
+          builder.setInsertionPoint(br);
+          for (auto &&args : llvm::zip(br.trueDestOperands(), br.falseDestOperands())) {
+            newArgs.push_back(builder.create<SelectOp>(br.getLoc(), br.condition(), std::get<0>(args), std::get<1>(args)));
+          }
+          builder.create<BranchOp>(br.getLoc(), br.trueDest(), newArgs);
+          br.getOperation()->dropAllReferences();
+          br.getOperation()->erase();
+        }
+      }
+      // Check for loops
+      for (Value arg : (OperandRange)getDestOperands(pred, &block)) {
+        if (!dom.properlyDominates(arg.getParentBlock(), &block))
+          doesNotDominate = true;
+        // if (arg.isa<BlockArgument>())
+        //   doesNotDominate = true;
+      }
+      for (auto &&item : llvm::zip((OperandRange)getDestOperands(pred, &block), block.getArguments())) {
+        if(std::get<0>(item) == std::get<1>(item))
+        doesNotDominate = true;
+      }
+      // if passed argument is the block argument to be erased itself
 
-    OpBuilder builder(proc);
+    }
+    if (doesNotDominate)
+     continue;
     builder.setInsertionPointToStart(&block);
 
     // Create an array which stores the replacement values for the current block
@@ -62,10 +95,18 @@ void BlockArgumentToSelectPass::runOnOperation() {
     for (Block *predBlock : block.getPredecessors()) {
       Value finalValue = Value();
       if (predBlock != *block.pred_begin()) {
-        llhd::Dnf dnf =
-            *llhd::getBooleanExprFromSourceToTarget(domBlock, predBlock);
-        finalValue = dnf.buildOperations(builder);
+        // llhd::Dnf dnf =
+        //     *llhd::getBooleanExprFromSourceToTarget(domBlock, predBlock);
+        // finalValue = dnf.buildOperations(builder);
+        finalValue = llhd::getBooleanExprFromSourceToTargetNonDnf(builder, domBlock, predBlock);
+      if (auto br = dyn_cast<CondBranchOp>(predBlock->getTerminator())) {
+        Value cond = br.condition();
+        if (br.falseDest() == &block)
+          cond = builder.create<llhd::NotOp>(proc.getLoc(), cond);
+        finalValue = builder.create<llhd::AndOp>(proc.getLoc(), finalValue, cond);
       }
+      }
+
 
       // Create the select operations to select the value depending on the
       // predecessor. We use the condition created above to do the selection

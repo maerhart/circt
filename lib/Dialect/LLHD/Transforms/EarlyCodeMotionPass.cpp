@@ -8,6 +8,7 @@
 #include "TemporalRegions.h"
 #include "circt/Dialect/LLHD/Transforms/Passes.h"
 #include "mlir/IR/Dominance.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 
 using namespace mlir;
 
@@ -52,7 +53,7 @@ void EarlyCodeMotionPass::runOnOperation() {
          iter != block->getOperations().end(); ++iter) {
       Operation &op = *iter;
       if (!isa<llhd::PrbOp>(op) &&
-          (!MemoryEffectOpInterface::hasNoEffect(&op) ||
+          (!MemoryEffectOpInterface::hasNoEffect(&op) || op.getNumRegions() != 0 ||
            op.isKnownTerminator()))
         continue;
 

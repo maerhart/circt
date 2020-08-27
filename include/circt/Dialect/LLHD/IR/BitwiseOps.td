@@ -305,4 +305,5 @@ def LLHD_ShrOp : LLHD_Op<"shr", [
   }];
 
   let hasFolder = 1;
+  // let hasCanonicalizer = 1;
 }

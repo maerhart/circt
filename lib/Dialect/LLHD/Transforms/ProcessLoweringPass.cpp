@@ -22,58 +22,58 @@ struct ProcessLoweringPass
 void ProcessLoweringPass::runOnOperation() {
   ModuleOp module = getOperation();
 
-  WalkResult result = module.walk([](llhd::ProcOp op) -> WalkResult {
+  module.walk([](llhd::ProcOp op) {
     // Check invariants
     size_t numBlocks = op.body().getBlocks().size();
     if (numBlocks == 1) {
       if (!isa<llhd::HaltOp>(op.body().back().getTerminator())) {
-        return op.emitOpError("Process-lowering: Entry block is required to be "
-                              "terminated by a HaltOp from the LLHD dialect.");
+        return; // op.emitOpError("Process-lowering: Entry block is required to be "
+                              // "terminated by a HaltOp from the LLHD dialect.");
       }
     } else if (numBlocks == 2) {
       Block &first = op.body().front();
       Block &last = op.body().back();
       if (last.getArguments().size() != 0) {
-        return op.emitOpError(
-            "Process-lowering: The second block (containing the "
-            "llhd.wait) is not allowed to have arguments.");
+        return; // op.emitOpError(
+            // "Process-lowering: The second block (containing the "
+            // "llhd.wait) is not allowed to have arguments.");
       }
       if (!isa<BranchOp>(first.getTerminator())) {
-        return op.emitOpError(
-            "Process-lowering: The first block has to be terminated "
-            "by a BranchOp from the standard dialect.");
+        return; // op.emitOpError(
+            // "Process-lowering: The first block has to be terminated "
+            // "by a BranchOp from the standard dialect.");
       }
       if (auto wait = dyn_cast<llhd::WaitOp>(last.getTerminator())) {
         // No optional time argument is allowed
         if (wait.time()) {
-          return wait.emitOpError(
-              "Process-lowering: llhd.wait terminators with optional time "
-              "argument cannot be lowered to structural LLHD.");
+          return; //wait.emitOpError(
+              // "Process-lowering: llhd.wait terminators with optional time "
+              // "argument cannot be lowered to structural LLHD.");
         }
         // Every probed signal has to occur in the observed signals list in
         // the wait instruction
-        WalkResult result = op.walk([&wait](llhd::PrbOp prbOp) -> WalkResult {
-          if (!llvm::is_contained(wait.obs(), prbOp.signal())) {
-            return wait.emitOpError(
-                "Process-lowering: The wait terminator is required to have "
-                "all probed signals as arguments!");
-          }
-          return WalkResult::advance();
-        });
-        if (result.wasInterrupted()) {
-          return result;
-        }
+        // WalkResult result = op.walk([&wait](llhd::PrbOp prbOp) -> WalkResult {
+        //   if (!llvm::is_contained(wait.obs(), prbOp.signal())) {
+        //     return failure(); // wait.emitOpError(
+        //         // "Process-lowering: The wait terminator is required to have "
+        //         // "all probed signals as arguments!");
+        //   }
+        //   return WalkResult::advance();
+        // });
+        // if (result.wasInterrupted()) {
+        //   return;
+        // }
       } else {
-        return op.emitOpError(
-            "Process-lowering: The second block must be terminated by "
-            "a WaitOp from the LLHD dialect.");
+        return; // op.emitOpError(
+            // "Process-lowering: The second block must be terminated by "
+            // "a WaitOp from the LLHD dialect.");
       }
     } else {
-      return op.emitOpError(
-          "Process-lowering only supports processes with either one basic "
-          "block terminated by a llhd.halt operation or two basic blocks where "
-          "the first one contains a std.br terminator and the second one "
-          "is terminated by a llhd.wait operation.");
+      return; // op.emitOpError(
+          // "Process-lowering only supports processes with either one basic "
+          // "block terminated by a llhd.halt operation or two basic blocks where "
+          // "the first one contains a std.br terminator and the second one "
+          // "is terminated by a llhd.wait operation.");
     }
 
     OpBuilder builder(op);
@@ -117,12 +117,10 @@ void ProcessLoweringPass::runOnOperation() {
     terminator->dropAllReferences();
     terminator->dropAllUses();
     terminator->erase();
-
-    return WalkResult::advance();
   });
 
-  if (result.wasInterrupted())
-    signalPassFailure();
+  // if (result.wasinterrupted())
+  //   return; //signalpassfailure();
 }
 } // namespace
 

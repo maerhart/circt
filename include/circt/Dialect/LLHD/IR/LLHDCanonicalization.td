@@ -76,4 +76,18 @@ def DynExtractElementWithConstantOpIndex : Pat<
   (LLHD_DynExtractElementOp $target, (ConstantOp $index)),
   (LLHD_ExtractElementOp $target, (IndexAttrFromSignlessInteger $index))>;
 
+//===----------------------------------------------------------------------===//
+// ShrOp
+//===----------------------------------------------------------------------===//
+
+// def ShrOpConversion : Pat<
+//   (LLHD_ShrOp $base, $hidden, $amt),
+//   (LLHD_InsertSliceOp (LLHD_InsertSliceOp $base, (LLHD_DynExtractSliceOp $base, $amt), ConstantAttr<IndexAttr, "0">),
+//                       (LLHD_DynExtractSliceOp $hidden, $amt), ConstantAttr<IndexAttr, "0">)>;
+
+//===----------------------------------------------------------------------===//
+// ShlOp
+//===----------------------------------------------------------------------===//
+
+
 #endif // CIRCT_DIALECT_LLHD_IR_CANONICALIZATION_TD

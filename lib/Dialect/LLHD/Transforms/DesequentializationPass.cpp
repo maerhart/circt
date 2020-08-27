@@ -23,22 +23,35 @@ struct DesequentializationPass
 /// methods to easily add triggers one by one
 struct RegData {
   void addTrigger(OpBuilder &builder, Value trigger, RegMode mode,
-                  Value delay) {
+                          Value delay, Value gate = nullptr) {
+    // If this exact trigger already exists, then do not add it again
+    // If this trigger already exists with another gate then set the gate of
+    // this existing trigger to the disjunction of the existing and the new gate
+    for (auto &&items : zip(triggers, modes, delays, gateMask)) {
+      if (std::get<0>(items) == trigger &&
+          std::get<1>(items).cast<IntegerAttr>().getInt() == (int64_t)mode &&
+          std::get<2>(items) == delay) {
+            if (std::get<3>(items).cast<IntegerAttr>().getInt() == 0 && !gate) {
+              return;
+            }
+            else if (std::get<3>(items).cast<IntegerAttr>().getInt() == 0 && gate) {
+              // TODO
+            }
+            else if (std::get<3>(items).cast<IntegerAttr>().getInt() != 0 && gate) {
+              Value newGate = builder.create<llhd::OrOp>(trigger.getLoc(), gate, gates[std::get<3>(items).cast<IntegerAttr>().getInt()-1]);
+              gates[std::get<3>(items).cast<IntegerAttr>().getInt() - 1] = newGate;
+              return;
+            }
+          }
+    }
+
     triggers.push_back(trigger);
     modes.push_back(builder.getI64IntegerAttr((int64_t)mode));
     delays.push_back(delay);
-    gateMask.push_back(builder.getI64IntegerAttr(0));
-  }
-
-  void addTriggerWithGate(OpBuilder &builder, Value trigger, RegMode mode,
-                          Value delay, Value gate) {
     if (!gate) {
-      addTrigger(builder, trigger, mode, delay);
+      gateMask.push_back(builder.getI64IntegerAttr(0));
       return;
     }
-    triggers.push_back(trigger);
-    modes.push_back(builder.getI64IntegerAttr((int64_t)mode));
-    delays.push_back(delay);
     gates.push_back(gate);
     gateMask.push_back(builder.getI64IntegerAttr(++lastGate));
   }
@@ -123,9 +136,11 @@ static std::unique_ptr<Dnf> buildDnf(Value value, bool inv) {
 }
 
 static Value getInvertedValueIfNeeded(OpBuilder builder, std::unique_ptr<Dnf> &expr) {
-  assert(expr->isVal() && "Only Value expressions supported!");
+  assert(expr->isLeaf() && "Only leaf expressions supported!");
   if (expr->isNegatedVal()) {
     return builder.create<llhd::NotOp>(expr->value.getLoc(), expr->value);
+  } else if (expr->isConst()) {
+    return builder.create<llhd::ConstOp>(builder.getUnknownLoc(), builder.getI1Type(), builder.getBoolAttr(expr->getConst()));
   } else {
     return expr->value;
   }
@@ -200,12 +215,12 @@ static void dnfToTriggers(OpBuilder &builder, TemporalRegionAnalysis &trAnalysis
         }
         if (pastInv && !presentInv) {
           // Rising Edge
-          regData.addTriggerWithGate(builder, presentSample, RegMode::rise,
+          regData.addTrigger(builder, presentSample, RegMode::rise,
                                      op.time(), res);
           triggerAdded = true;
         } else { // pastInv && !presentInv
                  // Falling edge
-          regData.addTriggerWithGate(builder, presentSample, RegMode::fall,
+          regData.addTrigger(builder, presentSample, RegMode::fall,
                                      op.time(), res);
           triggerAdded = true;
         }
@@ -258,29 +273,29 @@ void DesequentializationPass::runOnOperation() {
     WalkResult result = proc.walk([&](WaitOp op) -> WalkResult {
       pastTR = trAnalysis.getBlockTR(op.getOperation()->getBlock());
       if (seenWait) {
-        return op.emitError("Only one wait operation per process supported!");
+        return failure(); //op.emitError("Only one wait operation per process supported!");
       }
       // Check that the block containing the wait is the only exiting block of
       // that TR
       if (!trAnalysis.hasSingleExitBlock(
               trAnalysis.getBlockTR(op.getOperation()->getBlock()))) {
-        return op.emitError(
-            "Block with wait terminator has to be the only exiting block "
-            "of that temporal region!");
+        return failure(); //op.emitError(
+            // "Block with wait terminator has to be the only exiting block "
+            // "of that temporal region!");
       }
       seenWait = true;
       return WalkResult::advance();
     });
 
     if (result.wasInterrupted()) {
-      signalPassFailure();
+      // signalPassFailure();
       return;
     }
 
     if (!seenWait) {
-      proc.emitError("Block with wait terminator has to be present for "
-                     "desequentialization to be applicable!");
-      signalPassFailure();
+      // proc.emitError("Block with wait terminator has to be present for "
+      //                "desequentialization to be applicable!");
+      // signalPassFailure();
       return;
     }
 

@@ -389,6 +389,33 @@ OpFoldResult llhd::ShrOp::fold(ArrayRef<Attribute> operands) {
 }
 
 //===----------------------------------------------------------------------===//
+// ExtractElementOp
+//===----------------------------------------------------------------------===//
+
+OpFoldResult llhd::ExtractElementOp::fold(ArrayRef<Attribute> operands) {
+  uint64_t index = indexAttr().getInt();
+
+  // llhd.extract_element(llhd.shr(hidden, base, constant amt), start)
+  //   with amt + start < baseWidth
+  //   => llhd.extract_element(base, amt + start)
+  if (auto shrOp = target().getDefiningOp<llhd::ShrOp>()) {
+    IntegerAttr intAttr;
+    if (matchPattern(shrOp.amount(), m_Constant<IntegerAttr>(&intAttr))) {
+      uint64_t amt = intAttr.getValue().getZExtValue();
+
+      if (amt + index < shrOp.getBaseWidth()) {
+        targetMutable().assign(shrOp.base());
+        setAttr("index",
+                IntegerAttr::get(indexAttr().getType(), amt + index));
+        return result();
+      }
+    }
+  }
+
+  return nullptr;
+}
+
+//===----------------------------------------------------------------------===//
 // ExtractSliceOp
 //===----------------------------------------------------------------------===//
 
@@ -456,6 +483,29 @@ OpFoldResult llhd::ExtractSliceOp::fold(ArrayRef<Attribute> operands) {
                                 getSliceSize(), extractStart));
 
   return nullptr;
+}
+
+//===----------------------------------------------------------------------===//
+// DrvOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult llhd::DrvOp::fold(ArrayRef<Attribute> operands,
+                                SmallVectorImpl<OpFoldResult> &result) {
+  if (!enable())
+    return failure();
+
+  if (matchPattern(enable(), m_Zero())) {
+    getOperation()->dropAllReferences();
+    erase();
+    return success();
+  }
+
+  if (matchPattern(enable(), m_One())) {
+    enableMutable().clear();
+    return success();
+  }
+
+  return failure();
 }
 
 //===----------------------------------------------------------------------===//

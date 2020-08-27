@@ -33,6 +33,11 @@ void llhd::NeqOp::getCanonicalizationPatterns(OwningRewritePatternList &results,
   results.insert<BooleanNeqToXor>(context);
 }
 
+// void llhd::ShrOp::getCanonicalizationPatterns(OwningRewritePatternList &results,
+//                                               MLIRContext *context) {
+//   results.insert<ShrOpConversion>(context);
+// }
+
 void llhd::DynExtractSliceOp::getCanonicalizationPatterns(
     OwningRewritePatternList &results, MLIRContext *context) {
   results.insert<DynExtractSliceWithConstantOpStart,

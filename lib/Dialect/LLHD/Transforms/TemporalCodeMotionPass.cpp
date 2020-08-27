@@ -23,8 +23,9 @@ static void moveDrvInBlock(DrvOp drvOp, Block *dominator,
 
   // Find sequence of branch decisions and add them as a sequence of
   // instructions to the TR exiting block
-  auto dnf = getBooleanExprFromSourceToTarget(dominator, drvParentBlock);
-  Value finalValue = dnf->buildOperations(builder);
+  // auto dnf = getBooleanExprFromSourceToTarget(dominator, drvParentBlock);
+  // Value finalValue = dnf->buildOperations(builder);
+  Value finalValue = getBooleanExprFromSourceToTargetNonDnf(builder, dominator, drvParentBlock);
 
   if (drvOp.getOperation()->getNumOperands() == 4) {
     finalValue =
@@ -67,29 +68,29 @@ void TemporalCodeMotionPass::runOnOperation() {
   // of the loop (drv, prb, ...)
   // TODO: add support for more TRs and wait terminators to represent FSMs
   if (numTRs > 2) {
-    proc.emitError("More than 2 temporal regions are currently not supported!");
-    signalPassFailure();
+    // proc.emitError("More than 2 temporal regions are currently not supported!");
+    // signalPassFailure();
     return;
   }
 
   bool seenWait = false;
   WalkResult walkResult = proc.walk([&](WaitOp op) -> WalkResult {
     if (seenWait) {
-      return op.emitError("Only one wait operation per process supported!");
+      return failure(); //op.emitError("Only one wait operation per process supported!");
     }
     // Check that the block containing the wait is the only exiting block of
     // that TR
     if (!trAnalysis.hasSingleExitBlock(
             trAnalysis.getBlockTR(op.getOperation()->getBlock()))) {
-      return op.emitError(
-          "Block with wait terinator has to be the only exiting block "
-          "of that temporal region!");
+      return failure(); // op.emitError(
+          // "Block with wait terinator has to be the only exiting block "
+          // "of that temporal region!");
     }
     seenWait = true;
     return WalkResult::advance();
   });
   if (walkResult.wasInterrupted()) {
-    signalPassFailure();
+    // signalPassFailure();
     return;
   }
 
@@ -184,7 +185,8 @@ void TemporalCodeMotionPass::runOnOperation() {
     SmallPtrSet<Block *, 32> workQueue;
     SmallPtrSet<Block *, 32> workDone;
 
-    workQueue.insert(entryBlock);
+    if (entryBlock != exitingBlock)
+      workQueue.insert(entryBlock);
 
     while (!workQueue.empty()) {
       auto iter = workQueue.begin();
