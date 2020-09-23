@@ -11,12 +11,13 @@
 #include "circt/Dialect/LLHD/Transforms/Passes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Dominance.h"
+#include "mlir/Support/LLVM.h"
 
 using namespace mlir;
 using namespace mlir::llhd;
 
 static void moveDrvInBlock(DrvOp drvOp, Block *dominator,
-                           Operation *moveBefore) {
+                           Operation *moveBefore, DenseMap<Block *, Value> &mem) {
   OpBuilder builder(drvOp);
   builder.setInsertionPoint(moveBefore);
   Block *drvParentBlock = drvOp.getOperation()->getBlock();
@@ -25,7 +26,7 @@ static void moveDrvInBlock(DrvOp drvOp, Block *dominator,
   // instructions to the TR exiting block
   // auto dnf = getBooleanExprFromSourceToTarget(dominator, drvParentBlock);
   // Value finalValue = dnf->buildOperations(builder);
-  Value finalValue = getBooleanExprFromSourceToTargetNonDnf(builder, dominator, drvParentBlock);
+  Value finalValue = getBooleanExprFromSourceToTargetNonDnf(builder, dominator, drvParentBlock, mem);
 
   if (drvOp.getOperation()->getNumOperands() == 4) {
     finalValue =
@@ -145,11 +146,14 @@ void TemporalCodeMotionPass::runOnOperation() {
   // Move drive instructions
   //===--------------------------------------------------------------------===//
 
+  DenseMap<Operation*, Block*> drvPos;
+
   // Force a new analysis as we have changed the CFG
   trAnalysis = TemporalRegionAnalysis(proc);
   numTRs = trAnalysis.getNumTemporalRegions();
   OpBuilder builder(proc);
   for (int currTR = 0; currTR < (int)numTRs; ++currTR) {
+    DenseMap<Block *, Value> mem;
     if (trAnalysis.getExitingBlocksInTR(currTR).size() != 1) {
       emitError(proc.getLoc(), "TR has not exactly one exiting block.");
       signalPassFailure();
@@ -162,9 +166,16 @@ void TemporalCodeMotionPass::runOnOperation() {
     DominanceInfo dom(proc);
     Block *dominator = exitingBlock;
 
+    proc.walk([&](DrvOp op) {
+      if (trAnalysis.getBlockTR(op.getOperation()->getBlock()) == currTR) {
+        drvPos.insert(std::make_pair(op, op.getOperation()->getBlock()));
+        dominator = dom.findNearestCommonDominator(
+            dominator, op.getOperation()->getBlock());
+      }
+    });
+
     // Set insertion point before first drv op in exiting block
     exitingBlock->walk([&](DrvOp op) {
-      dominator = dom.findNearestCommonDominator(dominator, op.getOperation()->getBlock());
       builder.setInsertionPoint(op);
       moveBefore = op.getOperation();
       return;
@@ -188,6 +199,7 @@ void TemporalCodeMotionPass::runOnOperation() {
     if (entryBlock != exitingBlock)
       workQueue.insert(entryBlock);
 
+
     while (!workQueue.empty()) {
       auto iter = workQueue.begin();
       Block *block = *iter;
@@ -195,7 +207,7 @@ void TemporalCodeMotionPass::runOnOperation() {
       workDone.insert(block);
 
       block->walk([&](DrvOp op) {
-        moveDrvInBlock(op, dominator, moveBefore);
+        moveDrvInBlock(op, dominator, moveBefore, mem);
       });
 
       for (Block *succ : block->getSuccessors()) {
@@ -221,6 +233,7 @@ void TemporalCodeMotionPass::runOnOperation() {
   // Coalesce multiple drives to the same signal
   //===--------------------------------------------------------------------===//
 
+  DominanceInfo dom(proc);
   for (int currTR = 0; currTR < (int)numTRs; ++currTR) {
     if (trAnalysis.getExitingBlocksInTR(currTR).size() != 1) {
       emitError(proc.getLoc(), "TR has not exactly one exiting block.");
@@ -238,10 +251,15 @@ void TemporalCodeMotionPass::runOnOperation() {
         if (op.enable()) {
           // Multiplex value to be driven
           if (op.value() != sigToDrv[sigTimePair].value()) {
-          Value muxValue = 
-              builder.create<SelectOp>(op.getLoc(), op.enable(), op.value(),
-                                       sigToDrv.lookup(sigTimePair).value());
-          op.valueMutable().assign(muxValue);
+            Block *dominator = dom.findNearestCommonDominator(
+                drvPos[op], drvPos[sigToDrv[sigTimePair]]);
+            Value condition = getBooleanExprFromSourceToTargetNonDnf(
+                builder, dominator, drvPos[op]);
+            drvPos[op] = dominator;
+            Value muxValue =
+                builder.create<SelectOp>(op.getLoc(), condition, op.value(),
+                                         sigToDrv.lookup(sigTimePair).value());
+            op.valueMutable().assign(muxValue);
           }
           // Take the disjunction of the enable conditions
           if (sigToDrv[sigTimePair].enable()) {

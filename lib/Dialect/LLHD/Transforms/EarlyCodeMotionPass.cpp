@@ -9,6 +9,9 @@
 #include "circt/Dialect/LLHD/Transforms/Passes.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Support/LLVM.h"
+#include <algorithm>
+#include <utility>
 
 using namespace mlir;
 
@@ -20,11 +23,12 @@ struct EarlyCodeMotionPass
 } // namespace
 
 /// Calculate intersection of two vectors, returns a new vector
+/// Assumes the intput vectors are sorted!!!
 static SmallVector<Block *, 8> intersection(SmallVectorImpl<Block *> &v1,
                                             SmallVectorImpl<Block *> &v2) {
   SmallVector<Block *, 8> res;
-  std::sort(v1.begin(), v1.end());
-  std::sort(v2.begin(), v2.end());
+  // std::sort(v1.begin(), v1.end());
+  // std::sort(v2.begin(), v2.end());
 
   std::set_intersection(v1.begin(), v1.end(), v2.begin(), v2.end(),
                         std::back_inserter(res));
@@ -39,6 +43,19 @@ void EarlyCodeMotionPass::runOnOperation() {
   DenseMap<Block *, unsigned> entryDistance;
   SmallPtrSet<Block *, 32> workDone;
   SmallPtrSet<Block *, 32> workPending;
+
+  DenseMap<Block *, SmallVector<Block*, 64>> blockDom;
+
+  for (Block &b1 : proc.getBlocks()) {
+    blockDom.insert(std::make_pair(&b1, SmallVector<Block *, 64>()));
+    for (Block &b2 : proc.getBlocks()) {
+      if (dom.dominates(&b1, &b2))
+        blockDom[&b1].push_back(&b2);
+    }
+    blockDom[&b1].erase(std::unique(blockDom[&b1].begin(), blockDom[&b1].end()), blockDom[&b1].end());
+    std::sort(blockDom[&b1].begin(), blockDom[&b1].end());
+  }
+
 
   Block &entryBlock = proc.body().front();
   workPending.insert(&entryBlock);
@@ -65,7 +82,7 @@ void EarlyCodeMotionPass::runOnOperation() {
       // Delete all blocks in validPlacements that are not common to all
       // operands
       for (Value operand : op.getOperands()) {
-        SmallVector<Block *, 8> dominationSet;
+        // SmallVector<Block *, 8> dominationSet;
         Block *instBlock = nullptr;
         if (BlockArgument arg = operand.dyn_cast<BlockArgument>()) {
           instBlock = arg.getParentBlock();
@@ -73,11 +90,14 @@ void EarlyCodeMotionPass::runOnOperation() {
           instBlock = operand.getDefiningOp()->getBlock();
         }
 
-        for (Block &b : proc.getBlocks()) {
-          if (dom.dominates(instBlock, &b))
-            dominationSet.push_back(&b);
-        }
-        validPlacements = intersection(dominationSet, validPlacements);
+        // for (Block &b : proc.getBlocks()) {
+        //   if (dom.dominates(instBlock, &b))
+        //     dominationSet.push_back(&b);
+        // }
+
+        std::sort(validPlacements.begin(), validPlacements.end());
+        
+        validPlacements = intersection(blockDom[instBlock], validPlacements);
       }
 
       // The probe instruction has to stay in the same temporal region

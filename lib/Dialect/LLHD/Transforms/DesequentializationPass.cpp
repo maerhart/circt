@@ -7,6 +7,7 @@
 #include "PassDetails.h"
 #include "DNFUtil.h"
 #include "TemporalRegions.h"
+#include "circt/Dialect/LLHD/IR/LLHDOps.h"
 #include "circt/Dialect/LLHD/Transforms/Passes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 
@@ -95,6 +96,57 @@ static std::unique_ptr<Dnf> buildDnf(Value value, bool inv) {
     std::unique_ptr<Dnf> rhs = buildDnf(op.rhs(), inv);
     DnfNodeType type = inv ? DnfNodeType::And : DnfNodeType::Or;
     return std::make_unique<Dnf>(type, std::move(lhs), std::move(rhs));
+  } else if (auto op = dyn_cast<llhd::EqOp>(defOp)) {
+    if (!op.lhs().getType().isSignlessInteger(1)) {
+      // Return opaque value
+      return std::make_unique<Dnf>(value, inv);
+    }
+    inv = !inv;
+    Value rhs = op.rhs();
+    Value lhs = op.lhs();
+    std::unique_ptr<Dnf> lhs_pos = buildDnf(lhs, true);
+    std::unique_ptr<Dnf> rhs_pos = buildDnf(rhs, true);
+    std::unique_ptr<Dnf> lhs_neg = buildDnf(lhs, false);
+    std::unique_ptr<Dnf> rhs_neg = buildDnf(rhs, false);
+    if (inv)
+      return std::make_unique<Dnf>(
+          DnfNodeType::Or,
+          std::make_unique<Dnf>(DnfNodeType::And, std::move(lhs_pos),
+                                std::move(rhs_pos)),
+          std::make_unique<Dnf>(DnfNodeType::And, std::move(lhs_neg),
+                                std::move(rhs_neg)));
+    else
+      return std::make_unique<Dnf>(
+          DnfNodeType::Or,
+          std::make_unique<Dnf>(DnfNodeType::And, std::move(lhs_pos),
+                                std::move(rhs_neg)),
+          std::make_unique<Dnf>(DnfNodeType::And, std::move(lhs_neg),
+                                std::move(rhs_pos)));
+  } else if (isa<llhd::NeqOp>(defOp)) {
+    if (!op.lhs().getType().isSignlessInteger(1)) {
+      // Return opaque value
+      return std::make_unique<Dnf>(value, inv);
+    }
+    Value rhs = op.rhs();
+    Value lhs = op.lhs();
+    std::unique_ptr<Dnf> lhs_pos = buildDnf(lhs, true);
+    std::unique_ptr<Dnf> rhs_pos = buildDnf(rhs, true);
+    std::unique_ptr<Dnf> lhs_neg = buildDnf(lhs, false);
+    std::unique_ptr<Dnf> rhs_neg = buildDnf(rhs, false);
+    if (inv)
+      return std::make_unique<Dnf>(
+          DnfNodeType::Or,
+          std::make_unique<Dnf>(DnfNodeType::And, std::move(lhs_pos),
+                                std::move(rhs_pos)),
+          std::make_unique<Dnf>(DnfNodeType::And, std::move(lhs_neg),
+                                std::move(rhs_neg)));
+    else
+      return std::make_unique<Dnf>(
+          DnfNodeType::Or,
+          std::make_unique<Dnf>(DnfNodeType::And, std::move(lhs_pos),
+                                std::move(rhs_neg)),
+          std::make_unique<Dnf>(DnfNodeType::And, std::move(lhs_neg),
+                                std::move(rhs_pos)));
   } else if (isa<llhd::XorOp>(defOp) || isa<CmpIOp>(defOp)) {
     auto xorOp = dyn_cast<llhd::XorOp>(defOp);
     auto cmpiOp = dyn_cast<CmpIOp>(defOp);

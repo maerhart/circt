@@ -77,8 +77,8 @@ struct UnrollLoopPattern : public OpRewritePattern<llhd::ForOp> {
       BlockAndValueMapping mapping;
       OpBuilder builder = rewriter.atBlockEnd(beforeBlock);
       // Create constant for induction var equal to lower bound
-      Value newConst = builder.create<ConstantOp>(
-          op.getLoc(),
+      Value newConst = builder.create<llhd::ConstOp>(
+          op.getLoc(), op.getInductionVar().getType(),
           builder.getIntegerAttr(
               op.getInductionVar().getType(),
               getConstantIntegerValue(op.lowerBound())->getZExtValue()));
@@ -89,8 +89,8 @@ struct UnrollLoopPattern : public OpRewritePattern<llhd::ForOp> {
       rewriter.cloneRegionBefore(op.getLoopBody(), *op.getParentRegion(),
                                  forBlock->getIterator(), mapping);
       // Update the lowerBound of the for loop to old lowerBound + step
-      Value newLowerBound = builder.create<ConstantOp>(
-          op.getLoc(),
+      Value newLowerBound = builder.create<llhd::ConstOp>(
+          op.getLoc(), op.getInductionVar().getType(),
           builder.getIntegerAttr(
               op.getInductionVar().getType(),
               getConstantIntegerValue(op.lowerBound())->getZExtValue() +
@@ -134,8 +134,12 @@ struct UnrollLoopPattern : public OpRewritePattern<llhd::ForOp> {
 void LoopUnrollingPass::runOnOperation() {
   OwningRewritePatternList patterns;
   patterns.insert<UnrollLoopPattern>(getOperation().getContext());
-  applyPatternsAndFoldGreedily(getOperation(), patterns);
   llhd::ProcOp proc = getOperation();
+  // proc.walk([&](llhd::ForOp loop) -> WalkResult {
+  //   applyOpPatternsAndFold(loop, patterns);
+  //   return failure();
+  // });
+  applyPatternsAndFoldGreedily(getOperation(), patterns);
   bool hasLoop = false;
   do {
     hasLoop = false;

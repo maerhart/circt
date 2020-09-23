@@ -97,6 +97,8 @@ std::unique_ptr<Dnf> getBooleanExprFromSourceToTarget(Block *source,
 mlir::Value getBooleanExprFromSourceToTargetNonDnf(OpBuilder &builder, Block *source,
                                                    Block *target);
 
+mlir::Value getBooleanExprFromSourceToTargetNonDnf(OpBuilder &builder, Block *source,
+                                                   Block *target, DenseMap<Block *, Value> &mem);
 } // namespace llhd
 } // namespace mlir
 

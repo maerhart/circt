@@ -36,6 +36,7 @@ struct BlockArgumentToSelectPass
 void BlockArgumentToSelectPass::runOnOperation() {
   llhd::ProcOp proc = getOperation();
   DominanceInfo dom(proc);
+  DenseMap<Block *, Value> mem;
   for (Block &block : proc.getBlocks()) {
     if (block.getNumArguments() == 0)
       continue;
@@ -98,7 +99,7 @@ void BlockArgumentToSelectPass::runOnOperation() {
         // llhd::Dnf dnf =
         //     *llhd::getBooleanExprFromSourceToTarget(domBlock, predBlock);
         // finalValue = dnf.buildOperations(builder);
-        finalValue = llhd::getBooleanExprFromSourceToTargetNonDnf(builder, domBlock, predBlock);
+        finalValue = llhd::getBooleanExprFromSourceToTargetNonDnf(builder, domBlock, predBlock, mem);
       if (auto br = dyn_cast<CondBranchOp>(predBlock->getTerminator())) {
         Value cond = br.condition();
         if (br.falseDest() == &block)

@@ -11,10 +11,12 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/APInt.h"
+#include <algorithm>
 
 using namespace mlir;
 
@@ -89,6 +91,38 @@ void InstanceInliningPass::runOnOperation() {
   std::vector<llhd::RegOp> regs;
 
   // Collect them
+  // entity.walk([&](llhd::DrvOp op) { 
+  //   auto time = op.time()
+  //                   .getDefiningOp<llhd::ConstOp>()
+  //                   .valueAttr()
+  //                   .cast<llhd::TimeAttr>();
+  //   if (time.getTime() != 0 || time.getDelta() != 0 || time.getEps() != 1)
+  //     return;
+
+  //   if (op.signal().isa<BlockArgument>())
+  //     return;
+
+  //   if (auto prb = op.value().getDefiningOp<llhd::PrbOp>()) {
+  //     if (op.signal() == prb.signal()) {
+  //       op.getOperation()->dropAllReferences();
+  //       op.erase();
+  //       return;
+  //     }
+  //     if (prb.signal().isa<BlockArgument>()) {
+  //       op.signal().replaceAllUsesWith(prb.signal());
+  //       op.getOperation()->dropAllReferences();
+  //       op.erase();
+  //       return;
+  //     }
+  //     if (auto sig = prb.signal().getDefiningOp<llhd::SigOp>()) {
+  //       sig.getOperation()->moveAfter(sig.init().getDefiningOp());
+  //       op.signal().replaceAllUsesWith(prb.signal());
+  //       op.getOperation()->dropAllReferences();
+  //       op.erase();
+  //       return;
+  //     }
+  //   }
+  // });
   entity.walk([&](llhd::DrvOp drv) { drives.push_back(drv); });
   entity.walk([&](llhd::RegOp reg) { regs.push_back(reg); });
 
@@ -99,6 +133,14 @@ void InstanceInliningPass::runOnOperation() {
   for (auto reg : regs) {
     reg.getOperation()->moveBefore(entity.getBody().front().getTerminator());
   }
+    // SmallVector<llhd::PrbOp, 32> moved;
+    // entity.walk([&](llhd::PrbOp prbOp) {
+    //   if (std::find(moved.begin(), moved.end(), prbOp) == moved.end()) {
+    //     auto moveBefore = &(*std::find_first_of(entity.getBody().op_begin(), entity.getBody().op_end(), prbOp.result().user_begin(), prbOp.result().user_end(), [](Operation &a, Operation *b){ return &a==b;}));
+    //     prbOp.getOperation()->moveBefore(moveBefore);
+    //     moved.push_back(prbOp);
+    //   }
+    // });
   });
 }
 

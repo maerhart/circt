@@ -5,6 +5,7 @@
 #include "DNFUtil.h"
 #include "circt/Dialect/LLHD/IR/LLHDOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Support/LLVM.h"
 
 using namespace mlir;
 using namespace mlir::llhd;
@@ -405,4 +406,13 @@ mlir::llhd::getBooleanExprFromSourceToTargetNonDnf(OpBuilder &builder, Block *so
   DenseMap<Block *, bool> visited;
 
   return recursiveHelper2(builder, target, source, memorization, visited);
+}
+
+mlir::Value
+mlir::llhd::getBooleanExprFromSourceToTargetNonDnf(OpBuilder &builder, Block *source, Block *target, DenseMap<Block *, Value> &mem) {
+  assert(source->getParent() == target->getParent() &&
+         "Blocks are required to be in the same region!");
+  DenseMap<Block *, bool> visited;
+
+  return recursiveHelper2(builder, target, source, mem, visited);
 }
