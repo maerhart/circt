@@ -9,6 +9,7 @@ set(LIBS
         CIRCTHW
         CIRCTLLHDToLLVM
         CIRCTLLHDSimEngine
+        MLIRReconcileUnrealizedCasts
         )
 
 # llhd-sim fails to link on Windows with MSVC.
