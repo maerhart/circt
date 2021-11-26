@@ -84,6 +84,8 @@ using llvm::SmallDenseMap;
 // Forward declarations of classes to be imported in to the circt namespace.
 namespace mlir {
 class ArrayAttr;
+class AsmParser;
+class AsmPrinter;
 class Attribute;
 class Block;
 class BlockAndValueMapping;
@@ -106,7 +108,6 @@ class FlatSymbolRefAttr;
 class FloatAttr;
 class FunctionType;
 class FusedLoc;
-class Identifier;
 class ImplicitLocOpBuilder;
 class IndexType;
 class InFlightDiagnostic;
@@ -117,6 +118,7 @@ class MemRefType;
 class MLIRContext;
 class ModuleOp;
 class MutableOperandRange;
+class NamedAttribute;
 class NamedAttrList;
 class NoneType;
 class OpAsmDialectInterface;
@@ -167,7 +169,6 @@ struct OpRewritePattern;
 
 using DefaultTypeStorage = TypeStorage;
 using OpAsmSetValueNameFn = function_ref<void(Value, StringRef)>;
-using NamedAttribute = std::pair<Identifier, Attribute>;
 
 namespace OpTrait {}
 
@@ -176,6 +177,8 @@ namespace OpTrait {}
 // Import things we want into our namespace.
 namespace circt {
 using mlir::ArrayAttr;
+using mlir::AsmParser;
+using mlir::AsmPrinter;
 using mlir::Attribute;
 using mlir::Block;
 using mlir::BlockAndValueMapping;
@@ -201,7 +204,6 @@ using mlir::FlatSymbolRefAttr;
 using mlir::FloatAttr;
 using mlir::FunctionType;
 using mlir::FusedLoc;
-using mlir::Identifier;
 using mlir::ImplicitLocOpBuilder;
 using mlir::IndexType;
 using mlir::InFlightDiagnostic;
