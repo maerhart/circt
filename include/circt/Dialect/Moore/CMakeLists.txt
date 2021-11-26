@@ -9,16 +9,4 @@
 ##
 ##===----------------------------------------------------------------------===//
 
-add_subdirectory(Calyx)
-add_subdirectory(Comb)
-add_subdirectory(ESI)
-add_subdirectory(FIRRTL)
-add_subdirectory(FSM)
-add_subdirectory(HW)
-add_subdirectory(Handshake)
-add_subdirectory(LLHD)
-add_subdirectory(Moore)
-add_subdirectory(MSFT)
-add_subdirectory(Seq)
-add_subdirectory(SV)
-add_subdirectory(StaticLogic)
+add_subdirectory(MIR)

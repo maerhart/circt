@@ -42,6 +42,12 @@ class HandshakeDialect;
 class FuncOp;
 } // namespace handshake
 
+namespace moore {
+namespace mir {
+class MIRDialect;
+} // namespace mir
+} // namespace moore
+
 namespace llhd {
 class LLHDDialect;
 } // namespace llhd

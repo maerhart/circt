@@ -131,6 +131,20 @@ def HandshakeToFIRRTL : Pass<"lower-handshake-to-firrtl", "mlir::ModuleOp"> {
 }
 
 //===----------------------------------------------------------------------===//
+// Moore MIR to Comb/HW/LLHD
+//===----------------------------------------------------------------------===//
+
+def ConvertMooreMIRToCore : Pass<"convert-moore-mir-to-core", "mlir::ModuleOp"> {
+  let summary = "Convert Moore MIR to Core";
+  let description = [{
+    This pass translates Moore MIR to the core dialects (Comb/HW/LLHD).
+  }];
+  let constructor = "circt::createConvertMooreMIRToCorePass()";
+  let dependentDialects = ["comb::CombDialect", "hw::HWDialect",
+                           "llhd::LLHDDialect"];
+}
+
+//===----------------------------------------------------------------------===//
 // LLHDToLLVM
 //===----------------------------------------------------------------------===//
 
