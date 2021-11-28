@@ -17,8 +17,8 @@ target_link_libraries(circt-reduce
   CIRCTFSM
   CIRCTHandshake
   CIRCTLLHD
+  CIRCTMoore
   CIRCTMSFT
-  CIRCTMooreMIR
   CIRCTHW
   CIRCTScheduling
   CIRCTSeq

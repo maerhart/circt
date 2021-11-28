@@ -13,18 +13,18 @@
 include "mlir/Interfaces/InferTypeOpInterface.td"
 
 
-def ConstantOp : MIROp<"mir.constant", [NoSideEffect]> {
-  let summary = "A constant of value 'x'";
+def ConstantOp : MIROp<"constant", [NoSideEffect]> {
+  let summary = "A constant value";
 
   let arguments = (ins I32Attr:$value);
-  let results = (outs MooreMIRRValueType:$result);
+  let results = (outs MooreRValueType:$result);
   let assemblyFormat = "$value attr-dict `:` type($result)";
 }
 
-def VariableDeclOp : MIROp<"mir.vardecl", []> {
+def VariableDeclOp : MIROp<"vardecl", []> {
   let summary = "A variable declaration";
 
   let arguments = (ins StrAttr:$name, I32Attr:$init);
-  let results = (outs MooreMIRLValueType:$result);
+  let results = (outs MooreLValueType:$result);
   let assemblyFormat = "$name `=` $init attr-dict `:` type($result)";
 }

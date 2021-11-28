@@ -10,20 +10,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef CIRCT_DIALECT_MOORE_MIR_OPS_H
-#define CIRCT_DIALECT_MOORE_MIR_OPS_H
+#ifndef CIRCT_DIALECT_MOORE_MIROPS_H
+#define CIRCT_DIALECT_MOORE_MIROPS_H
 
-#include "circt/Dialect/Moore/MIR/MIRDialect.h"
-#include "circt/Dialect/Moore/MIR/MIRTypes.h"
-#include "mlir/IR/OpImplementation.h"
-#include "mlir/IR/SymbolTable.h"
-#include "mlir/Interfaces/InferTypeOpInterface.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "circt/Dialect/Moore/MooreDialect.h"
+#include "circt/Dialect/Moore/MooreTypes.h"
 
 #define GET_OP_CLASSES
-#include "circt/Dialect/Moore/MIR/MIREnums.h.inc"
+#include "circt/Dialect/Moore/MooreEnums.h.inc"
 // Clang format shouldn't reorder these headers.
-#include "circt/Dialect/Moore/MIR/MIR.h.inc"
-#include "circt/Dialect/Moore/MIR/MIRStructs.h.inc"
+#include "circt/Dialect/Moore/Moore.h.inc"
+#include "circt/Dialect/Moore/MooreStructs.h.inc"
 
-#endif // CIRCT_DIALECT_MOORE_MIR_OPS_H
+#endif // CIRCT_DIALECT_MOORE_MIROPS_H

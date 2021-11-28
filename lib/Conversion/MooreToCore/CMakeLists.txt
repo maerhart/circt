@@ -1,5 +1,5 @@
-add_circt_conversion_library(CIRCTMooreMIRToCore
-  MooreMIRToCore.cpp
+add_circt_conversion_library(CIRCTMooreToCore
+  MooreToCore.cpp
 
   DEPENDS
   CIRCTConversionPassIncGen
@@ -8,7 +8,7 @@ add_circt_conversion_library(CIRCTMooreMIRToCore
   Core
 
   LINK_LIBS PUBLIC
-  CIRCTMooreMIR
+  CIRCTMoore
   CIRCTLLHD
   CIRCTHW
   CIRCTComb

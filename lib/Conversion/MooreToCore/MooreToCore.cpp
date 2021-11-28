@@ -1,4 +1,4 @@
-//===- MooreMIRToCore.cpp - Moore MIR To Core Conversion Pass -------------===//
+//===- MooreToCore.cpp - Moore To Core Conversion Pass --------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,47 +6,34 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This is the main Moore MIR to Core Conversion Pass Implementation.
+// This is the main Moore to Core Conversion Pass Implementation.
 //
 //===----------------------------------------------------------------------===//
 
-#include "circt/Conversion/MooreMIRToCore.h"
+#include "circt/Conversion/MooreToCore.h"
 #include "../PassDetail.h"
-#include "circt/Dialect/Comb/CombDialect.h"
 #include "circt/Dialect/Comb/CombOps.h"
-#include "circt/Dialect/HW/HWDialect.h"
 #include "circt/Dialect/HW/HWOps.h"
-#include "circt/Dialect/LLHD/IR/LLHDDialect.h"
 #include "circt/Dialect/LLHD/IR/LLHDOps.h"
-#include "circt/Dialect/LLHD/IR/LLHDTypes.h"
-#include "circt/Dialect/Moore/MIR/MIRDialect.h"
-#include "circt/Dialect/Moore/MIR/MIROps.h"
-#include "circt/Support/LLVM.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/Pass/Pass.h"
+#include "circt/Dialect/Moore/MIROps.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 using namespace circt;
-using namespace moore;
-using namespace llhd;
-using namespace hw;
-using namespace comb;
 
 //===----------------------------------------------------------------------===//
-// Moore MIR to Core Conversion Pass
+// Moore to Core Conversion Pass
 //===----------------------------------------------------------------------===//
 
 namespace {
-struct MIRToCorePass : public ConvertMooreMIRToCoreBase<MIRToCorePass> {
+struct MooreToCorePass : public ConvertMooreToCoreBase<MooreToCorePass> {
   void runOnOperation() override;
 };
 } // namespace
 
-/// Create a Moore MIR to core dialects conversion pass.
-std::unique_ptr<OperationPass<ModuleOp>>
-circt::createConvertMooreMIRToCorePass() {
-  return std::make_unique<MIRToCorePass>();
+/// Create a Moore to core dialects conversion pass.
+std::unique_ptr<OperationPass<ModuleOp>> circt::createConvertMooreToCorePass() {
+  return std::make_unique<MooreToCorePass>();
 }
 
 namespace {
@@ -55,33 +42,34 @@ struct ConstantOpConv;
 struct VariableDeclOpConv;
 struct AssignOpConv;
 
-static Type convertMIRType(Type type) {
+static Type convertMooreType(Type type) {
   return TypeSwitch<Type, Type>(type)
-      .Case<mir::IntType>(
-          [](mir::IntType ty) { return IntegerType::get(ty.getContext(), 32); })
-      .Case<mir::RValueType>(
-          [](auto type) { return convertMIRType(type.getRealType()); })
-      .Case<mir::LValueType>([](auto type) {
-        return llhd::SigType::get(convertMIRType(type.getRealType()));
+      .Case<moore::IntType>([](moore::IntType ty) {
+        return IntegerType::get(ty.getContext(), 32);
+      })
+      .Case<moore::RValueType>(
+          [](auto type) { return convertMooreType(type.getNestedType()); })
+      .Case<moore::LValueType>([](auto type) {
+        return llhd::SigType::get(convertMooreType(type.getNestedType()));
       })
       .Default([](Type type) { return type; });
 }
 
-/// This is the main entrypoint for the MIR to Core conversion pass.
-void MIRToCorePass::runOnOperation() {
+/// This is the main entrypoint for the Moore to Core conversion pass.
+void MooreToCorePass::runOnOperation() {
   MLIRContext &context = getContext();
   ModuleOp module = getOperation();
 
   // Mark all MIR ops as illegal such that they get rewritten.
   ConversionTarget target(context);
-  target.addIllegalDialect<mir::MIRDialect>();
-  target.addLegalDialect<HWDialect>();
-  target.addLegalDialect<LLHDDialect>();
-  target.addLegalDialect<CombDialect>();
+  target.addIllegalDialect<moore::MooreDialect>();
+  target.addLegalDialect<hw::HWDialect>();
+  target.addLegalDialect<llhd::LLHDDialect>();
+  target.addLegalDialect<comb::CombDialect>();
   target.addLegalOp<ModuleOp>();
 
   TypeConverter typeConverter;
-  typeConverter.addConversion(convertMIRType);
+  typeConverter.addConversion(convertMooreType);
   RewritePatternSet patterns(&context);
 
   patterns.add<ConstantOpConv, VariableDeclOpConv, AssignOpConv>(typeConverter,
@@ -95,11 +83,11 @@ void MIRToCorePass::runOnOperation() {
 // Operation conversion patterns
 //===----------------------------------------------------------------------===//
 
-struct ConstantOpConv : public OpConversionPattern<mir::ConstantOp> {
+struct ConstantOpConv : public OpConversionPattern<moore::ConstantOp> {
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mir::ConstantOp op, OpAdaptor adaptor,
+  matchAndRewrite(moore::ConstantOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     rewriter.replaceOpWithNewOp<hw::ConstantOp>(op, op.valueAttr());
@@ -107,11 +95,11 @@ struct ConstantOpConv : public OpConversionPattern<mir::ConstantOp> {
   }
 };
 
-struct VariableDeclOpConv : public OpConversionPattern<mir::VariableDeclOp> {
+struct VariableDeclOpConv : public OpConversionPattern<moore::VariableDeclOp> {
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mir::VariableDeclOp op, OpAdaptor adaptor,
+  matchAndRewrite(moore::VariableDeclOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     Type resultType = typeConverter->convertType(op.result().getType());
@@ -123,11 +111,11 @@ struct VariableDeclOpConv : public OpConversionPattern<mir::VariableDeclOp> {
   }
 };
 
-struct AssignOpConv : public OpConversionPattern<mir::AssignOp> {
+struct AssignOpConv : public OpConversionPattern<moore::AssignOp> {
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mir::AssignOp op, OpAdaptor adaptor,
+  matchAndRewrite(moore::AssignOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     Value timeVal =

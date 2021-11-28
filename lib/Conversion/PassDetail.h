@@ -43,9 +43,7 @@ class FuncOp;
 } // namespace handshake
 
 namespace moore {
-namespace mir {
-class MIRDialect;
-} // namespace mir
+class MooreDialect;
 } // namespace moore
 
 namespace llhd {

@@ -14,13 +14,13 @@
 // Assignment Statements
 //===----------------------------------------------------------------------===//
 
-def AssignOp : MIROp<"mir.assign", []> {
+def AssignOp : MIROp<"assign", []> {
   let summary = "Continuous assignment";
   let description = [{
     A SystemVerilog assignment statement 'x = y;'.
     These occur in module scope.  See SV Spec 10.3.2.
   }];
-  let arguments = (ins MooreMIRLValueType:$dest, MooreMIRRValueType:$src);
+  let arguments = (ins MooreLValueType:$dest, MooreRValueType:$src);
   let results = (outs);
   let assemblyFormat = "$dest `,` $src  attr-dict `:` type($dest) `,` type($src)";
 }
