@@ -22,11 +22,11 @@ include "circt/Dialect/Moore/MooreDialect.td"
 
 // Base class for the operations in this dialect.
 class MooreOp<string mnemonic, list<OpTrait> traits = []> :
-    Op<MooreDialect, mnemonic, traits>;
+  Op<MooreDialect, mnemonic, traits>;
 
 // Base class for the MIR operations in this dialect.
 class MIROp<string mnemonic, list<OpTrait> traits = []> :
-    MooreOp<"mir." # mnemonic, traits>;
+  MooreOp<"mir." # mnemonic, traits>;
 
 include "circt/Dialect/Moore/MooreAttributesImpl.td"
 include "circt/Dialect/Moore/MooreAttributes.td"

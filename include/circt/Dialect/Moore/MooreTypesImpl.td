@@ -37,6 +37,6 @@ def RValueTypeImpl : WrapperTypeBase<"RValue", "rvalue">;
 
 def IntTypeImpl : MooreType<"Int"> {
   let summary = "System-Verilog int type";
-  let mnemonic = "int";
+  let mnemonic = "sv.int";
   let assemblyFormat = "";
 }

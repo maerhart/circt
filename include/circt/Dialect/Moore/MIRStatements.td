@@ -22,5 +22,7 @@ def AssignOp : MIROp<"assign", []> {
   }];
   let arguments = (ins MooreLValueType:$dest, MooreRValueType:$src);
   let results = (outs);
-  let assemblyFormat = "$dest `,` $src  attr-dict `:` type($dest) `,` type($src)";
+  let assemblyFormat = [{
+    $dest `,` $src  attr-dict `:` type($dest) `,` type($src)
+  }];
 }
