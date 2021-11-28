@@ -1,4 +1,4 @@
-//===- MIRAttributesImpl.td - Moore MIR attributes impl ----*- tablegen -*-===//
+//===- MooreDialect.cpp - Implement the Moore dialect ---------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,13 +6,28 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Attribute implementations for the Moore MIR dialect.
+// This file implements the Moore dialect.
 //
 //===----------------------------------------------------------------------===//
 
-class MooreMIRAttribute<string name> : AttrDef<MIRDialect, name> { }
+#include "circt/Dialect/Moore/MIROps.h"
+
+using namespace circt;
+using namespace circt::moore;
 
 //===----------------------------------------------------------------------===//
-// Integer atom types
+// Dialect specification.
 //===----------------------------------------------------------------------===//
 
+void MooreDialect::initialize() {
+  // Register types.
+  registerTypes();
+
+  // Register operations.
+  addOperations<
+#define GET_OP_LIST
+#include "circt/Dialect/Moore/Moore.cpp.inc"
+      >();
+}
+
+#include "circt/Dialect/Moore/MooreDialect.cpp.inc"

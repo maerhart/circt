@@ -1,12 +1,19 @@
-##===- CMakeLists.txt - ---------------------------------------*- cmake -*-===//
-##
-## Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-## See https://llvm.org/LICENSE.txt for license information.
-## SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-##
-##===----------------------------------------------------------------------===//
-##
-##
-##===----------------------------------------------------------------------===//
+add_circt_dialect(Moore moore)
+add_circt_doc(Moore -gen-dialect-doc Moore Dialects/)
 
-add_subdirectory(MIR)
+set(LLVM_TARGET_DEFINITIONS Moore.td)
+
+mlir_tablegen(MooreEnums.h.inc -gen-enum-decls)
+mlir_tablegen(MooreEnums.cpp.inc -gen-enum-defs)
+add_public_tablegen_target(CIRCTMooreEnumsIncGen)
+add_dependencies(circt-headers CIRCTMooreEnumsIncGen)
+
+mlir_tablegen(MooreStructs.h.inc -gen-struct-attr-decls)
+mlir_tablegen(MooreStructs.cpp.inc -gen-struct-attr-defs)
+add_public_tablegen_target(CIRCTMooreStructsIncGen)
+add_dependencies(circt-headers CIRCTMooreStructsIncGen)
+
+mlir_tablegen(MooreAttributes.h.inc -gen-attrdef-decls)
+mlir_tablegen(MooreAttributes.cpp.inc -gen-attrdef-defs)
+add_public_tablegen_target(CIRCTMooreAttributesIncGen)
+add_dependencies(circt-headers CIRCTMooreAttributesIncGen)

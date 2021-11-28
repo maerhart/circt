@@ -1,4 +1,4 @@
-//===- MIRDialect.td - Moore MIR dialect definition -------*- tablegen -*-===//
+//===- MooreDialect.td - Moore dialect definition ----------*- tablegen -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,27 +6,27 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This contains the Moore MIR dialect definition to be included in other files.
+// This contains the Moore dialect definition to be included in other files.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef CIRCT_DIALECT_MOORE_MIR_MIRDIALECT
-#define CIRCT_DIALECT_MOORE_MIR_MIRDIALECT
+#ifndef CIRCT_DIALECT_MOORE_MOOREDIALECT
+#define CIRCT_DIALECT_MOORE_MOOREDIALECT
 
-def MIRDialect : Dialect {
+def MooreDialect : Dialect {
   let name = "moore";
 
-  let summary = "Types and operations for Moore MIR dialect";
+  let summary = "Types and operations for Moore dialect";
   let description = [{
-    This dialect defines the `moore.mir` dialect, which represents various
+    This dialect defines the `moore` dialect, which represents various
     SystemVerilog-specific constructs without ambiguities and all types
     resolved.
   }];
-  let cppNamespace = "::circt::moore::mir";
+  let cppNamespace = "::circt::moore";
   let extraClassDeclaration = [{
-    /// Register all Moore MIR types.
+    /// Register all Moore types.
     void registerTypes();
   }];
 }
 
-#endif // CIRCT_DIALECT_MOORE_MIR_MIRDIALECT
+#endif // CIRCT_DIALECT_MOORE_MOOREDIALECT

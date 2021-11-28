@@ -25,8 +25,8 @@ target_link_libraries(circt-opt
   CIRCTLLHD
   CIRCTLLHDToLLVM
   CIRCTLLHDTransforms
-  CIRCTMooreMIR
-  CIRCTMooreMIRToCore
+  CIRCTMoore
+  CIRCTMooreToCore
   CIRCTMSFT
   CIRCTHW
   CIRCTHWToLLHD

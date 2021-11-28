@@ -1,4 +1,4 @@
-//===- MIRAttributes.td - Moore MIR attribute definitions --*- tablegen -*-===//
+//===- MooreAttributes.td - Moore attribute definitions ----*- tablegen -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,14 +6,14 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Attributes for the Moore MIR dialect. Includable in other dialects.
+// Attributes for the Moore dialect. Includable in other dialects.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef CIRCT_DIALECT_MOORE_MIR_MIRATTRIBUTES
-#define CIRCT_DIALECT_MOORE_MIR_MIRATTRIBUTES
+#ifndef CIRCT_DIALECT_MOORE_MOOREATTRIBUTES
+#define CIRCT_DIALECT_MOORE_MOOREATTRIBUTES
 
-include "circt/Dialect/Moore/MIR/MIRDialect.td"
+include "circt/Dialect/Moore/MooreDialect.td"
 
 
-#endif // CIRCT_DIALECT_MOORE_MIR_MIRATTRIBUTES
+#endif // CIRCT_DIALECT_MOORE_MOOREATTRIBUTES
