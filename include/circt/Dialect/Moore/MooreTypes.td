@@ -38,7 +38,7 @@ def MooreRValueType : MooreRValueTypeOf<[AnyType]>;
 //===----------------------------------------------------------------------===//
 
 def MooreIntType : DialectType<MooreDialect,
-    CPred<"$_self.isa<moore::IntType>()">,
-    "an SystemVerilog int", "::circt::moore::IntType">;
+  CPred<"$_self.isa<moore::IntType>()">,
+  "an SystemVerilog int", "::circt::moore::IntType">;
 
 #endif // CIRCT_DIALECT_MOORE_MOORETYPES
