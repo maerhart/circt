@@ -38,7 +38,18 @@ def MooreRValueType : MooreRValueTypeOf<[AnyType]>;
 //===----------------------------------------------------------------------===//
 
 def MooreIntType : DialectType<MooreDialect,
-  CPred<"$_self.isa<moore::IntType>()">,
-  "an SystemVerilog int", "::circt::moore::IntType">;
+  CPred<"$_self.isa<moore::IntType>()">, "an SystemVerilog int", "::circt::moore::IntType">,
+  BuildableType<"moore::IntType::get($_builder.getContext())">;
+
+//===----------------------------------------------------------------------===//
+// Type groupings
+//===----------------------------------------------------------------------===//
+
+def MooreIntegralType : AnyTypeOf<[MooreIntType]>;
+def MooreBoolRValueType : MooreRValueTypeOf<[MooreIntType]>,
+  BuildableType<"moore::RValueType::get(moore::IntType::get($_builder.getContext()))">;
+// TODO:
+def MooreRealType : AnyTypeOf<[MooreIntType]>;
+def MooreNumericType : AnyTypeOf<[MooreIntegralType, MooreRealType]>;
 
 #endif // CIRCT_DIALECT_MOORE_MOORETYPES

@@ -16,6 +16,31 @@
 using namespace circt;
 using namespace circt::moore;
 
+template <typename Ty>
+static ParseResult parseValueType(OpAsmParser &p, Type &rValueType) {
+  Type type;
+  if (p.parseType(type))
+    return p.emitError(p.getCurrentLocation(), "Expected type");
+  rValueType = Ty::get(type);
+  return success();
+}
+
+static ParseResult parseRValueType(OpAsmParser &p, Type &rValueType) {
+  return parseValueType<RValueType>(p, rValueType);
+}
+
+static void printRValueType(OpAsmPrinter &p, Operation *, Type rValueType) {
+  p.printType(rValueType.cast<RValueType>().getNestedType());
+}
+
+static ParseResult parseLValueType(OpAsmParser &p, Type &rValueType) {
+  return parseValueType<LValueType>(p, rValueType);
+}
+
+static void printLValueType(OpAsmPrinter &p, Operation *, Type rValueType) {
+  p.printType(rValueType.cast<LValueType>().getNestedType());
+}
+
 //===----------------------------------------------------------------------===//
 // TableGen generated logic.
 //===----------------------------------------------------------------------===//
