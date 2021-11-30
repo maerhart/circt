@@ -2,6 +2,7 @@ add_circt_dialect_library(CIRCTMoore
   MooreDialect.cpp
   MooreTypes.cpp
   MIROps.cpp
+  SVTypes.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${CIRCT_MAIN_INCLUDE_DIR}/circt/Dialect/Moore
@@ -17,6 +18,6 @@ add_circt_dialect_library(CIRCTMoore
 
   LINK_LIBS PUBLIC
   MLIRIR
-   )
+)
 
 add_dependencies(circt-headers MLIRMooreIncGen)

@@ -10,10 +10,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "circt/Dialect/Moore/MIR/SVTypes.h"
-#include "circt/Dialect/Moore/MIR/MIRDialect.h"
+#include "circt/Dialect/Moore/SVTypes.h"
+#include "circt/Dialect/Moore/MooreDialect.h"
 
+#include "circt/Support/LLVM.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
@@ -129,3 +131,9 @@ struct PackedTypeStorage : TypeStorage {
 } // namespace detail
 } // namespace moore
 } // namespace circt
+
+LogicalResult printPackedType(PackedType type, DialectAsmPrinter &p) {
+  p << "packed<";
+
+  p << ">";
+}

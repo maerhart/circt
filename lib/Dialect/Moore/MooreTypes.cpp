@@ -12,7 +12,9 @@
 
 #include "circt/Dialect/Moore/MooreTypes.h"
 #include "circt/Dialect/Moore/MooreDialect.h"
+#include "circt/Dialect/Moore/SVTypes.h"
 
+#include "circt/Support/LLVM.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -43,7 +45,13 @@ Type MooreDialect::parseType(DialectAsmParser &parser) const {
 
 /// Print a type registered to this dialect
 void MooreDialect::printType(Type type, DialectAsmPrinter &printer) const {
-  if (succeeded(generatedTypePrinter(type, printer)))
+  if (succeeded(TypeSwitch<Type, LogicalResult>(type)
+                    .Case<PackedType>([&](PackedType packedTy) {
+                      return printPackedType(packedTy, printer);
+                    })
+                    .Default([&](auto ty) {
+                      return generatedTypePrinter(type, printer);
+                    })))
     return;
   llvm_unreachable("unexpected 'moore' type kind");
 }
