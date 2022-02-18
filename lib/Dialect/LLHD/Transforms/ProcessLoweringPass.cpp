@@ -39,8 +39,7 @@ static LogicalResult isProcValidToLower(llhd::ProcessOp op) {
 
   if (numBlocks == 1) {
     if (!isa<llhd::HaltOp>(op.getBody().back().getTerminator()))
-      return op.emitOpError("during process-lowering: entry block is required "
-                            "to be terminated by llhd.halt");
+      return failure();
     return success();
   }
 
@@ -49,20 +48,15 @@ static LogicalResult isProcValidToLower(llhd::ProcessOp op) {
     Block &last = op.getBody().back();
 
     if (!last.getArguments().empty())
-      return op.emitOpError(
-          "during process-lowering: the second block (containing the "
-          "llhd.wait) is not allowed to have arguments");
+      return failure();
 
     if (!isa<cf::BranchOp>(first.getTerminator()))
-      return op.emitOpError("during process-lowering: the first block has to "
-                            "be terminated by a cf.br operation");
+      return failure();
 
     if (auto wait = dyn_cast<llhd::WaitOp>(last.getTerminator())) {
       // No optional time argument is allowed
       if (wait.getTime())
-        return wait.emitOpError(
-            "during process-lowering: llhd.wait terminators with optional time "
-            "argument cannot be lowered to structural LLHD");
+        return failure();
 
       SmallVector<Value> observedSignals;
       for (Value obs : wait.getObserved())
@@ -88,15 +82,10 @@ static LogicalResult isProcValidToLower(llhd::ProcessOp op) {
       return failure(result.wasInterrupted());
     }
 
-    return op.emitOpError("during process-lowering: the second block must be "
-                          "terminated by llhd.wait");
+    return failure();
   }
 
-  return op.emitOpError(
-      "process-lowering only supports processes with either one basic block "
-      "terminated by a llhd.halt operation or two basic blocks where the first "
-      "one contains a cf.br terminator and the second one is terminated by a "
-      "llhd.wait operation");
+  return failure();
 }
 
 void ProcessLoweringPass::runOnOperation() {
@@ -105,7 +94,7 @@ void ProcessLoweringPass::runOnOperation() {
   WalkResult result = module.walk([](llhd::ProcessOp op) -> WalkResult {
     // Check invariants
     if (failed(isProcValidToLower(op)))
-      return WalkResult::interrupt();
+      return WalkResult::advance();
 
     // In the case that wait is used to suspend the process, we need to merge
     // the two blocks as we needed the second block to have a target for wait

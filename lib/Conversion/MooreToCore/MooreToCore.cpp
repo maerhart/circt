@@ -15,6 +15,7 @@
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/LLHD/IR/LLHDOps.h"
 #include "circt/Dialect/Moore/MooreOps.h"
+#include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -1229,6 +1230,15 @@ static void addGenericLegality(ConversionTarget &target) {
   });
 }
 
+template <typename Op>
+static void addSCFLegality(ConversionTarget &target) {
+  target.addDynamicallyLegalOp<Op>([](Op op) {
+    return !hasMooreType(op->getOperands()) &&
+           !hasMooreType(op->getResults()) &&
+           !op->template getParentOfType<llhd::ProcessOp>();
+  });
+}
+
 static void populateLegality(ConversionTarget &target) {
   target.addIllegalDialect<MooreDialect>();
   target.addLegalDialect<mlir::BuiltinDialect>();
@@ -1238,8 +1248,8 @@ static void populateLegality(ConversionTarget &target) {
 
   addGenericLegality<cf::CondBranchOp>(target);
   addGenericLegality<cf::BranchOp>(target);
-  addGenericLegality<scf::IfOp>(target);
-  addGenericLegality<scf::YieldOp>(target);
+  addSCFLegality<scf::IfOp>(target);
+  addSCFLegality<scf::YieldOp>(target);
   addGenericLegality<func::CallOp>(target);
   addGenericLegality<func::ReturnOp>(target);
   addGenericLegality<UnrealizedConversionCastOp>(target);
@@ -1312,9 +1322,11 @@ static void populateTypeConversion(TypeConverter &typeConverter) {
       [&](mlir::OpBuilder &builder, mlir::Type resultType,
           mlir::ValueRange inputs,
           mlir::Location loc) -> std::optional<mlir::Value> {
-        if (inputs.size() != 1)
+        if (inputs.size() != 1 || !inputs[0])
           return std::nullopt;
-        return inputs[0];
+        return builder
+            .create<UnrealizedConversionCastOp>(loc, resultType, inputs[0])
+            .getResult(0);
       });
 }
 
@@ -1390,6 +1402,8 @@ static void populateOpConversion(RewritePatternSet &patterns,
   // clang-format on
   mlir::populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
       patterns, typeConverter);
+
+  mlir::populateSCFToControlFlowConversionPatterns(patterns);
 
   hw::populateHWModuleLikeTypeConversionPattern(
       hw::HWModuleOp::getOperationName(), patterns, typeConverter);
