@@ -128,4 +128,10 @@ def TemporalCodeMotion : Pass<"llhd-temporal-code-motion", "hw::HWModuleOp"> {
   let constructor = "circt::llhd::createTemporalCodeMotionPass()";
 }
 
+def BlockArgumentToMux : Pass<"llhd-block-argument-to-mux", "hw::HWModuleOp"> {
+  let summary = "replace block arguments with muxes";
+
+  let dependentDialects = ["hw::HWDialect", "comb::CombDialect"];
+}
+
 #endif // CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES
