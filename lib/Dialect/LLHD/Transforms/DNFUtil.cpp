@@ -3,9 +3,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "DNFUtil.h"
-#include "circt/Dialect/LLHD/IR/LLHDOps.h"
-#include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/HW/HWOps.h"
+#include "circt/Dialect/LLHD/IR/LLHDOps.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Support/LLVM.h"
 
@@ -13,7 +13,7 @@ using namespace mlir;
 using namespace circt;
 
 circt::llhd::Dnf::Dnf(DnfNodeType ty, std::unique_ptr<Dnf> lhs,
-                     std::unique_ptr<Dnf> rhs)
+                      std::unique_ptr<Dnf> rhs)
     : type(ty) {
   assert(lhs && rhs && "Passed expressions should not be a nullptr!");
 
@@ -374,7 +374,8 @@ static mlir::Value recursiveHelper2(OpBuilder &builder, Block *curr,
     return mem[curr];
 
   if (curr == source || curr->getPredecessors().empty()) {
-    Value init = builder.create<hw::ConstantOp>(loc, builder.getI1Type(), builder.getBoolAttr(true));
+    Value init = builder.create<hw::ConstantOp>(loc, builder.getI1Type(),
+                                                builder.getBoolAttr(true));
     mem.insert(std::make_pair(curr, init));
     return mem[curr];
   }
@@ -385,7 +386,9 @@ static mlir::Value recursiveHelper2(OpBuilder &builder, Block *curr,
       if (!runner)
         runner = recursiveHelper2(builder, *iter, source, mem, visited);
       else
-        runner = builder.create<comb::OrOp>(loc, runner, recursiveHelper2(builder, *iter, source, mem, visited));
+        runner = builder.create<comb::OrOp>(
+            loc, runner,
+            recursiveHelper2(builder, *iter, source, mem, visited));
     } else {
       auto condBr = cast<cf::CondBranchOp>((*iter)->getTerminator());
       Value cond = condBr.getCondition();
@@ -393,7 +396,8 @@ static mlir::Value recursiveHelper2(OpBuilder &builder, Block *curr,
         Value allset = builder.create<hw::ConstantOp>(loc, cond.getType(), -1);
         cond = builder.create<comb::XorOp>(loc, cond, allset);
       }
-      Value tmp = builder.createOrFold<comb::AndOp>(loc, cond, recursiveHelper2(builder, *iter, source, mem, visited));
+      Value tmp = builder.createOrFold<comb::AndOp>(
+          loc, cond, recursiveHelper2(builder, *iter, source, mem, visited));
       if (!runner)
         runner = tmp;
       else
@@ -403,8 +407,8 @@ static mlir::Value recursiveHelper2(OpBuilder &builder, Block *curr,
   mem.insert(std::make_pair(curr, runner));
   return mem[curr];
 }
-mlir::Value
-circt::llhd::getBooleanExprFromSourceToTargetNonDnf(OpBuilder &builder, Block *source, Block *target) {
+mlir::Value circt::llhd::getBooleanExprFromSourceToTargetNonDnf(
+    OpBuilder &builder, Block *source, Block *target) {
   assert(source->getParent() == target->getParent() &&
          "Blocks are required to be in the same region!");
   DenseMap<Block *, Value> memorization;
@@ -413,8 +417,9 @@ circt::llhd::getBooleanExprFromSourceToTargetNonDnf(OpBuilder &builder, Block *s
   return recursiveHelper2(builder, target, source, memorization, visited);
 }
 
-mlir::Value
-circt::llhd::getBooleanExprFromSourceToTargetNonDnf(OpBuilder &builder, Block *source, Block *target, DenseMap<Block *, Value> &mem) {
+mlir::Value circt::llhd::getBooleanExprFromSourceToTargetNonDnf(
+    OpBuilder &builder, Block *source, Block *target,
+    DenseMap<Block *, Value> &mem) {
   assert(source->getParent() == target->getParent() &&
          "Blocks are required to be in the same region!");
   DenseMap<Block *, bool> visited;

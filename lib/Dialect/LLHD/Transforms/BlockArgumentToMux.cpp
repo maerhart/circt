@@ -11,11 +11,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PassDetails.h"
 #include "DNFUtil.h"
-#include "circt/Dialect/LLHD/Transforms/Passes.h"
-#include "circt/Dialect/HW/HWOps.h"
+#include "PassDetails.h"
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/HW/HWOps.h"
+#include "circt/Dialect/LLHD/Transforms/Passes.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/Support/LLVM.h"
@@ -29,7 +29,7 @@ static MutableOperandRange getDestOperands(Block *block, Block *succ) {
 
   if (auto op = dyn_cast<cf::CondBranchOp>(block->getTerminator()))
     return succ == op.getTrueDest() ? op.getTrueDestOperandsMutable()
-                                 : op.getFalseDestOperandsMutable();
+                                    : op.getFalseDestOperandsMutable();
 
   return cast<llhd::WaitOp>(block->getTerminator()).destOpsMutable();
 }
@@ -49,8 +49,8 @@ void BlockArgumentToMuxPass::runOnOperation() {
     if (block.getNumArguments() == 0)
       continue;
 
-    // If any of the passed block arguments is not defined in a block that dominates this block, don't convert the block argument to a select
-
+    // If any of the passed block arguments is not defined in a block that
+    // dominates this block, don't convert the block argument to a select
 
     // Find the nearest common dominator of all predecessors.
     // If a block dominates all predecessors of a block, it also dominates this
@@ -60,13 +60,19 @@ void BlockArgumentToMuxPass::runOnOperation() {
     bool doesNotDominate = false;
     for (Block *pred : block.getPredecessors()) {
       domBlock = dom.findNearestCommonDominator(domBlock, pred);
-      // Check if the predecessor has a conditional branch where both destinations are the same block but with different block arguments, then replace it with a select for each argument and a unconditional branch
+      // Check if the predecessor has a conditional branch where both
+      // destinations are the same block but with different block arguments,
+      // then replace it with a select for each argument and a unconditional
+      // branch
       if (auto br = dyn_cast<cf::CondBranchOp>(pred->getTerminator())) {
         if (br.getTrueDest() == &block && br.getFalseDest() == &block) {
           SmallVector<Value, 4> newArgs;
           builder.setInsertionPoint(br);
-          for (auto &&args : llvm::zip(br.getTrueDestOperands(), br.getFalseDestOperands())) {
-            newArgs.push_back(builder.create<comb::MuxOp>(br.getLoc(), br.getCondition(), std::get<0>(args), std::get<1>(args)));
+          for (auto &&args :
+               llvm::zip(br.getTrueDestOperands(), br.getFalseDestOperands())) {
+            newArgs.push_back(builder.create<comb::MuxOp>(
+                br.getLoc(), br.getCondition(), std::get<0>(args),
+                std::get<1>(args)));
           }
           builder.create<cf::BranchOp>(br.getLoc(), br.getTrueDest(), newArgs);
           br.getOperation()->dropAllReferences();
@@ -80,15 +86,15 @@ void BlockArgumentToMuxPass::runOnOperation() {
         // if (arg.isa<BlockArgument>())
         //   doesNotDominate = true;
       }
-      for (auto &&item : llvm::zip((OperandRange)getDestOperands(pred, &block), block.getArguments())) {
-        if(std::get<0>(item) == std::get<1>(item))
-        doesNotDominate = true;
+      for (auto &&item : llvm::zip((OperandRange)getDestOperands(pred, &block),
+                                   block.getArguments())) {
+        if (std::get<0>(item) == std::get<1>(item))
+          doesNotDominate = true;
       }
       // if passed argument is the block argument to be erased itself
-
     }
     if (doesNotDominate)
-     continue;
+      continue;
     builder.setInsertionPointToStart(&block);
 
     // Create an array which stores the replacement values for the current block
@@ -107,17 +113,19 @@ void BlockArgumentToMuxPass::runOnOperation() {
         // llhd::Dnf dnf =
         //     *llhd::getBooleanExprFromSourceToTarget(domBlock, predBlock);
         // finalValue = dnf.buildOperations(builder);
-        finalValue = llhd::getBooleanExprFromSourceToTargetNonDnf(builder, domBlock, predBlock, mem);
-      if (auto br = dyn_cast<cf::CondBranchOp>(predBlock->getTerminator())) {
-        Value cond = br.getCondition();
-        if (br.getFalseDest() == &block) {
-          Value allset = builder.create<hw::ConstantOp>(proc.getLoc(), cond.getType(), -1);
-          cond = builder.create<comb::XorOp>(proc.getLoc(), cond, allset);
+        finalValue = llhd::getBooleanExprFromSourceToTargetNonDnf(
+            builder, domBlock, predBlock, mem);
+        if (auto br = dyn_cast<cf::CondBranchOp>(predBlock->getTerminator())) {
+          Value cond = br.getCondition();
+          if (br.getFalseDest() == &block) {
+            Value allset = builder.create<hw::ConstantOp>(proc.getLoc(),
+                                                          cond.getType(), -1);
+            cond = builder.create<comb::XorOp>(proc.getLoc(), cond, allset);
+          }
+          finalValue = builder.createOrFold<comb::AndOp>(proc.getLoc(),
+                                                         finalValue, cond);
         }
-        finalValue = builder.createOrFold<comb::AndOp>(proc.getLoc(), finalValue, cond);
       }
-      }
-
 
       // Create the select operations to select the value depending on the
       // predecessor. We use the condition created above to do the selection
@@ -128,8 +136,8 @@ void BlockArgumentToMuxPass::runOnOperation() {
           continue;
         }
         if (finalValue && arg)
-          valToMux[i] = builder.create<comb::MuxOp>(proc.getLoc(), finalValue, arg,
-                                                 valToMux[i]);
+          valToMux[i] = builder.create<comb::MuxOp>(proc.getLoc(), finalValue,
+                                                    arg, valToMux[i]);
       }
     }
 
