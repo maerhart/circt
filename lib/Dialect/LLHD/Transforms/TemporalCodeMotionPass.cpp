@@ -1,10 +1,17 @@
 //===- TemporalCodeMotionPass.cpp - Implement Temporal Code Motion Pass ---===//
 //
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
 // Implement Pass to move all signal drives in a unique exiting block per
 // temporal region and coalesce drives to the same signal.
 //
 //===----------------------------------------------------------------------===//
 
+#include "LLHDTransformsUtil.h"
 #include "TemporalRegions.h"
 #include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWOps.h"
@@ -30,64 +37,6 @@ namespace llhd {
 using namespace circt;
 using namespace mlir;
 
-/// Explore all paths from the 'driveBlock' to the 'dominator' block and
-/// construct a boolean expression at the current insertion point of 'builder'
-/// to represent all those paths.
-static Value
-getBranchDecisionsFromDominatorToTarget(OpBuilder &builder, Block *driveBlock,
-                                        Block *dominator,
-                                        DenseMap<Block *, Value> &mem) {
-  Location loc = driveBlock->getTerminator()->getLoc();
-  if (mem.count(driveBlock))
-    return mem[driveBlock];
-
-  SmallVector<Block *> worklist;
-  worklist.push_back(driveBlock);
-
-  while (!worklist.empty()) {
-    Block *curr = worklist.back();
-
-    if (curr == dominator || curr->getPredecessors().empty()) {
-      if (!mem.count(curr))
-        mem[curr] = builder.create<hw::ConstantOp>(loc, APInt(1, 1));
-
-      worklist.pop_back();
-      continue;
-    }
-
-    bool addedSomething = false;
-    for (auto *predBlock : curr->getPredecessors()) {
-      if (!mem.count(predBlock)) {
-        worklist.push_back(predBlock);
-        addedSomething = true;
-      }
-    }
-
-    if (addedSomething)
-      continue;
-
-    Value runner = builder.create<hw::ConstantOp>(loc, APInt(1, 0));
-    for (auto *predBlock : curr->getPredecessors()) {
-      if (predBlock->getTerminator()->getNumSuccessors() != 1) {
-        auto condBr = cast<cf::CondBranchOp>(predBlock->getTerminator());
-        Value cond = condBr.getCondition();
-        if (condBr.getFalseDest() == curr) {
-          Value trueVal = builder.create<hw::ConstantOp>(loc, APInt(1, 1));
-          cond = builder.create<comb::XorOp>(loc, cond, trueVal);
-        }
-        Value next = builder.create<comb::AndOp>(loc, mem[predBlock], cond);
-        runner = builder.create<comb::OrOp>(loc, runner, next);
-      } else {
-        runner = builder.create<comb::OrOp>(loc, runner, mem[predBlock]);
-      }
-    }
-    mem[curr] = runner;
-    worklist.pop_back();
-  }
-
-  return mem[driveBlock];
-}
-
 /// More a 'llhd.drv' operation before the 'moveBefore' operation by adjusting
 /// the 'enable' operand.
 static void moveDriveOpBefore(llhd::DrvOp drvOp, Block *dominator,
@@ -99,7 +48,7 @@ static void moveDriveOpBefore(llhd::DrvOp drvOp, Block *dominator,
 
   // Find sequence of branch decisions and add them as a sequence of
   // instructions to the TR exiting block
-  Value finalValue = getBranchDecisionsFromDominatorToTarget(
+  Value finalValue = llhd::getBranchDecisionsFromDominatorToTarget(
       builder, drvParentBlock, dominator, mem);
 
   if (drvOp.getEnable())

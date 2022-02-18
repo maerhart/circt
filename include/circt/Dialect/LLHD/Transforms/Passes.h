@@ -25,6 +25,9 @@ class HWModuleOp;
 namespace llhd {
 class ProcessOp;
 
+#define GEN_PASS_DECL
+#include "circt/Dialect/LLHD/Transforms/Passes.h.inc"
+
 std::unique_ptr<OperationPass<ModuleOp>> createProcessLoweringPass();
 
 std::unique_ptr<OperationPass<ModuleOp>> createFunctionEliminationPass();

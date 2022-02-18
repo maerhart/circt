@@ -1,4 +1,5 @@
 add_circt_dialect_library(CIRCTLLHDTransforms
+  BlockArgumentToMux.cpp
   DesequentializationPass.cpp
   EarlyCodeMotionPass.cpp
   FunctionEliminationPass.cpp
