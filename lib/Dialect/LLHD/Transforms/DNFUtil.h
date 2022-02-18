@@ -25,7 +25,8 @@ struct Dnf {
   Dnf() = delete;
 
   /// Create a copy of a DNF tree
-  Dnf(const Dnf &e) : type(e.type), value(e.value), constant(e.constant), inv(e.inv) {
+  Dnf(const Dnf &e)
+      : type(e.type), value(e.value), constant(e.constant), inv(e.inv) {
     for (auto &child : e.children) {
       children.push_back(std::make_unique<Dnf>(*child));
     }
@@ -96,12 +97,15 @@ struct Dnf {
 std::unique_ptr<Dnf> getBooleanExprFromSourceToTarget(Block *source,
                                                       Block *target);
 
-mlir::Value getBooleanExprFromSourceToTargetNonDnf(OpBuilder &builder, Block *source,
+mlir::Value getBooleanExprFromSourceToTargetNonDnf(OpBuilder &builder,
+                                                   Block *source,
                                                    Block *target);
 
-mlir::Value getBooleanExprFromSourceToTargetNonDnf(OpBuilder &builder, Block *source,
-                                                   Block *target, DenseMap<Block *, Value> &mem);
+mlir::Value
+getBooleanExprFromSourceToTargetNonDnf(OpBuilder &builder, Block *source,
+                                       Block *target,
+                                       DenseMap<Block *, Value> &mem);
 } // namespace llhd
-} // namespace mlir
+} // namespace circt
 
 #endif // DIALECT_LLHD_TRANSFORMS_DNFUTIL_H

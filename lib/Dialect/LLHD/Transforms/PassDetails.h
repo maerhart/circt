@@ -12,9 +12,9 @@
 #ifndef DIALECT_LLHD_TRANSFORMS_PASSDETAILS_H
 #define DIALECT_LLHD_TRANSFORMS_PASSDETAILS_H
 
-#include "circt/Dialect/LLHD/IR/LLHDOps.h"
-#include "circt/Dialect/HW/HWDialect.h"
 #include "circt/Dialect/Comb/CombDialect.h"
+#include "circt/Dialect/HW/HWDialect.h"
+#include "circt/Dialect/LLHD/IR/LLHDOps.h"
 #include "mlir/Pass/Pass.h"
 
 namespace circt {
