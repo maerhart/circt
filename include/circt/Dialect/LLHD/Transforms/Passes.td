@@ -108,4 +108,13 @@ def EarlyCodeMotion : Pass<"llhd-early-code-motion", "llhd::ProcOp"> {
   let constructor = "circt::llhd::createEarlyCodeMotionPass()";
 }
 
+def BlockArgumentToMux : Pass<"llhd-block-argument-to-mux", "llhd::ProcOp"> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let dependentDialects = ["hw::HWDialect", "comb::CombDialect"];
+  let constructor = "circt::llhd::createBlockArgumentToMuxPass()";
+}
+
 #endif // CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES
