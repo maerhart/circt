@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "DNFUtil.h"
 #include "PassDetails.h"
 #include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWOps.h"
@@ -23,16 +22,88 @@
 using namespace mlir;
 using namespace circt;
 
-static MutableOperandRange getDestOperands(Block *block, Block *succ) {
-  if (auto op = dyn_cast<cf::BranchOp>(block->getTerminator()))
+//===----------------------------------------------------------------------===//
+// Helper functions
+//===----------------------------------------------------------------------===//
+
+static MutableOperandRange getDestOperands(Block &block, Block &succ) {
+  if (auto op = dyn_cast<cf::BranchOp>(block.getTerminator()))
     return op.getDestOperandsMutable();
 
-  if (auto op = dyn_cast<cf::CondBranchOp>(block->getTerminator()))
-    return succ == op.getTrueDest() ? op.getTrueDestOperandsMutable()
-                                    : op.getFalseDestOperandsMutable();
+  if (auto op = dyn_cast<cf::CondBranchOp>(block.getTerminator()))
+    return &succ == op.getTrueDest() ? op.getTrueDestOperandsMutable()
+                                     : op.getFalseDestOperandsMutable();
 
-  return cast<llhd::WaitOp>(block->getTerminator()).destOpsMutable();
+  return cast<llhd::WaitOp>(block.getTerminator()).destOpsMutable();
 }
+
+static Value appendCondition(OpBuilder &builder, Block &block, Block &pred,
+                             Value parentCond) {
+  if (auto br = dyn_cast<cf::CondBranchOp>(pred.getTerminator())) {
+    Value cond = br.getCondition();
+    if (br.getFalseDest() == &block) {
+      Value allset = builder.create<hw::ConstantOp>(block.front().getLoc(),
+                                                    cond.getType(), -1);
+      cond = builder.create<comb::XorOp>(block.front().getLoc(), cond, allset);
+    }
+    return builder.create<comb::AndOp>(block.front().getLoc(), parentCond,
+                                       cond);
+  }
+  return parentCond;
+}
+
+static Value pathCollectorDFS(OpBuilder &builder, Block *curr, Block *source,
+                              DenseMap<Block *, Value> &mem,
+                              DenseMap<Block *, bool> &visited) {
+
+  Location loc = curr->getTerminator()->getLoc();
+
+  if (mem.count(curr))
+    return mem[curr];
+
+  if (curr == source || curr->getPredecessors().empty()) {
+    Value init = builder.create<hw::ConstantOp>(loc, builder.getI1Type(), 1);
+    mem.insert(std::make_pair(curr, init));
+    return mem[curr];
+  }
+
+  SmallVector<Value, 8> disjuncts;
+  for (auto *pred : curr->getPredecessors()) {
+    Value parentCond = pathCollectorDFS(builder, pred, source, mem, visited);
+    disjuncts.push_back(appendCondition(builder, *curr, *pred, parentCond));
+  }
+
+  Value result = disjuncts[0];
+  if (disjuncts.size() > 1)
+    result = builder.create<comb::OrOp>(loc, disjuncts[0].getType(), disjuncts);
+
+  mem.insert(std::make_pair(curr, result));
+  return mem[curr];
+}
+
+static Value getSourceToTargetPathsCondition(OpBuilder &builder, Block *source,
+                                             Block *target) {
+  assert(source->getParent() == target->getParent() &&
+         "Blocks are required to be in the same region!");
+  DenseMap<Block *, Value> memoization;
+  DenseMap<Block *, bool> visited;
+
+  return pathCollectorDFS(builder, target, source, memoization, visited);
+}
+
+//===----------------------------------------------------------------------===//
+// Block Argument to Mux Pass
+//
+// This pass assumes that in earlier passes
+//   * operations were moved up in the CFG as far as possible, s.t. they reside
+//     in blocks that dominate blocks with arguments whenever possible (because
+//     inserting a mux requires the passed block arguments to be accessible in
+//     the block with the arguments)
+//   * Loops were completely unrolled (to support above point)
+//
+// The pass still works when above criteria are not met, but likely does not
+// convert all the block arguments.
+//===----------------------------------------------------------------------===//
 
 namespace {
 struct BlockArgumentToMuxPass
@@ -44,25 +115,23 @@ struct BlockArgumentToMuxPass
 void BlockArgumentToMuxPass::runOnOperation() {
   llhd::ProcOp proc = getOperation();
   DominanceInfo dom(proc);
-  DenseMap<Block *, Value> mem;
-  for (Block &block : proc.getBlocks()) {
-    if (block.getNumArguments() == 0)
-      continue;
+  OpBuilder builder(proc);
 
-    // If any of the passed block arguments is not defined in a block that
-    // dominates this block, don't convert the block argument to a select
+  for (Block &block : proc.getBlocks()) {
+    if (block.getNumArguments() == 0 || block.isEntryBlock())
+      continue;
 
     // Find the nearest common dominator of all predecessors.
     // If a block dominates all predecessors of a block, it also dominates this
     // block
-    OpBuilder builder(proc);
     Block *domBlock = &block;
     bool doesNotDominate = false;
     for (Block *pred : block.getPredecessors()) {
       domBlock = dom.findNearestCommonDominator(domBlock, pred);
+
       // Check if the predecessor has a conditional branch where both
-      // destinations are the same block but with different block arguments,
-      // then replace it with a select for each argument and a unconditional
+      // destinations jump to the same block but with different block arguments,
+      // then replace it with a mux for each argument and an unconditional
       // branch
       if (auto br = dyn_cast<cf::CondBranchOp>(pred->getTerminator())) {
         if (br.getTrueDest() == &block && br.getFalseDest() == &block) {
@@ -75,89 +144,62 @@ void BlockArgumentToMuxPass::runOnOperation() {
                 std::get<1>(args)));
           }
           builder.create<cf::BranchOp>(br.getLoc(), br.getTrueDest(), newArgs);
-          br.getOperation()->dropAllReferences();
-          br.getOperation()->erase();
+          br->dropAllReferences();
+          br->erase();
         }
       }
-      // Check for loops
-      for (Value arg : (OperandRange)getDestOperands(pred, &block)) {
-        if (!dom.properlyDominates(arg.getParentBlock(), &block))
+
+      // If the block arguments passed from a predecessor to this block are not
+      // accessible in this block (because they are defined in a block that does
+      // not dominate this block), we cannot insert a mux that needs to refer to
+      // these values in this block. This is often the case when there are still
+      // loops in the CFG.
+      for (Value arg : (OperandRange)getDestOperands(*pred, block)) {
+        if (!dom.properlyDominates(arg.getParentBlock(), &block)) {
           doesNotDominate = true;
-        // if (arg.isa<BlockArgument>())
-        //   doesNotDominate = true;
+          break;
+        }
       }
-      for (auto &&item : llvm::zip((OperandRange)getDestOperands(pred, &block),
-                                   block.getArguments())) {
-        if (std::get<0>(item) == std::get<1>(item))
-          doesNotDominate = true;
-      }
-      // if passed argument is the block argument to be erased itself
     }
+
     if (doesNotDominate)
       continue;
+
     builder.setInsertionPointToStart(&block);
 
     // Create an array which stores the replacement values for the current block
     // arguments of this block and initialize it
-    Value valToMux[block.getNumArguments()];
-    for (unsigned i = 0; i < block.getNumArguments(); i++) {
-      valToMux[i] = Value();
-    }
+    SmallVector<Value, 8> valToMux =
+        (OperandRange)getDestOperands(**block.pred_begin(), block);
 
     // For every predecessor, find the sequence of branch decisions from the
     // nearest common dominator and add them as a sequence of instructions to
     // the TR exiting block
     for (Block *predBlock : block.getPredecessors()) {
-      Value finalValue = Value();
-      if (predBlock != *block.pred_begin()) {
-        // llhd::Dnf dnf =
-        //     *llhd::getBooleanExprFromSourceToTarget(domBlock, predBlock);
-        // finalValue = dnf.buildOperations(builder);
-        finalValue = llhd::getBooleanExprFromSourceToTargetNonDnf(
-            builder, domBlock, predBlock, mem);
-        if (auto br = dyn_cast<cf::CondBranchOp>(predBlock->getTerminator())) {
-          Value cond = br.getCondition();
-          if (br.getFalseDest() == &block) {
-            Value allset = builder.create<hw::ConstantOp>(proc.getLoc(),
-                                                          cond.getType(), -1);
-            cond = builder.create<comb::XorOp>(proc.getLoc(), cond, allset);
-          }
-          finalValue = builder.createOrFold<comb::AndOp>(proc.getLoc(),
-                                                         finalValue, cond);
-        }
-      }
+      // Skip the first predecessor, because this will be the else-case of the
+      // mux that we have already initialized above
+      if (predBlock == *block.pred_begin())
+        continue;
 
-      // Create the select operations to select the value depending on the
-      // predecessor. We use the condition created above to do the selection
-      for (unsigned i = 0; i < block.getNumArguments(); i++) {
-        Value arg = ((OperandRange)getDestOperands(predBlock, &block))[i];
-        if (!valToMux[i]) {
-          valToMux[i] = arg;
-          continue;
-        }
-        if (finalValue && arg)
-          valToMux[i] = builder.create<comb::MuxOp>(proc.getLoc(), finalValue,
-                                                    arg, valToMux[i]);
+      Value tmp = getSourceToTargetPathsCondition(builder, domBlock, predBlock);
+      Value finalValue = appendCondition(builder, block, *predBlock, tmp);
+
+      // Create the mux operations to select the value depending on the
+      // predecessor.
+      for (size_t i = 0; i < valToMux.size(); i++) {
+        Value arg = ((OperandRange)getDestOperands(*predBlock, block))[i];
+        valToMux[i] = builder.create<comb::MuxOp>(proc.getLoc(), finalValue,
+                                                  arg, valToMux[i]);
       }
     }
 
     // Replace the block arguments with the multiplexed values
-    std::vector<unsigned> argsToDelete;
-    for (unsigned i = 0; i < block.getNumArguments(); i++) {
-      if (valToMux[i] && valToMux[i] != block.getArgument(i)) {
-        block.getArgument(i).replaceAllUsesWith(valToMux[i]);
-        argsToDelete.push_back(i);
-      }
-    }
-
-    // Delete the replaced block arguments and also delete the passed operands
-    // in the predecessor blocks
-    std::sort(argsToDelete.begin(), argsToDelete.end(), std::greater<>());
-    for (unsigned arg : argsToDelete) {
+    for (int i = valToMux.size() - 1; i >= 0; i--) {
+      block.getArgument(i).replaceAllUsesWith(valToMux[i]);
       for (Block *pred : block.getPredecessors()) {
-        getDestOperands(pred, &block).erase(arg);
+        getDestOperands(*pred, block).erase(i);
       }
-      block.eraseArgument(arg);
+      block.eraseArgument(i);
     }
   }
 }
