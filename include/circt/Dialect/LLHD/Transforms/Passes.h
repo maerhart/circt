@@ -31,6 +31,10 @@ std::unique_ptr<OperationPass<ProcOp>> createEarlyCodeMotionPass();
 
 std::unique_ptr<OperationPass<ProcOp>> createBlockArgumentToMuxPass();
 
+std::unique_ptr<OperationPass<ProcOp>> createTemporalCodeMotionPass();
+
+std::unique_ptr<OperationPass<ModuleOp>> createDesequentializationPass();
+
 /// Register the LLHD Transformation passes.
 void initLLHDTransformationPasses();
 

@@ -5,8 +5,9 @@ add_circt_dialect_library(CIRCTLLHDTransforms
   FunctionEliminationPass.cpp
   MemoryToBlockArgumentPass.cpp
   EarlyCodeMotionPass.cpp
-  DNFUtil.cpp
   BlockArgumentToMux.cpp
+  DesequentializationPass.cpp
+  TemporalCodeMotionPass.cpp
 
   DEPENDS
   CIRCTLLHDTransformsIncGen

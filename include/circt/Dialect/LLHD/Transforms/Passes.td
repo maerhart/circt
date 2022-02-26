@@ -117,4 +117,22 @@ def BlockArgumentToMux : Pass<"llhd-block-argument-to-mux", "llhd::ProcOp"> {
   let constructor = "circt::llhd::createBlockArgumentToMuxPass()";
 }
 
+def TemporalCodeMotionPass : Pass<"llhd-temporal-code-motion", "llhd::ProcOp"> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let dependentDialects = ["hw::HWDialect", "comb::CombDialect"];
+  let constructor = "circt::llhd::createTemporalCodeMotionPass()";
+}
+
+def DesequentializationPass : Pass<"llhd-desequentialize", "ModuleOp"> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let dependentDialects = ["hw::HWDialect", "comb::CombDialect"];
+  let constructor = "circt::llhd::createDesequentializationPass()";
+}
+
 #endif // CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES
