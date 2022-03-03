@@ -137,11 +137,11 @@ void TemporalCodeMotionPass::runOnOperation() {
   // any instructions that have side effects that should not be allowed outside
   // of the loop (drv, prb, ...)
   // TODO: add support for more TRs and wait terminators to represent FSMs
-  if (numTRs > 2) {
-    // proc.emitError("More than 2 temporal regions are currently not supported!");
-    // signalPassFailure();
-    return;
-  }
+  // if (numTRs > 2) {
+  //   proc.emitError("More than 2 temporal regions are currently not supported!");
+  //   signalPassFailure();
+  //   return;
+  // }
 
   bool seenWait = false;
   WalkResult walkResult = proc.walk([&](WaitOp op) -> WalkResult {
@@ -171,10 +171,10 @@ void TemporalCodeMotionPass::runOnOperation() {
   // TODO: consider the case where a wait brances to itself
   for (int currTR = 0; currTR < (int)numTRs; ++currTR) {
     unsigned numTRSuccs = trAnalysis.getNumTRSuccessors(currTR);
-    assert((numTRSuccs == 1 ||
-            numTRSuccs == 2 && trAnalysis.isOwnTRSuccessor(currTR)) &&
-           "only TRs with a single TR as possible successor are "
-           "supported for now.");
+    // assert((numTRSuccs == 1 ||
+    //         numTRSuccs == 2 && trAnalysis.isOwnTRSuccessor(currTR)) &&
+    //        "only TRs with a single TR as possible successor are "
+    //        "supported for now.");
 
     if (trAnalysis.hasSingleExitBlock(currTR))
       continue;
@@ -349,6 +349,49 @@ void TemporalCodeMotionPass::runOnOperation() {
       }
     });
   }
+
+  //===--------------------------------------------------------------------===//
+  // Merge all blocks in same TR
+  //===--------------------------------------------------------------------===//
+
+  for (int tr = 0; tr < (int) trAnalysis.getNumTemporalRegions(); tr++) {
+    if (!trAnalysis.hasSingleExitBlock(tr)) {
+      emitError(trAnalysis.getTREntryBlock(tr)->front().getLoc(), "Temporal region has more than one exiting block!");
+      signalPassFailure();
+      return;
+    }
+
+    Block *entry = trAnalysis.getTREntryBlock(tr);
+    Block *exit = trAnalysis.getExitingBlocksInTR(tr)[0];
+
+    if (entry == exit) continue;
+
+    Operation *term = entry->getTerminator();
+
+    builder.setInsertionPointToEnd(entry);
+    builder.create<cf::BranchOp>(entry->getTerminator()->getLoc(), exit);
+
+    term->dropAllDefinedValueUses();
+    term->dropAllReferences();
+    term->dropAllUses();
+    term->erase();
+
+    for (Block *block : trAnalysis.getBlocksInTR(tr)) {
+      if (block != entry && block != exit) {
+        if (!block->without_terminator().empty()) {
+          block->without_terminator().begin()->dump();
+          printf("%ld\n", std::distance(block->without_terminator().begin(), block->without_terminator().end()));
+          signalPassFailure();
+          return;
+        }
+        block->dropAllDefinedValueUses();
+        block->dropAllReferences();
+        block->dropAllUses();
+        block->erase();
+      }
+    }
+  }
+
 }
 
 std::unique_ptr<OperationPass<ProcOp>>

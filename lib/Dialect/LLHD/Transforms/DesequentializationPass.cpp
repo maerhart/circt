@@ -82,9 +82,19 @@ private:
 };
 } // namespace
 
+
 // False is modeled as {} and true is modeled as {{}}
-using DNFNode = std::pair<std::pair<Value, int>, bool>;
-using DNFConjunct = DenseMap<std::pair<Value, int>, bool>;
+// ((value, TR), inv)
+using DNFNode = std::pair<std::pair<uint32_t, int>, bool>;
+using DNFConjunct = std::map<std::pair<uint32_t, int>, bool>;
+
+static bool comp(const DNFConjunct &a, const DNFConjunct &b)
+  // { return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin()); };
+  { printf("Do compare\n"); bool res = std::lexicographical_compare(a.cbegin(), a.cend(), b.cbegin(), b.cend()); printf("compared\n"); return res;};
+
+static size_t hash(const DNFConjunct &a) { return llvm::hash_combine_range(a.begin(), a.end()); };
+
+// using DNF = std::set<DNFConjunct, decltype(&comp)>;
 using DNF = std::vector<DNFConjunct>;
 
 static void combineAndInner(DNF &lhs, DNF &rhs, DNF &res) {
@@ -92,6 +102,11 @@ static void combineAndInner(DNF &lhs, DNF &rhs, DNF &res) {
     for (DNFConjunct rhsConjunct : rhs) {
       DNFConjunct newConj;
       for (DNFNode node : lhsConjunct) {
+        auto present = newConj.find(node.first);
+        if (present != newConj.end() && present->second != node.second && present->first.second == node.first.second) {
+          newConj.clear();
+          break;
+        }
         newConj.insert(node);
       }
       for (DNFNode node : rhsConjunct) {
@@ -105,7 +120,6 @@ static void combineAndInner(DNF &lhs, DNF &rhs, DNF &res) {
       if (!newConj.empty()) res.push_back(newConj);
     }
   }
-  // res.erase(std::unique(res.begin(), res.end()), res.end());
 }
 
 static DNF combineAnd(std::vector<DNF> &conjuncts) {
@@ -124,21 +138,50 @@ static DNF combineOr(std::vector<DNF> &disjuncts) {
   DNF res;
   for (DNF dnf : disjuncts) {
     for (DNFConjunct conj : dnf) {
+      for (int i = 0; i < (int)res.size(); i++) {
+        if(conj.size() == res[i].size() && std::equal(conj.begin(), conj.end(), res[i].begin(), [](const DNFNode &a, const DNFNode &b){ return a.first == b.first; })) {
+          auto itera = conj.begin();
+          auto iterb = res[i].begin();
+          for (; itera != conj.end() && iterb != res[i].end(); itera++, (void) iterb++) {
+            if (itera->first == iterb->first && itera->second != iterb->second) {
+              conj.erase(itera--);
+              res[i].erase(iterb--);
+            }
+          }
+        }
+      }
       res.push_back(DNFConjunct(conj));
     }
   }
-  // res.erase(std::unique(res.begin(), res.end()), res.end());
   return res;
 }
 
-static DNF buildDnf(Value value, bool inv, TemporalRegionAnalysis &trAnalysis);
+static DNF buildDnf(Value value, bool inv, TemporalRegionAnalysis &trAnalysis, DenseMap<Value, uint32_t> &valueMap, std::map<std::pair<uint32_t, bool>, DNF> &memo);
 
-static DNF mapCombine(Operation::operand_range range, std::function<DNF(std::vector<DNF>&)> combiner, bool inv, TemporalRegionAnalysis &trAnalysis) {
+static DNF mapCombine(Operation::operand_range range, std::function<DNF(std::vector<DNF>&)> combiner, bool inv, TemporalRegionAnalysis &trAnalysis, DenseMap<Value, uint32_t> &valueMap, std::map<std::pair<uint32_t, bool>, DNF> &memo) {
   std::vector<DNF> dnf;
   for (Value input : range) {
-    dnf.push_back(buildDnf(input, inv, trAnalysis));
+    dnf.push_back(buildDnf(input, inv, trAnalysis, valueMap, memo));
   }
-  return combiner(dnf);
+  DNF res = combiner(dnf);
+  sort(res.begin(), res.end(), [] (const DNFConjunct &a, const DNFConjunct &b) {return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end()); });
+  res.erase(std::unique(res.begin(), res.end(), [](const DNFConjunct &a, const DNFConjunct &b) { return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin()); }), res.end());
+
+
+  // printf("%zu\n", res.size());
+
+  // printf("[");
+  // for (const DNFConjunct &conj : res) {
+  //   printf("[");
+  //   for (const DNFNode node : conj) {
+  //     printf("(%u,%u,%u), ", node.first.first, node.first.second, node.second);
+  //   }
+  //   printf("], ");
+  //   printf("%zu, ", conj.size());
+  // }
+  // printf("]\n");
+
+  return res;
 }
 
 static DNF combineXorHelper(DNF &lhsPos, DNF &rhsPos, DNF &lhsNeg, DNF &rhsNeg, bool inv) {
@@ -154,15 +197,14 @@ static DNF combineXorHelper(DNF &lhsPos, DNF &rhsPos, DNF &lhsNeg, DNF &rhsNeg, 
   return combineOr(dnf);
 }
 
-static DNF combineXor(ValueRange range, bool inv, TemporalRegionAnalysis &trAnalysis) {
+static DNF combineXor(ValueRange range, bool inv, TemporalRegionAnalysis &trAnalysis, DenseMap<Value, uint32_t> &valueMap, std::map<std::pair<uint32_t, bool>, DNF> &memo) {
   std::vector<DNF> dnfPos;
   std::vector<DNF> dnfNeg;
   for (Value input : range) {
-    dnfPos.push_back(buildDnf(input, true, trAnalysis));
-    dnfNeg.push_back(buildDnf(input, false, trAnalysis));
+    dnfPos.push_back(buildDnf(input, true, trAnalysis, valueMap, memo));
+    dnfNeg.push_back(buildDnf(input, false, trAnalysis, valueMap, memo));
   }
 
-  DNF res;
   DNF lhsNeg = combineXorHelper(dnfPos[0], dnfPos[1], dnfNeg[0], dnfNeg[1], true);
   DNF lhsPos = combineXorHelper(dnfPos[0], dnfPos[1], dnfNeg[0], dnfNeg[1], false);
   for (int i = 2, e = (int) dnfPos.size(); i < e; i++) {
@@ -170,10 +212,13 @@ static DNF combineXor(ValueRange range, bool inv, TemporalRegionAnalysis &trAnal
     lhsPos = combineXorHelper(lhsPos, dnfPos[i], lhsNeg, dnfNeg[i], false);
   }
 
-  return inv ? lhsNeg : lhsPos;
+  DNF res = inv ? lhsNeg : lhsPos;
+  sort(res.begin(), res.end(), [] (const DNFConjunct &a, const DNFConjunct &b) {return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end()); });
+  res.erase(std::unique(res.begin(), res.end(), [](const DNFConjunct &a, const DNFConjunct &b) { return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin()); }), res.end());
+  return res;
 }
 
-static DNF singleValueDNF(Value value, bool inv, int tr) {
+static DNF singleValueDNF(uint32_t value, bool inv, int tr) {
   DNF res;
   DNFConjunct conj;
   conj.insert({{value, tr}, inv});
@@ -187,11 +232,20 @@ static DNF singleValueDNF(Value value, bool inv, int tr) {
 /// NOTE: only llhd.not, llhd.and, llhd.or, llhd.xor, cmpi "ne", cmpi "eq",
 /// constant, llhd.const and llhd.prb are supported directly, values defined by
 /// other operations are treated as opaque values
-static DNF buildDnf(Value value, bool inv, TemporalRegionAnalysis &trAnalysis) {
-  if (!value.getType().isSignlessInteger(1))
-    emitError(value.getLoc(), "Only one-bit signless integers supported!");
+static DNF buildDnf(Value value, bool inv, TemporalRegionAnalysis &trAnalysis, DenseMap<Value, uint32_t> &valueMap, std::map<std::pair<uint32_t, bool>, DNF> &memo) {
 
-  return TypeSwitch<Operation*, DNF>(value.getDefiningOp())
+  auto find = memo.find({valueMap[value], inv});
+
+  if (find != memo.end()) return find->second;
+
+  if (!value.getType().isSignlessInteger(1)) {
+    DNF res = singleValueDNF(valueMap[value], inv, 0);
+    memo[{valueMap[value], inv}] = res;
+    return res;
+  }
+    // emitError(value.getLoc(), "Only one-bit signless integers supported!");
+
+  DNF res = TypeSwitch<Operation*, DNF>(value.getDefiningOp())
     .Case<hw::ConstantOp>([&](hw::ConstantOp op){
       DNF res;
       if (op.value().getBoolValue() != inv) {
@@ -202,45 +256,54 @@ static DNF buildDnf(Value value, bool inv, TemporalRegionAnalysis &trAnalysis) {
     })
     .Case<comb::OrOp>([&](comb::OrOp op){
       auto combi = inv ? combineAnd : combineOr;
-      return mapCombine(op.inputs(), combi, inv, trAnalysis);
+      // printf("or\n");
+      return mapCombine(op.inputs(), combi, inv, trAnalysis, valueMap, memo);
     })
     .Case<comb::AndOp>([&](comb::AndOp op){
       auto combi = inv ? combineOr : combineAnd;
-      return mapCombine(op.inputs(), combi, inv, trAnalysis);
+      // printf("and\n");
+      return mapCombine(op.inputs(), combi, inv, trAnalysis, valueMap, memo);
     })
     .Case<comb::XorOp>([&](comb::XorOp op){
-      return combineXor(op.inputs(), inv, trAnalysis);
+      // printf("xor\n");
+      if (op.isBinaryNot()) return buildDnf(op.inputs()[0], !inv, trAnalysis, valueMap, memo);
+      return combineXor(op.inputs(), inv, trAnalysis, valueMap, memo);
     })
     .Case<comb::ICmpOp>([&](comb::ICmpOp op){
+      // printf("icmp\n");
       if (op.predicate() == comb::ICmpPredicate::eq) 
-        return combineXor(ValueRange{op.lhs(), op.rhs()}, !inv, trAnalysis);
+        return combineXor(ValueRange{op.lhs(), op.rhs()}, !inv, trAnalysis, valueMap, memo);
       if (op.predicate() == comb::ICmpPredicate::ne)
-        return combineXor(ValueRange{op.lhs(), op.rhs()}, inv, trAnalysis);
+        return combineXor(ValueRange{op.lhs(), op.rhs()}, inv, trAnalysis, valueMap, memo);
       assert(false && "Should be unreachable!");
       // return singleValueDNF(op.result(), inv);
     })
     .Case<llhd::PrbOp>([&](llhd::PrbOp op){
-      return singleValueDNF(op.signal(), inv, trAnalysis.getBlockTR(op->getBlock()));
+      return singleValueDNF(valueMap[op.signal()], inv, trAnalysis.getBlockTR(op->getBlock()));
+    })
+    .Default([&] (Operation *op) { // opaque value
+      return singleValueDNF(valueMap[op->getResult(0)], inv, trAnalysis.getBlockTR(op->getBlock()));
     });
-    // .Default([] (Operation *op) {;
-    //   assert(false && "Should be unreachable!");
-    // });
+
+    memo[{valueMap[value], inv}] = res;
+    return res;
 }
 
-static Value getInvertedValueIfNeeded(OpBuilder builder, DNFNode node) {
-  if (auto sigTy = node.first.first.getType().dyn_cast<llhd::SigType>()) {
-    node.first.first = builder.createOrFold<llhd::PrbOp>(node.first.first.getLoc(), sigTy.getUnderlyingType(), node.first.first);
+static Value getInvertedValueIfNeeded(OpBuilder builder, DNFNode node, DenseMap<uint32_t, Value> &revValueMap) {
+  Value value = revValueMap[node.first.first];
+  if (auto sigTy = value.getType().dyn_cast<llhd::SigType>()) {
+    value = builder.createOrFold<llhd::PrbOp>(value.getLoc(), sigTy.getUnderlyingType(), value);
   }
   if (node.second) {
-    Value allset = builder.create<hw::ConstantOp>(node.first.first.getLoc(), builder.getI1Type(), 1);
-    return builder.create<comb::XorOp>(node.first.first.getLoc(), node.first.first, allset);
+    Value allset = builder.create<hw::ConstantOp>(value.getLoc(), builder.getI1Type(), 1);
+    return builder.create<comb::XorOp>(value.getLoc(), value, allset);
   }
-  return node.first.first;
+  return value;
 }
 
 static bool dnfToTriggers(OpBuilder &builder,
                    RegData &regData, DrvOp op, int pastTR, int presentTR,
-                   DNF &dnf) {
+                   DNF &dnf, DenseMap<uint32_t, Value> &revValueMap) {
   // Drive is never executed thus no reg has to be inserted.
   if (dnf.empty()) {
     op->dropAllReferences();
@@ -277,13 +340,14 @@ static bool dnfToTriggers(OpBuilder &builder,
     std::vector<std::pair<Value, bool>> levels;
     for (DNFNode node : conj) {
       auto f = conj.find({node.first.first, node.first.second == presentTR ? pastTR : presentTR});
+      Value value = revValueMap[node.first.first];
       if (f != conj.end() && f->second != node.second) {
-        Value signal = node.first.first;
+        Value signal = revValueMap[node.first.first];
         std::vector<Value> andTerm;
 
         for (DNFNode term : conj) {
-          if (term.first.first != signal) {
-            andTerm.push_back(getInvertedValueIfNeeded(builder, term));
+          if (revValueMap[term.first.first] != signal) {
+            andTerm.push_back(getInvertedValueIfNeeded(builder, term, revValueMap));
           }
         }
 
@@ -293,21 +357,22 @@ static bool dnfToTriggers(OpBuilder &builder,
         if (andTerm.size() > 1)
           gate = builder.create<comb::AndOp>(andTerm[0].getLoc(), andTerm);
 
+
         if ((f->first.second == pastTR && node.first.second == presentTR && !node.second) ||
          (f->first.second == presentTR && node.first.second == pastTR && node.second)) {
           // Rising edge triggered
-          if (auto sigTy = node.first.first.getType().dyn_cast<llhd::SigType>()) {
-            node.first.first = builder.createOrFold<llhd::PrbOp>(node.first.first.getLoc(), sigTy.getUnderlyingType(), node.first.first);
+          if (auto sigTy = value.getType().dyn_cast<llhd::SigType>()) {
+            value = builder.createOrFold<llhd::PrbOp>(value.getLoc(), sigTy.getUnderlyingType(), value);
           }
-          regData.addTrigger(builder, node.first.first, RegMode::rise,
+          regData.addTrigger(builder, value, RegMode::rise,
                                      op.time(), gate);
         } else if ((f->first.second == pastTR && node.first.second == presentTR && node.second) ||
          (f->first.second == presentTR && node.first.second == pastTR && !node.second)) {
           // Falling edge triggered
-          if (auto sigTy = node.first.first.getType().dyn_cast<llhd::SigType>()) {
-            node.first.first = builder.createOrFold<llhd::PrbOp>(node.first.first.getLoc(), sigTy.getUnderlyingType(), node.first.first);
+          if (auto sigTy = value.getType().dyn_cast<llhd::SigType>()) {
+            value = builder.createOrFold<llhd::PrbOp>(value.getLoc(), sigTy.getUnderlyingType(), value);
           }
-          regData.addTrigger(builder, node.first.first, RegMode::fall,
+          regData.addTrigger(builder, value, RegMode::fall,
                                      op.time(), gate);
         } else {
           assert(false && "Unreachable");
@@ -317,7 +382,7 @@ static bool dnfToTriggers(OpBuilder &builder,
         break;
       }
       if (node.first.second == presentTR)
-        levels.push_back({node.first.first, node.second});
+        levels.push_back({value, node.second});
     }
 
     if (!triggerAdded) {
@@ -378,6 +443,22 @@ void DesequentializationPass::runOnOperation() {
       return;
     }
 
+    DenseMap<Value, uint32_t> valueMap;
+    DenseMap<uint32_t, Value> revValueMap;
+    uint32_t counter = 0;
+    for (Value arg : proc.getArguments()) {
+      valueMap.insert({arg, counter});
+      revValueMap.insert({counter++, arg});
+    }
+    proc.walk([&](Operation *op) {
+      for (Value res : op->getResults()) {
+        valueMap.insert({res, counter});
+        revValueMap.insert({counter++, res});
+      }
+    });
+
+    std::map<std::pair<uint32_t, bool>, DNF> memo;
+
     OpBuilder builder(proc);
     proc.walk([&](DrvOp op) {
       if (!op.enable())
@@ -387,11 +468,11 @@ void DesequentializationPass::runOnOperation() {
       int presentTR = trAnalysis.getBlockTR(op.getOperation()->getBlock());
 
       // Transform the enable condition of the drive into DNF
-      DNF dnf = buildDnf(op.enable(), false, trAnalysis);
+      DNF dnf = buildDnf(op.enable(), false, trAnalysis, valueMap, memo);
 
       // Translate the DNF to a list of triggers for the reg instruction
       RegData regData;
-      if (dnfToTriggers(builder, regData, op, pastTR, presentTR, dnf)) {
+      if (dnfToTriggers(builder, regData, op, pastTR, presentTR, dnf, revValueMap)) {
         if (regData.triggers.empty()) {
           emitError(op->getLoc(), "No valid reg trigger found!");
           signalPassFailure();
