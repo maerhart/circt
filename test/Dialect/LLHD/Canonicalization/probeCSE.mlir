@@ -1,15 +1,39 @@
 // RUN: circt-opt %s -cse | FileCheck %s
-// XFAIL: *
 
-// CHECK-LABEL: @check_dce_prb_but_not_cse
-// CHECK-SAME: %[[SIG:.*]]: !llhd.sig<i32>
-func @check_dce_prb_but_not_cse(%sig : !llhd.sig<i32>) -> (i32, i32) {
-  // CHECK-NEXT: %[[P1:.*]] = llhd.prb %[[SIG]] : !llhd.sig<i32>
+// CHECK-LABEL: @checkPrbCseAndDce
+llhd.entity @checkPrbCseAndDce(%sig : !llhd.sig<i32>) -> () {
+  // CHECK-NEXT: llhd.constant_time
+  %time = llhd.constant_time <0ns, 1d, 0e>
+
+  // CHECK-NEXT: llhd.prb
   %1 = llhd.prb %sig : !llhd.sig<i32>
-  // CHECK-NEXT: %[[P2:.*]] = llhd.prb %[[SIG]] : !llhd.sig<i32>
   %2 = llhd.prb %sig : !llhd.sig<i32>
   %3 = llhd.prb %sig : !llhd.sig<i32>
 
-  // CHECK-NEXT: return %[[P1]], %[[P2]]
-  return %1, %2 : i32, i32
+  // CHECK-NEXT: llhd.drv
+  // CHECK-NEXT: llhd.drv
+  llhd.drv %sig, %1 after %time : !llhd.sig<i32>
+  llhd.drv %sig, %2 after %time : !llhd.sig<i32>
+}
+
+// CHECK-LABEL: @checkPrbDce
+llhd.proc @checkPrbDce(%sig : !llhd.sig<i32>) -> () {
+  // CHECK-NEXT: llhd.constant_time
+  %time = llhd.constant_time <0ns, 1d, 0e>
+
+  // CHECK-NEXT: llhd.prb
+  %1 = llhd.prb %sig : !llhd.sig<i32>
+  // CHECK-NEXT: llhd.wait
+  llhd.wait for %time, ^bb1
+// CHECK-NEXT: ^bb1:
+^bb1:
+  // CHECK-NEXT: llhd.prb
+  %2 = llhd.prb %sig : !llhd.sig<i32>
+  %3 = llhd.prb %sig : !llhd.sig<i32>
+
+  // CHECK-NEXT: llhd.drv
+  // CHECK-NEXT: llhd.drv
+  llhd.drv %sig, %1 after %time : !llhd.sig<i32>
+  llhd.drv %sig, %2 after %time : !llhd.sig<i32>
+  llhd.halt
 }
