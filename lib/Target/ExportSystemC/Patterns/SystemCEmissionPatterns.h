@@ -13,10 +13,14 @@
 #ifndef SYSTEMCEMISSIONPATTERNS_H
 #define SYSTEMCEMISSIONPATTERNS_H
 
-#include "../EmissionPatternSupport.h"
+#include "../EmissionPattern.h"
 
 namespace circt {
 namespace ExportSystemC {
+
+/// Emit signal and port read/write operations using the overloaded C++
+/// operators.
+static const Flag<bool> implicitReadWriteFlag("implicit-read-write", false);
 
 /// Register SystemC operation emission patterns.
 void populateSystemCOpEmitters(OpEmissionPatternSet &patterns,

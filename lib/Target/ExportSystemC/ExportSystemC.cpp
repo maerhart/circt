@@ -11,11 +11,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "circt/Target/ExportSystemC.h"
+#include "EmissionPattern.h"
 #include "EmissionPrinter.h"
 #include "RegisterAllEmitters.h"
 #include "circt/Dialect/Comb/CombDialect.h"
 #include "circt/Dialect/HW/HWDialect.h"
 #include "circt/Dialect/SystemC/SystemCDialect.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
@@ -115,6 +117,13 @@ void ExportSystemC::registerExportSystemCTranslation() {
   static llvm::cl::opt<std::string> directory(
       "export-dir", llvm::cl::desc("Directory path to write the files to."),
       llvm::cl::init("./"));
+
+  static llvm::cl::opt<bool> useImplicitReadWriteOnSignals(
+      "use-implicit-read-write-on-signals",
+      llvm::cl::desc(
+          "Reads and writes from/to signal types using the read() and write() "
+          "calls instead of using the overloaded operators"),
+      llvm::cl::init(false));
 
   static mlir::TranslateFromMLIRRegistration toSystemC(
       "export-systemc",

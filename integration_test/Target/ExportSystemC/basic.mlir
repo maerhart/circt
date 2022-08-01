@@ -3,4 +3,4 @@
 // RUN: circt-translate %s --export-systemc > %t.cpp
 // RUN: clang-tidy --extra-arg=-frtti --config-file=%S.clang-tidy %t.cpp
 
-systemc.module @module () { }
+systemc.module @module (%some_port: !systemc.in<i32>) { }
