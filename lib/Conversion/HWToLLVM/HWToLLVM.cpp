@@ -109,16 +109,18 @@ struct StructExtractOpConversion
 } // namespace
 
 namespace {
-/// Convert an ArrayGetOp to the LLVM dialect.
+/// Convert an ArrayGetOp with non-constant index to the LLVM dialect.
 /// Pattern: array_get(input, index) =>
 ///   load(gep(store(input, alloca), zext(index)))
 struct ArrayGetOpConversion : public ConvertOpToLLVMPattern<hw::ArrayGetOp> {
   using ConvertOpToLLVMPattern<hw::ArrayGetOp>::ConvertOpToLLVMPattern;
 
-  LogicalResult
-  matchAndRewrite(hw::ArrayGetOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
+  LogicalResult match(hw::ArrayGetOp op) const override {
+    return failure(isa<hw::ConstantOp>(op.getIndex().getDefiningOp()));
+  }
 
+  void rewrite(hw::ArrayGetOp op, OpAdaptor adaptor,
+               ConversionPatternRewriter &rewriter) const override {
     auto elemTy = typeConverter->convertType(op.getResult().getType());
     auto inputTy = typeConverter->convertType(op.getInput().getType());
 
@@ -140,8 +142,33 @@ struct ArrayGetOpConversion : public ConvertOpToLLVMPattern<hw::ArrayGetOp> {
         op->getLoc(), LLVM::LLVMPointerType::get(elemTy), arrPtr,
         ArrayRef<Value>({zeroC, zextIndex}));
     rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, elemTy, gep);
+  }
+};
+} // namespace
 
-    return success();
+namespace {
+// Convert an ArrayGetOp with constant index to the LLVM dialect.
+/// Pattern: array_get(input, const_index) =>
+///   extractvalue(input, const_index)
+struct ArrayGetOpConstIndexConversion
+    : public ConvertOpToLLVMPattern<hw::ArrayGetOp> {
+  using ConvertOpToLLVMPattern<hw::ArrayGetOp>::ConvertOpToLLVMPattern;
+
+  LogicalResult match(hw::ArrayGetOp op) const override {
+    return success(isa<hw::ConstantOp>(op.getIndex().getDefiningOp()));
+  }
+
+  void rewrite(hw::ArrayGetOp op, OpAdaptor adaptor,
+               ConversionPatternRewriter &rewriter) const override {
+    auto elemTy = typeConverter->convertType(op.getResult().getType());
+    auto inputTy = typeConverter->convertType(op.getInput().getType());
+
+    auto posAttr = op.getIndex().getDefiningOp<hw::ConstantOp>().getValueAttr();
+    Value castInput = typeConverter->materializeTargetConversion(
+        rewriter, op.getInput().getLoc(), inputTy, op.getInput());
+
+    rewriter.replaceOpWithNewOp<LLVM::ExtractValueOp>(
+        op, elemTy, castInput, rewriter.getArrayAttr({posAttr}));
   }
 };
 } // namespace
