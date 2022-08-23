@@ -7,6 +7,7 @@ add_circt_dialect_library(
   HWOps.cpp
   HWTypes.cpp
   InstanceGraphBase.cpp
+  InteropOpInterfaces.cpp
   ModuleImplementation.cpp
   
   ADDITIONAL_HEADER_DIRS

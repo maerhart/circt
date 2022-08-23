@@ -27,7 +27,8 @@ include "circt/Dialect/HW/HWOpInterfaces.td"
 include "circt/Dialect/SystemC/SystemCOpInterfaces.td"
 include "circt/Dialect/SystemC/SystemCDialect.td"
 
-// Import EmitC types
+// Import emitc attributes and types
+include "mlir/Dialect/EmitC/IR/EmitCAttributes.td"
 include "mlir/Dialect/EmitC/IR/EmitCTypes.td"
 
 // Base class for the operations in this dialect.

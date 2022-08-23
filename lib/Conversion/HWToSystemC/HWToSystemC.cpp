@@ -264,6 +264,7 @@ static void populateLegality(ConversionTarget &target) {
   target.addLegalDialect<systemc::SystemCDialect>();
   target.addLegalDialect<comb::CombDialect>();
   target.addLegalDialect<emitc::EmitCDialect>();
+  target.addLegalOp<hw::HWModuleExternOp>();
   target.addLegalOp<hw::ConstantOp>();
 }
 

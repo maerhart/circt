@@ -20,6 +20,7 @@
 #include "Patterns/FuncEmissionPatterns.h"
 #include "Patterns/HWEmissionPatterns.h"
 #include "Patterns/SystemCEmissionPatterns.h"
+#include "Patterns/FuncEmissionPatterns.h"
 
 namespace circt {
 namespace ExportSystemC {

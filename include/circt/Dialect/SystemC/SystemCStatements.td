@@ -193,3 +193,13 @@ def VariableOp : SystemCOp<"cpp.variable", [HasCustomSSAName,
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
 }
+
+def ModelVerilatedOp : SystemCOp<"model.verilated", []> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let arguments = (ins FlatSymbolRefAttr:$moduleName, StrArrayAttr:$inputNames, StrArrayAttr:$resultNames, Variadic<AnyType>:$inputs);
+  let results = (outs Variadic<AnyType>:$results);
+  let assemblyFormat = "$moduleName `(` $inputNames `:` $inputs `)` `->` `(` $resultNames `)` attr-dict `:` functional-type($inputs, $results)";
+}

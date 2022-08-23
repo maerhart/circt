@@ -31,6 +31,7 @@
 #include "circt/Dialect/SV/SVDialect.h"
 #include "circt/Dialect/Seq/SeqDialect.h"
 #include "circt/Dialect/SystemC/SystemCDialect.h"
+#include "circt/Dialect/SystemC/Transforms/InteropOpInterfaceImpl.h"
 #include "mlir/IR/Dialect.h"
 
 namespace circt {
@@ -58,6 +59,9 @@ inline void registerAllDialects(mlir::DialectRegistry &registry) {
     systemc::SystemCDialect
   >();
   // clang-format on
+
+  // Register all external models.
+  systemc::registerInteropOpInterfaceExternalModels(registry);
 }
 
 } // namespace circt

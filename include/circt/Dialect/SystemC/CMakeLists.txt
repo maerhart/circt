@@ -8,8 +8,8 @@ mlir_tablegen(SystemCEnums.cpp.inc -gen-enum-defs)
 add_public_tablegen_target(CIRCTSystemCEnumsIncGen)
 add_dependencies(circt-headers CIRCTSystemCEnumsIncGen)
 
-mlir_tablegen(SystemCAttributes.h.inc -gen-attrdef-decls)
-mlir_tablegen(SystemCAttributes.cpp.inc -gen-attrdef-defs)
+mlir_tablegen(SystemCAttributes.h.inc -gen-attrdef-decls -attrdefs-dialect=systemc)
+mlir_tablegen(SystemCAttributes.cpp.inc -gen-attrdef-defs -attrdefs-dialect=systemc)
 add_public_tablegen_target(CIRCTSystemCAttributesIncGen)
 add_dependencies(circt-headers CIRCTSystemCAttributesIncGen)
 

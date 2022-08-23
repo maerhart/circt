@@ -13,9 +13,12 @@
 #include "circt/Dialect/SystemC/SystemCOps.h"
 #include "circt/Dialect/HW/HWSymCache.h"
 #include "circt/Dialect/HW/ModuleImplementation.h"
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/FunctionImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
 
+using namespace mlir;
 using namespace circt;
 using namespace circt::systemc;
 
@@ -601,6 +604,10 @@ LogicalResult VariableOp::verify() {
 
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// ModelVerilatedOp
+//===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
 // TableGen generated logic.

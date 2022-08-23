@@ -31,6 +31,7 @@ set(LIBS
   ${circt_dialect_libs}
   ${conversion_libs}
   ${test_libs}
+  CIRCTSystemCTransforms
   MLIRAnalysis
   MLIRDialect
   MLIRLspServerLib

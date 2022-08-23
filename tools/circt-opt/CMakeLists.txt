@@ -30,6 +30,7 @@ target_link_libraries(circt-opt
   CIRCTLLHD
   CIRCTLLHDToLLVM
   CIRCTHWToLLVM
+  CIRCTLowerInterop
   CIRCTCombToLLVM
   CIRCTLLHDTransforms
   CIRCTMoore
@@ -56,6 +57,7 @@ target_link_libraries(circt-opt
   CIRCTSVTransforms
   CIRCTHWArith
   CIRCTSystemC
+  CIRCTSystemCTransforms
   CIRCTTransforms
 
   MLIRIR
@@ -64,6 +66,7 @@ target_link_libraries(circt-opt
   MLIROptLib
   MLIRParser
   MLIRFuncDialect
+  MLIREmitCDialect
   MLIRSupport
   MLIRTransforms
   MLIRSCFDialect
