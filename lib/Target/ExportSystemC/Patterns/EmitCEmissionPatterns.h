@@ -23,6 +23,10 @@ namespace ExportSystemC {
 void populateEmitCOpEmitters(OpEmissionPatternSet &patterns,
                              MLIRContext *context);
 
+/// Register EmitC type emission patterns.
+void populateEmitCTypeEmitters(TypeEmissionPatternSet &patterns,
+                               MLIRContext *context);
+
 } // namespace ExportSystemC
 } // namespace circt
 
