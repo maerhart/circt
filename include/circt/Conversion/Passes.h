@@ -28,6 +28,7 @@
 #include "circt/Conversion/HandshakeToFIRRTL.h"
 #include "circt/Conversion/HandshakeToHW.h"
 #include "circt/Conversion/LLHDToLLVM.h"
+#include "circt/Conversion/LowerInterop.h"
 #include "circt/Conversion/MooreToCore.h"
 #include "circt/Conversion/PipelineToCalyx.h"
 #include "circt/Conversion/SCFToCalyx.h"

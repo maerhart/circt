@@ -15,6 +15,7 @@
 #include "mlir/IR/FunctionImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
 
+using namespace mlir;
 using namespace circt;
 using namespace circt::systemc;
 
@@ -291,6 +292,52 @@ LogicalResult SCModuleOp::verifyRegions() {
   return success();
 }
 
+CtorOp SCModuleOp::getOrCreateCtor() {
+  CtorOp ctor = nullptr;
+  getBody().walk([&](CtorOp op) { ctor = op; });
+  if (!ctor)
+    ctor = OpBuilder(getBody()).create<CtorOp>(getLoc());
+
+  return ctor;
+}
+
+DestructorOp SCModuleOp::getOrCreateDestructor() {
+  DestructorOp destructor = nullptr;
+  getBody().walk([&](DestructorOp op) { destructor = op; });
+  if (!destructor)
+    destructor =
+        OpBuilder::atBlockEnd(getBodyBlock()).create<DestructorOp>(getLoc());
+
+  return destructor;
+}
+
+SmallVector<InteropMechanism> SCModuleOp::getInteropSupport() {
+  return SmallVector<InteropMechanism>({InteropMechanism::CPP});
+}
+
+OpBuilder SCModuleOp::getStateBuilder(InteropMechanism interopType) {
+  auto builder = OpBuilder(getBody());
+  builder.setInsertionPointToStart(getBodyBlock());
+  return builder;
+}
+
+OpBuilder SCModuleOp::getStateInitBuilder(InteropMechanism interopType) {
+  auto builder = OpBuilder(getBody());
+  builder.setInsertionPointToStart(&getOrCreateCtor().getBody().front());
+  return builder;
+}
+
+OpBuilder SCModuleOp::getStateUpdateBuilder(Operation *interopOp,
+                                            InteropMechanism interopType) {
+  return OpBuilder(interopOp);
+}
+
+OpBuilder SCModuleOp::getStateDeallocBuilder(InteropMechanism interopType) {
+  auto builder = OpBuilder(getBody());
+  builder.setInsertionPointToStart(&getOrCreateDestructor().getBody().front());
+  return builder;
+}
+
 //===----------------------------------------------------------------------===//
 // SignalOp
 //===----------------------------------------------------------------------===//
@@ -323,6 +370,69 @@ LogicalResult SCFuncOp::verify() {
     return emitOpError("must not have any arguments");
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ModelVerilatedOp
+//===----------------------------------------------------------------------===//
+
+SmallVector<InteropMechanism> ModelVerilatedOp::getInteropSupport() {
+  return SmallVector<InteropMechanism>({InteropMechanism::CPP});
+}
+
+SmallVector<Value> ModelVerilatedOp::buildState(OpBuilder &builder) {
+  std::string tn = "V";
+  tn += getModuleName();
+  auto ptrType =
+      emitc::PointerType::get(emitc::OpaqueType::get(builder.getContext(), tn));
+  llvm::errs() << ptrType.getDialect().getNamespace();
+  return {builder
+              .create<VariableOp>(
+                  getLoc(), ptrType,
+                  StringAttr::get(builder.getContext(), "v" + getModuleName()))
+              .getResult()};
+}
+
+void ModelVerilatedOp::buildStateInit(OpBuilder &builder,
+                                      ArrayRef<Value> state) {
+  auto newOp =
+      builder.create<NewOp>(getLoc(), state[0].getType(), ValueRange{});
+  builder.create<AssignOp>(getLoc(), state[0], newOp.getResult());
+}
+
+SmallVector<Value> ModelVerilatedOp::buildStateUpdate(OpBuilder &builder,
+                                                      ArrayRef<Value> state) {
+  for (size_t i = 0; i < getInputs().size(); ++i) {
+    Value input = getInputs()[i];
+    auto member =
+        builder
+            .create<MemberAccessOp>(
+                getLoc(), input.getType(), state[0],
+                getInputNames()[i].cast<StringAttr>().getValue(), true)
+            .getResult();
+    builder.create<AssignOp>(getLoc(), member, input);
+  }
+
+  auto evalFunc = builder.create<MemberAccessOp>(
+      getLoc(), FuncHandleType::get(builder.getContext()), state[0], "eval",
+      true);
+  builder.create<CallOp>(getLoc(), evalFunc.getResult());
+
+  SmallVector<Value> results;
+  for (size_t i = 0; i < getNumResults(); ++i) {
+    results.push_back(builder
+                          .create<MemberAccessOp>(
+                              getLoc(), getResults()[i].getType(), state[0],
+                              getResultNames()[i].cast<StringAttr>().getValue(),
+                              true)
+                          .getResult());
+  }
+  return results;
+}
+
+void ModelVerilatedOp::buildStateDealloc(OpBuilder &builder,
+                                         ArrayRef<Value> state) {
+  builder.create<DeleteOp>(getLoc(), state[0]);
 }
 
 //===----------------------------------------------------------------------===//

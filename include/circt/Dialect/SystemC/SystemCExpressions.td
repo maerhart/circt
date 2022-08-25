@@ -38,3 +38,23 @@ def SignalReadOp : SystemCOp<"signal.read", [NoSideEffect,
     }
   }];
 }
+
+def NewOp : SystemCOp<"cpp.new", [NoSideEffect]> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let arguments = (ins Variadic<AnyType>:$args);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "`(` $args `)` attr-dict `:` functional-type($args, $result)";
+}
+
+def MemberAccessOp : SystemCOp<"cpp.member_access", [NoSideEffect]> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let arguments = (ins AnyType:$object, StrAttr:$memberName, UnitAttr:$deref);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$object `[` $memberName `]` (`deref` $deref^)? attr-dict `:` functional-type($object, $result)";
+}

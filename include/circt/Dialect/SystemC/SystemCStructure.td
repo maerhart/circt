@@ -22,6 +22,7 @@ def SCModuleOp : SystemCOp<"module", [
     NoTerminator,
     RegionKindInterface,
     DeclareOpInterfaceMethods<CallableOpInterface>,
+    DeclareOpInterfaceMethods<ModuleProceduralInteropOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmBlockArgumentNames"]>,
     HasParent<"mlir::ModuleOp">
   ]> {
@@ -96,6 +97,9 @@ def SCModuleOp : SystemCOp<"module", [
     PortDirectionRange getInOutPorts() {
       return getPortsOfDirection(hw::PortDirection::INOUT);
     }
+
+    systemc::CtorOp getOrCreateCtor();
+    systemc::DestructorOp getOrCreateDestructor();
   }];
 }
 
@@ -152,5 +156,24 @@ def SCFuncOp : SystemCOp<"func", [
   let assemblyFormat = "custom<ImplicitSSAName>($name) $body attr-dict";
 
   let hasVerifier = true;
+  let skipDefaultBuilders = 1;
+}
+
+def DestructorOp : SystemCOp<"cpp.destructor", [SingleBlock, NoTerminator,
+                                HasParent<"SCModuleOp">]> {
+  let summary = "A destructor definition.";
+  let description = [{
+  }];
+
+  let regions = (region SizedRegion<1>:$body);
+  let assemblyFormat = "$body attr-dict";
+
+  let builders = [
+    OpBuilder<(ins), [{
+      Region *region = $_state.addRegion();
+      region->push_back(new Block);
+    }]>
+  ];
+
   let skipDefaultBuilders = 1;
 }

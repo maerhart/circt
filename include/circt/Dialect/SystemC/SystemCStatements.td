@@ -64,3 +64,52 @@ def ThreadOp : SystemCOp<"thread", []> {
   let arguments = (ins FuncHandleType:$funcHandle);
   let assemblyFormat = "$funcHandle attr-dict";
 }
+
+def DeleteOp : SystemCOp<"cpp.delete", []> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let arguments = (ins AnyType:$pointer);
+  let assemblyFormat = "$pointer attr-dict `:` type($pointer)";
+}
+
+def AssignOp : SystemCOp<"cpp.assign", [SameTypeOperands]> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let arguments = (ins AnyType:$dest, AnyType:$source);
+  let assemblyFormat = "$dest `=` $source attr-dict `:` type($dest)";
+}
+
+def VariableOp : SystemCOp<"cpp.variable", [SystemCNameDeclOpInterface]> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let arguments = (ins StrAttr:$name);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "custom<ImplicitSSAName>($name) attr-dict `:` type($result)";
+}
+
+def CallOp : SystemCOp<"call", []> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let arguments = (ins FuncHandleType:$callee);
+  let assemblyFormat = "$callee attr-dict";
+}
+
+def ModelVerilatedOp : SystemCOp<"model.verilated", [
+  DeclareOpInterfaceMethods<InstanceProceduralInteropOpInterface>
+]> {
+  let summary = "";
+  let description = [{
+  }];
+
+  let arguments = (ins FlatSymbolRefAttr:$moduleName, StrArrayAttr:$inputNames, StrArrayAttr:$resultNames, Variadic<AnyType>:$inputs);
+  let results = (outs Variadic<AnyType>:$results);
+  let assemblyFormat = "$moduleName `(` $inputNames `:` $inputs `)` `->` `(` $resultNames `)` attr-dict `:` functional-type($inputs, $results)";
+}

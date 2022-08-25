@@ -23,8 +23,13 @@ include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
+include "circt/Dialect/SystemC/InteropOpInterfaces.td"
 include "circt/Dialect/SystemC/SystemCOpInterfaces.td"
 include "circt/Dialect/SystemC/SystemCDialect.td"
+
+// Import emitc attributes and types
+include "mlir/Dialect/EmitC/IR/EmitCAttributes.td"
+include "mlir/Dialect/EmitC/IR/EmitCTypes.td"
 
 // Base class for the operations in this dialect.
 class SystemCOp<string mnemonic, list<Trait> traits = []> :

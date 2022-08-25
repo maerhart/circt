@@ -4,6 +4,7 @@ add_circt_dialect_library(CIRCTSystemC
   SystemCOpInterfaces.cpp
   SystemCOps.cpp
   SystemCTypes.cpp
+  InteropOpInterfaces.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${CIRCT_MAIN_INCLUDE_DIR}/circt/Dialect/SystemC
@@ -19,6 +20,7 @@ add_circt_dialect_library(CIRCTSystemC
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRInferTypeOpInterface
+  MLIREmitCDialect
   CIRCTHW
 )
 
