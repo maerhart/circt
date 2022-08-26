@@ -86,6 +86,223 @@ SC_MODULE(adder) {
 #endif // ADDER_H
 ```
 
+## Interop
+
+Given a design in the core dialects (HW, Seq, Comb) we want to be able to use
+different backends for various parts/instances in the design. For example,
+verilate an instance and export a wrapper around the verilated module in SystemC
+or SystemVerilog, or simulate a design in a native CIRCT simulator and use
+Verilator for nested black-box modules provided in Verilog, etc.
+
+* SystemC <=> Verilator
+* SystemVerilog <=> Verilator
+* LLHD testbench <=> Verilator
+* SystemC <=> ARC <=> Verilator
+
+We start with a simple HW module called 'Foo' that just wraps another HW module
+called 'Bar'.
+
+```mlir
+hw.module @Bar (%a: i32) -> (b: i32) {...}
+
+hw.module @Foo (%x: i32) -> (y: i32) {
+  %1 = hw.instance @Bar (a: %x: i32) -> (b: i32)
+  hw.output %1 : i32
+}
+```
+
+A pass can then mark this instance of `@Bar` to be, e.g.,
+verilated, by replacing the `hw.instance` with `model.verilated`.
+
+```mlir
+hw.module @Foo (%x: i32) -> (y: i32) {
+  %1 = systemc.model.verilated @Bar (a: %x: i32) -> (b: i32)
+  hw.output %1 : i32
+}
+```
+
+The wrapper is then lowered by the desired backend, in this example
+`HWToSystemC`. Note that `@Bar` stays a `hw.module`. `HWToSystemC` handles the
+`model.verilated` opaquely, but `systemc.module` has to implement an interface
+for procedural interop (later there can also be a structural interop interface)
+that
+1. tells the wrapped instance which interop mechanisms it supports, e.g.,
+   C foreign functions, C++, etc. It is important that these interop mechanisms
+   have a strong type system that both parties use in the same way.
+2. provides builders to create operations to store state, initialize the state,
+   update the state, and deallocate the state given an interop mechanism.
+
+```mlir
+emitc.include <"systemc.h">
+
+systemc.module @Foo (%x: !systemc.in<i32>, %y: !systemc.out<i32>) {
+  systemc.ctor {
+    systemc.method %func0
+  }
+
+  %func0 = systemc.func {
+    %0 = systemc.signal.read %x : !systemc.in<i32>
+    %1 = systemc.model.verilated @Bar (a: %0: i32) -> (b: i32)
+    systemc.signal.write %y, %1 : !systemc.out<i32>
+  }
+}
+```
+
+Afterwards, the interop lowering pass is called which lowers all `model.*`
+operations. Next to the interface implemented by `systemc.module`, it is
+important that the `model.verilated` implements a complementary interface
+that
+1. provides an ordered list of interop machanisms it supports in the same way as
+   the interface mentioned above
+2. takes the ordered list of interop mechanisms the `systemc.module`
+   understands and picks the first in the ordered list they both have in common
+3. provides callbacks that take the builders of the above mentioned interface
+   as arguments and use them to build operations according to the selected
+   interop mechanism.
+
+The result of this lowering pass will then look like the following.
+
+```mlir
+emitc.include <"systemc.h">
+// The interop lowering pass can always insert new global operations. This also
+// includes external C functions, etc.
+emitc.include "VBar.h"
+
+systemc.module @Foo (%x: !systemc.in<i32>, %y: !systemc.out<i32>) {
+  // The interface implementation of systemc.module provided a builder with
+  // this insertion point and the interface implementation of model.verilated
+  // created this operation to store state.
+  %vbar = systemc.cpp.variable : !emitc.ptr<!emitc.opaque<"VBar">>
+
+  systemc.ctor {
+    // The interface implementation of systemc.module provided a builder with
+    // this insertion point and the interface implementation of model.verilated
+    // created these two operations to initialize the state.
+    %0 = systemc.cpp.new (optional args) : !emitc.ptr<!emitc.opaque<"VBar">>
+    systemc.cpp.assign %vbar, %0 : !emitc.ptr<!emitc.opaque<"VBar">>
+
+    systemc.method %func0
+  }
+
+  %func0 = systemc.func {
+    %0 = systemc.signal.read %x : !systemc.in<i32>
+
+    // State update logic created by the model.verilated callback. The
+    // interface implementation of systemc.module just provided a new builder
+    // with this location as insertion point (and the arguments).
+    %1 = systemc.cpp.member_access ptr %vbar["a"] : !emitc.ptr<!emitc.opaque<"VBar">> -> i32
+    systemc.cpp.assign %1, %0 : i32
+    %2 = systemc.cpp.member_access ptr %vbar["eval"] : !emitc.ptr<!emitc.opaque<"VBar">> -> !systemc.func_handle
+    systemc.call %2 ()
+    %3 = systemc.cpp.member_access ptr %vbar["b"] : !emitc.ptr<!emitc.opaque<"VBar">> -> i32
+
+    systemc.signal.write %y, %3 : !systemc.out<i32>
+  }
+
+  // Destructor built by the interface implementation of systemc.module to allow
+  // embedding of deallocation logic. This would look different if the
+  // model.verilated would have chosen C foreign functions as interface.
+  systemc.cpp.destructor {
+    // State deallocation logic created in the model.verilated callback
+    // for C++ interop.
+    systemc.cpp.delete %vbar : !emitc.ptr<!emitc.opaque<"VBar">>
+  }
+}
+```
+
+All the operations in the above code block are supported in `ExportSystemC` and
+thus can be printed to the following:
+
+```cpp
+#ifndef HEADER_GUARD
+#define HEADER_GUARD
+
+#include <systemc.h>
+#include "VBar.h"
+
+SC_MODULE(Foo) {
+  sc_in<sc_uint<32>> x;
+  sc_out<sc_uint<32>> y;
+  VBar* vbar;
+
+  SC_CTOR(Foo) {
+    vbar = new VBar();
+    SC_METHOD(func0);
+  }
+
+  void func0() {
+    vbar->a = x.read();
+    vbar->eval();
+    y.write(vbar->b);
+  }
+
+  ~Foo() {
+    delete vbar;
+  }
+};
+
+#endif // HEADER_GUARD
+```
+
+SV lowering example
+
+```mlir
+hw.module @Foo (%x: i32) -> (y: i32) {
+  %1 = systemc.model.verilated @Bar (a: %x: i32) -> (b: i32)
+  hw.output %1 : i32
+}
+```
+
+SV should implement its own module operation.
+
+```mlir
+hw.module @Foo (%x: i32) -> (y: i32) {
+  %vbar = sv.reg : !sv.chandle
+  sv.initial {
+    %0 = sv.dpi.call @bar_new() : !sv.chandle
+    sv.bassign %vbar, %0 : !sv.chandle
+  }
+  %1 = sv.reg : i32
+  sv.always_comb {
+    %0 = sv.dpi.call @bar_eval(%vbar: !sv.chandle, %a: i32) -> i32
+    sv.passign %b, %0 : i32
+  }
+  sv.initial {
+    sv.dpi.call @bar_delete(%vbar) : (!sv.chandle) -> !sv.void
+  }
+  hw.output %1 : i32
+}
+```
+
+LLHD lowering example
+
+```mlir
+hw.module @Foo (%x: i32) -> (y: i32) {
+  %1 = systemc.model.verilated @Bar (a: %x: i32) -> (b: i32)  // @Bar is a hw.module
+  hw.output %1 : i32
+}
+```
+
+```mlir
+llhd.entity @Foo (%x: !llhd.sig<i32>) -> (%y: !llhd.sig<i32>) {
+  %vbar = llhd.sig "vbar" %0 : !emitc.ptr<!emitc.opaque<"VBar">>
+  llhd.inst "new_initial" @new_initial () -> (%vbar) : () -> (!llhd.sig<!emitc.ptr<!emitc.opaque<"VBar">>>)
+  llhd.inst "always_comb" @always_comb (%vbar, %x) -> (%y) : (!llhd.sig<!emitc.ptr<!emitc.opaque<"VBar">>>, !llhd.sig<i32>) -> (!llhd.sig<i32>)
+  llhd.inst "delete_initial" @new_initial (%vbar) -> () : (!llhd.sig<!emitc.ptr<!emitc.opaque<"VBar">>>) -> ()
+}
+
+llhd.proc @new_initial () -> () {
+  
+}
+
+llhd.proc @always_comb () -> () {
+
+}
+
+llhd.proc @delete_initial () -> () {
+
+}
+```
 
 ## Q&A
 
