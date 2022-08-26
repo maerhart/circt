@@ -1,12 +1,19 @@
 // RUN: circt-opt --convert-hw-to-systemc --verify-diagnostics %s | FileCheck %s
 
-hw.module @Bar (%a: i32) -> (b: i32) {
-  hw.output %a : i32
+module attributes {hw.backend_choice=#hw.backend_choice<1>} {
+  hw.module @Bar (%a: i32, %b: i32) -> (c: i32) {
+    %0 = comb.add %a, %b : i32
+    hw.output %0 : i32
+  }
 }
 
-hw.module @Foo (%x: i32) -> (y: i32) {
-  %1 = systemc.model.verilated @Bar (["a"]: %x) -> (["b"]) : (i32) -> i32
-  hw.output %1 : i32
+module attributes {hw.backend_choice=#hw.backend_choice<0>} {
+  hw.module.extern @Bar (%a: i32, %b: i32) -> (c: i32)
+
+  hw.module @Foo (%x: i32) -> (y: i32) {
+    %1 = systemc.model.verilated @Bar (["a", "b"]: %x, %x) -> (["c"]) : (i32, i32) -> i32
+    hw.output %1 : i32
+  }
 }
 
 

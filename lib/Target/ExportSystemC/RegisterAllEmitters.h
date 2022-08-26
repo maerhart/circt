@@ -34,6 +34,7 @@ inline void registerAllOpEmitters(OpEmissionPatternSet &patterns,
 inline void registerAllTypeEmitters(TypeEmissionPatternSet &patterns) {
   populateHWTypeEmitters(patterns);
   populateSystemCTypeEmitters(patterns);
+  populateEmitCTypeEmitters(patterns);
 }
 
 } // namespace ExportSystemC

@@ -24,8 +24,7 @@ void populateEmitCOpEmitters(OpEmissionPatternSet &patterns,
                              MLIRContext *context);
 
 /// Register EmitC type emission patterns.
-void populateEmitCTypeEmitters(TypeEmissionPatternSet &patterns,
-                               MLIRContext *context);
+void populateEmitCTypeEmitters(TypeEmissionPatternSet &patterns);
 
 } // namespace ExportSystemC
 } // namespace circt

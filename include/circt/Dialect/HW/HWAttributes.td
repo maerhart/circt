@@ -13,6 +13,12 @@
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/BuiltinAttributeInterfaces.td"
 
+def BackendChoiceAttr : AttrDef<HWDialect, "BackendChoice"> {
+  let mnemonic = "backend_choice";
+  let parameters = (ins "::mlir::IntegerAttr":$backend); // 0=systemc,1=verilog
+  let assemblyFormat = "`<` $backend `>`";
+}
+
 /// An attribute to indicate the output file an operation should be emitted to.
 def OutputFileAttr : AttrDef<HWDialect, "OutputFile"> {
   let summary = "Output file attribute";

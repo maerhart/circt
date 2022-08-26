@@ -12,6 +12,7 @@
 
 #include "circt/Dialect/SystemC/SystemCOps.h"
 #include "circt/Dialect/HW/ModuleImplementation.h"
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/IR/FunctionImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -315,27 +316,37 @@ SmallVector<InteropMechanism> SCModuleOp::getInteropSupport() {
   return SmallVector<InteropMechanism>({InteropMechanism::CPP});
 }
 
-OpBuilder SCModuleOp::getStateBuilder(InteropMechanism interopType) {
-  auto builder = OpBuilder(getBody());
-  builder.setInsertionPointToStart(getBodyBlock());
-  return builder;
-}
+class SCModuleInteropBuilder : public InteropBuilder {
+public:
+  SCModuleInteropBuilder(InstanceProceduralInteropOpInterface op,
+                         SCModuleOp moduleOp)
+      : InteropBuilder(op), moduleOp(moduleOp) {}
 
-OpBuilder SCModuleOp::getStateInitBuilder(InteropMechanism interopType) {
-  auto builder = OpBuilder(getBody());
-  builder.setInsertionPointToStart(&getOrCreateCtor().getBody().front());
-  return builder;
-}
+  OpBuilder getStateBuilder() final {
+    return OpBuilder::atBlockBegin(moduleOp.getBodyBlock());
+  }
 
-OpBuilder SCModuleOp::getStateUpdateBuilder(Operation *interopOp,
-                                            InteropMechanism interopType) {
-  return OpBuilder(interopOp);
-}
+  OpBuilder getStateAllocBuilder() final {
+    return OpBuilder::atBlockEnd(&moduleOp.getOrCreateCtor().getBody().front());
+  }
 
-OpBuilder SCModuleOp::getStateDeallocBuilder(InteropMechanism interopType) {
-  auto builder = OpBuilder(getBody());
-  builder.setInsertionPointToStart(&getOrCreateDestructor().getBody().front());
-  return builder;
+  OpBuilder getStateUpdateBuilder() final {
+    return OpBuilder(instanceInteropOp);
+  }
+
+  OpBuilder getStateDeallocBuilder() final {
+    return OpBuilder::atBlockEnd(
+        &moduleOp.getOrCreateDestructor().getBody().front());
+  }
+
+private:
+  SCModuleOp moduleOp;
+};
+
+std::unique_ptr<InteropBuilder>
+SCModuleOp::getInteropBuilder(Operation *interopOp,
+                              InteropMechanism interopType) {
+  return std::make_unique<SCModuleInteropBuilder>(interopOp, *this);
 }
 
 //===----------------------------------------------------------------------===//
@@ -376,63 +387,77 @@ LogicalResult SCFuncOp::verify() {
 // ModelVerilatedOp
 //===----------------------------------------------------------------------===//
 
+void VariableOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
+  setNameFn(getResult(), getName());
+}
+
+//===----------------------------------------------------------------------===//
+// ModelVerilatedOp
+//===----------------------------------------------------------------------===//
+
 SmallVector<InteropMechanism> ModelVerilatedOp::getInteropSupport() {
   return SmallVector<InteropMechanism>({InteropMechanism::CPP});
 }
 
-SmallVector<Value> ModelVerilatedOp::buildState(OpBuilder &builder) {
+SmallVector<Value> ModelVerilatedOp::buildInterop(InteropBuilder &builder) {
   std::string tn = "V";
   tn += getModuleName();
-  auto ptrType =
-      emitc::PointerType::get(emitc::OpaqueType::get(builder.getContext(), tn));
-  llvm::errs() << ptrType.getDialect().getNamespace();
-  return {builder
-              .create<VariableOp>(
-                  getLoc(), ptrType,
-                  StringAttr::get(builder.getContext(), "v" + getModuleName()))
-              .getResult()};
-}
 
-void ModelVerilatedOp::buildStateInit(OpBuilder &builder,
-                                      ArrayRef<Value> state) {
+  // Replace external HW module with include
+  auto *extModule =
+      SymbolTable::lookupNearestSymbolFrom(*this, getModuleNameAttr());
+  OpBuilder includeBuilder(extModule);
+  includeBuilder.create<emitc::IncludeOp>(getLoc(), tn + ".h", false);
+  extModule->erase();
+
+  // Build state
+  OpBuilder stateBuilder = builder.getStateBuilder();
+  MLIRContext *ctxt = stateBuilder.getContext();
+  auto ptrType = emitc::PointerType::get(emitc::OpaqueType::get(ctxt, tn));
+  auto state = stateBuilder
+                   .create<VariableOp>(
+                       getLoc(), ptrType,
+                       StringAttr::get(ctxt, ("v" + getModuleName()).str()))
+                   .getResult();
+
+  // Build state init
+  OpBuilder initBuilder = builder.getStateAllocBuilder();
   auto newOp =
-      builder.create<NewOp>(getLoc(), state[0].getType(), ValueRange{});
-  builder.create<AssignOp>(getLoc(), state[0], newOp.getResult());
-}
+      initBuilder.create<NewOp>(getLoc(), state.getType(), ValueRange{});
+  initBuilder.create<AssignOp>(getLoc(), state, newOp.getResult());
 
-SmallVector<Value> ModelVerilatedOp::buildStateUpdate(OpBuilder &builder,
-                                                      ArrayRef<Value> state) {
+  // Build state update
+  OpBuilder updateBuilder = builder.getStateUpdateBuilder();
   for (size_t i = 0; i < getInputs().size(); ++i) {
     Value input = getInputs()[i];
     auto member =
-        builder
+        updateBuilder
             .create<MemberAccessOp>(
-                getLoc(), input.getType(), state[0],
+                getLoc(), input.getType(), state,
                 getInputNames()[i].cast<StringAttr>().getValue(), true)
             .getResult();
-    builder.create<AssignOp>(getLoc(), member, input);
+    updateBuilder.create<AssignOp>(getLoc(), member, input);
   }
 
-  auto evalFunc = builder.create<MemberAccessOp>(
-      getLoc(), FuncHandleType::get(builder.getContext()), state[0], "eval",
+  auto evalFunc = updateBuilder.create<MemberAccessOp>(
+      getLoc(), FuncHandleType::get(updateBuilder.getContext()), state, "eval",
       true);
-  builder.create<CallOp>(getLoc(), evalFunc.getResult());
+  updateBuilder.create<CallOp>(getLoc(), evalFunc.getResult());
 
   SmallVector<Value> results;
   for (size_t i = 0; i < getNumResults(); ++i) {
-    results.push_back(builder
+    results.push_back(updateBuilder
                           .create<MemberAccessOp>(
-                              getLoc(), getResults()[i].getType(), state[0],
+                              getLoc(), getResults()[i].getType(), state,
                               getResultNames()[i].cast<StringAttr>().getValue(),
                               true)
                           .getResult());
   }
-  return results;
-}
 
-void ModelVerilatedOp::buildStateDealloc(OpBuilder &builder,
-                                         ArrayRef<Value> state) {
-  builder.create<DeleteOp>(getLoc(), state[0]);
+  // Build state dealloc
+  builder.getStateDeallocBuilder().create<DeleteOp>(getLoc(), state);
+
+  return results;
 }
 
 //===----------------------------------------------------------------------===//

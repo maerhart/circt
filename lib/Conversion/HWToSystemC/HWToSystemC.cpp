@@ -13,6 +13,7 @@
 #include "circt/Conversion/HWToSystemC.h"
 #include "../PassDetail.h"
 #include "circt/Dialect/Comb/CombDialect.h"
+#include "circt/Dialect/HW/HWAttributes.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/SystemC/SystemCOps.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -141,9 +142,18 @@ struct ConvertOutput : public OpConversionPattern<OutputOp> {
 static void populateLegality(ConversionTarget &target) {
   target.addIllegalDialect<HWDialect>();
   target.addLegalDialect<mlir::BuiltinDialect>();
+  target.addLegalOp<ModuleOp>();
+  target.markOpRecursivelyLegal<ModuleOp>([](ModuleOp module) {
+    return module->hasAttr("hw.backend_choice") &&
+           module->getAttr("hw.backend_choice")
+                   .cast<hw::BackendChoiceAttr>()
+                   .getBackend()
+                   .getValue() != 0;
+  });
   target.addLegalDialect<systemc::SystemCDialect>();
   target.addLegalDialect<comb::CombDialect>();
   target.addLegalDialect<emitc::EmitCDialect>();
+  target.addLegalOp<hw::HWModuleExternOp>();
   target.addLegalOp<hw::ConstantOp>();
 }
 
@@ -173,8 +183,14 @@ void HWToSystemCPass::runOnOperation() {
 
   // Create the include operation here to have exactly one 'systemc' include at
   // the top instead of one per module.
-  OpBuilder builder(module.getRegion());
-  builder.create<emitc::IncludeOp>(module->getLoc(), "systemc", true);
+  if (module->hasAttr("hw.backend_choice") &&
+      module->getAttr("hw.backend_choice")
+              .cast<hw::BackendChoiceAttr>()
+              .getBackend()
+              .getValue() == 0) {
+    OpBuilder builder(module.getRegion());
+    builder.create<emitc::IncludeOp>(module->getLoc(), "systemc", true);
+  }
 
   ConversionTarget target(context);
   TypeConverter typeConverter;

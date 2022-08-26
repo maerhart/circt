@@ -24,17 +24,8 @@ def ModuleProceduralInteropOpInterface : OpInterface<"ModuleProceduralInteropOpI
     InterfaceMethod<"Get the supported interop mechanisms",
     "::llvm::SmallVector<::circt::systemc::InteropMechanism>", "getInteropSupport", (ins)>,
 
-    InterfaceMethod<"Get the state builder",
-    "::mlir::OpBuilder", "getStateBuilder", (ins "::circt::systemc::InteropMechanism":$interopType)>,
-
-    InterfaceMethod<"Get the state init builder",
-    "::mlir::OpBuilder", "getStateInitBuilder", (ins "::circt::systemc::InteropMechanism":$interopType)>,
-
-    InterfaceMethod<"Get the state update builder",
-    "::mlir::OpBuilder", "getStateUpdateBuilder", (ins "::mlir::Operation*":$interopOp, "::circt::systemc::InteropMechanism":$interopType)>,
-
-    InterfaceMethod<"Get the state dealloc builder",
-    "::mlir::OpBuilder", "getStateDeallocBuilder", (ins "::circt::systemc::InteropMechanism":$interopType)>
+    InterfaceMethod<"Get the interop builder",
+    "std::unique_ptr<::circt::systemc::InteropBuilder>", "getInteropBuilder", (ins "::mlir::Operation*":$interopOp, "::circt::systemc::InteropMechanism":$interopType)>,
   ];
 }
 
@@ -48,16 +39,7 @@ def InstanceProceduralInteropOpInterface : OpInterface<"InstanceProceduralIntero
     "::llvm::SmallVector<::circt::systemc::InteropMechanism>", "getInteropSupport", (ins)>,
 
     InterfaceMethod<"Get the state builder",
-    "::llvm::SmallVector<::mlir::Value>", "buildState", (ins "::mlir::OpBuilder&":$builder)>,
-
-    InterfaceMethod<"Get the state init builder",
-    "void", "buildStateInit", (ins "::mlir::OpBuilder&":$builder, "::llvm::ArrayRef<::mlir::Value>":$state)>,
-
-    InterfaceMethod<"Get the state update builder",
-    "::llvm::SmallVector<::mlir::Value>", "buildStateUpdate", (ins "::mlir::OpBuilder&":$builder, "::llvm::ArrayRef<::mlir::Value>":$state)>,
-
-    InterfaceMethod<"Get the state dealloc builder",
-    "void", "buildStateDealloc", (ins "::mlir::OpBuilder&":$builder, "::llvm::ArrayRef<::mlir::Value>":$state)>
+    "::llvm::SmallVector<::mlir::Value>", "buildInterop", (ins "::circt::systemc::InteropBuilder&":$builder)>,
   ];
 }
 

@@ -5039,9 +5039,20 @@ struct ExportVerilogPass : public ExportVerilogBase<ExportVerilogPass> {
     // Make sure LoweringOptions are applied to the module if it was overridden
     // on the command line.
     // TODO: This should be moved up to circt-opt and circt-translate.
-    applyLoweringCLOptions(getOperation());
 
-    if (failed(exportVerilog(getOperation(), os)))
+    auto result = getOperation()->walk([&](ModuleOp module) -> WalkResult {
+      if (module->hasAttr("hw.backend_choice") &&
+          module->getAttrOfType<hw::BackendChoiceAttr>("hw.backend_choice")
+                  .getBackend()
+                  .getValue() == 1) {
+        applyLoweringCLOptions(module);
+        if (failed(exportVerilog(module, os)))
+          return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+
+    if (result.wasInterrupted())
       signalPassFailure();
   }
 

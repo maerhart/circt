@@ -83,7 +83,7 @@ def AssignOp : SystemCOp<"cpp.assign", [SameTypeOperands]> {
   let assemblyFormat = "$dest `=` $source attr-dict `:` type($dest)";
 }
 
-def VariableOp : SystemCOp<"cpp.variable", [SystemCNameDeclOpInterface]> {
+def VariableOp : SystemCOp<"cpp.variable", [HasCustomSSAName, SystemCNameDeclOpInterface]> {
   let summary = "";
   let description = [{
   }];

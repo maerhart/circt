@@ -20,6 +20,25 @@
 namespace circt {
 namespace systemc {
 enum class InteropMechanism { CFFI, CPP };
+
+class InteropBuilder {
+public:
+  explicit InteropBuilder(Operation *op) : instanceInteropOp(op) {}
+
+  virtual OpBuilder getStateBuilder() = 0;
+  // { return OpBuilder(instanceInteropOp);}
+  virtual OpBuilder getStateAllocBuilder() = 0;
+  // { return OpBuilder(instanceInteropOp);}
+  virtual OpBuilder getStateUpdateBuilder() = 0;
+  // { return OpBuilder(instanceInteropOp);}
+  virtual OpBuilder getStateDeallocBuilder() = 0;
+  // { return OpBuilder(instanceInteropOp);}
+
+  virtual ~InteropBuilder() = default;
+
+protected:
+  Operation *instanceInteropOp;
+};
 } // namespace systemc
 } // namespace circt
 

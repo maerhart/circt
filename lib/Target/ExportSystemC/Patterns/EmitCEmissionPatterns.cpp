@@ -165,6 +165,6 @@ void circt::ExportSystemC::populateEmitCOpEmitters(
 }
 
 void circt::ExportSystemC::populateEmitCTypeEmitters(
-    TypeEmissionPatternSet &patterns, MLIRContext *context) {
+    TypeEmissionPatternSet &patterns) {
   patterns.add<OpaqueTypeEmitter, PointerTypeEmitter>();
 }

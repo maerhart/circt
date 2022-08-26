@@ -46,6 +46,11 @@ void LowerInteropPass::runOnOperation() {
   WalkResult result =
       module->walk([](InstanceProceduralInteropOpInterface op) -> WalkResult {
         auto parent = op->getParentOfType<ModuleProceduralInteropOpInterface>();
+        if (!parent) {
+          op->emitError() << "No parent op accepting interop";
+          return WalkResult::interrupt();
+        }
+
         InteropMechanism interopType;
         bool intersect = false;
         for (auto interop : op.getInteropSupport()) {
@@ -60,14 +65,8 @@ void LowerInteropPass::runOnOperation() {
         if (!intersect)
           return WalkResult::interrupt();
 
-        auto builder = parent.getStateBuilder(interopType);
-        SmallVector<Value> state = op.buildState(builder);
-        builder = parent.getStateInitBuilder(interopType);
-        op.buildStateInit(builder, state);
-        builder = parent.getStateUpdateBuilder(op, interopType);
-        SmallVector<Value> newValues = op.buildStateUpdate(builder, state);
-        builder = parent.getStateDeallocBuilder(interopType);
-        op.buildStateDealloc(builder, state);
+        auto interopBuilder = parent.getInteropBuilder(op, interopType);
+        auto newValues = op.buildInterop(*interopBuilder);
 
         op->replaceAllUsesWith(newValues);
         op->erase();
