@@ -5,6 +5,7 @@ add_circt_translation_library(CIRCTExportSystemC
   Patterns/EmitCEmissionPatterns.cpp
   Patterns/HWEmissionPatterns.cpp
   Patterns/SystemCEmissionPatterns.cpp
+  Patterns/FuncEmissionPatterns.cpp
 
   ADDITIONAL_HEADER_DIRS
 

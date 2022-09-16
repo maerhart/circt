@@ -76,6 +76,36 @@ struct IndexTypeEmitter : TypeEmissionPattern<IndexType> {
   void emitType(IndexType type, EmissionPrinter &p) override { p << "size_t"; }
 };
 
+/// Emit a builtin function type as a std::function.
+struct FunctionTypeEmitter : public TypeEmissionPattern<FunctionType> {
+  bool match(Type type) override {
+    return type.isa<FunctionType>() &&
+           type.cast<FunctionType>().getNumResults() <= 1;
+  }
+
+  void emitType(FunctionType type, EmissionPrinter &p) override {
+    p << "std::function<";
+
+    if (type.getNumResults() == 0)
+      p << "void";
+    else
+      p.emitType(type.getResult(0));
+
+    p << "(";
+
+    bool first = true;
+    for (Type ty : type.getInputs()) {
+      if (!first)
+        p << ", ";
+
+      p.emitType(ty);
+      first = false;
+    }
+
+    p << ")>";
+  }
+};
+
 } // namespace
 
 namespace {
@@ -121,7 +151,7 @@ void circt::ExportSystemC::populateBuiltinOpEmitters(
 
 void circt::ExportSystemC::populateBuiltinTypeEmitters(
     TypeEmissionPatternSet &patterns) {
-  patterns.add<IntegerTypeEmitter, IndexTypeEmitter>();
+  patterns.add<IntegerTypeEmitter, IndexTypeEmitter, FunctionTypeEmitter>();
 }
 
 void circt::ExportSystemC::populateBuiltinAttrEmitters(

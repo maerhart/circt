@@ -17,6 +17,7 @@
 #include "circt/Dialect/HW/HWDialect.h"
 #include "circt/Dialect/SystemC/SystemCDialect.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
@@ -137,8 +138,9 @@ void ExportSystemC::registerExportSystemCTranslation() {
         return ExportSystemC::exportSystemC(module, output);
       },
       [](mlir::DialectRegistry &registry) {
-        registry.insert<hw::HWDialect, comb::CombDialect,
-                        systemc::SystemCDialect, mlir::emitc::EmitCDialect>();
+        registry
+            .insert<hw::HWDialect, comb::CombDialect, systemc::SystemCDialect,
+                    mlir::emitc::EmitCDialect, mlir::func::FuncDialect>();
       });
 
   static mlir::TranslateFromMLIRRegistration toSplitSystemC(
@@ -147,7 +149,8 @@ void ExportSystemC::registerExportSystemCTranslation() {
         return ExportSystemC::exportSplitSystemC(module, directory);
       },
       [](mlir::DialectRegistry &registry) {
-        registry.insert<hw::HWDialect, comb::CombDialect,
-                        systemc::SystemCDialect, mlir::emitc::EmitCDialect>();
+        registry
+            .insert<hw::HWDialect, comb::CombDialect, systemc::SystemCDialect,
+                    mlir::emitc::EmitCDialect, mlir::func::FuncDialect>();
       });
 }

@@ -17,6 +17,7 @@
 
 #include "Patterns/BuiltinEmissionPatterns.h"
 #include "Patterns/EmitCEmissionPatterns.h"
+#include "Patterns/FuncEmissionPatterns.h"
 #include "Patterns/HWEmissionPatterns.h"
 #include "Patterns/SystemCEmissionPatterns.h"
 
@@ -30,6 +31,7 @@ inline void registerAllOpEmitters(OpEmissionPatternSet &patterns,
   populateHWEmitters(patterns, context);
   populateSystemCOpEmitters(patterns, context);
   populateEmitCOpEmitters(patterns, context);
+  populateFuncOpEmitters(patterns, context);
 }
 
 /// Collects the type emission patterns of all supported dialects.
