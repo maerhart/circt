@@ -18,6 +18,7 @@ add_circt_translation_library(CIRCTExportSystemC
   CIRCTSystemC
   CIRCTSupport
   MLIREmitCDialect
+  MLIRFuncDialect
   MLIRIR
   MLIRTranslateLib
 )
