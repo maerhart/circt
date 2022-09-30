@@ -19,7 +19,22 @@
 #include "circt/Dialect/HW/HWOps.h"
 #include "mlir/Pass/Pass.h"
 
+namespace mlir {
+namespace func {
+class FuncDialect;
+} // namespace func
+
+namespace emitc {
+class EmitCDialect;
+} // namespace emitc
+} // namespace mlir
+
 namespace circt {
+
+namespace systemc {
+class SystemCDialect;
+} // namespace systemc
+
 namespace hw {
 
 #define GEN_PASS_CLASSES

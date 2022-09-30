@@ -1,6 +1,8 @@
 add_circt_dialect_library(CIRCTHWTransforms
   HWPrintInstanceGraph.cpp
   HWSpecialize.cpp
+  LowerInterop.cpp
+  CreateWrapper.cpp
 
   DEPENDS
   CIRCTHWTransformsIncGen
@@ -12,4 +14,11 @@ add_circt_dialect_library(CIRCTHWTransforms
   MLIRIR
   MLIRPass
   MLIRTransformUtils
+
+
+  CIRCTSystemC
+  CIRCTHW
+  CIRCTComb
+  MLIREmitCDialect
+  MLIRTransforms
 )

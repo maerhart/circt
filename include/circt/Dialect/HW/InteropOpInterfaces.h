@@ -18,17 +18,39 @@
 #include "mlir/IR/OpDefinition.h"
 
 namespace circt {
-namespace systemc {
+namespace hw {
 
 using InteropAllocFunc =
     std::function<Optional<SmallVector<Value>>(OpBuilder &)>;
-using InteropUpdateFunc =
-    std::function<SmallVector<Value>(ArrayRef<Value>, ArrayRef<Value>)>;
+using InteropUpdateFunc = std::function<SmallVector<Value>(
+    OpBuilder &, ArrayRef<Value>, ArrayRef<Value>)>;
 
 enum class InteropMechanism { CFFI, CPP };
 
-} // namespace systemc
+// NOLINTNEXTLINE(readability-identifier-naming)
+inline llvm::hash_code hash_value(const InteropMechanism &x) {
+  return llvm::hash_value(static_cast<unsigned>(x));
+}
+
+} // namespace hw
 } // namespace circt
+
+namespace llvm {
+
+template <>
+struct DenseMapInfo<circt::hw::InteropMechanism> {
+  using Mechanism = circt::hw::InteropMechanism;
+  static inline Mechanism getEmptyKey() { return Mechanism(-1); }
+  static inline Mechanism getTombstoneKey() { return Mechanism(-2); }
+  static unsigned getHashValue(const Mechanism &x) {
+    return circt::hw::hash_value(x);
+  }
+  static bool isEqual(const Mechanism &lhs, const Mechanism &rhs) {
+    return lhs == rhs;
+  }
+};
+
+} // namespace llvm
 
 #include "circt/Dialect/HW/InteropOpInterfaces.h.inc"
 

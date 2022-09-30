@@ -14,6 +14,7 @@
 #include "../PassDetail.h"
 #include "circt/Dialect/Comb/CombDialect.h"
 #include "circt/Dialect/HW/HWOps.h"
+#include "circt/Dialect/HW/InteropOpInterfaces.h"
 #include "circt/Dialect/SystemC/SystemCOps.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/IR/BuiltinDialect.h"
@@ -357,6 +358,6 @@ void HWToSystemCPass::runOnOperation() {
   populateTypeConversion(typeConverter);
   populateOpConversion(patterns, typeConverter);
 
-  if (failed(applyFullConversion(module, target, std::move(patterns))))
+  if (failed(applyPartialConversion(module, target, std::move(patterns))))
     signalPassFailure();
 }

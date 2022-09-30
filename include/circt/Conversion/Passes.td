@@ -405,18 +405,6 @@ def ConvertHWToSystemC : Pass<"convert-hw-to-systemc", "mlir::ModuleOp"> {
 }
 
 //===----------------------------------------------------------------------===//
-// LowerInterop
-//===----------------------------------------------------------------------===//
-
-def LowerInterop : Pass<"lower-interop", "mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-  }];
-  let constructor = "circt::createLowerInteropPass()";
-  let dependentDialects = ["systemc::SystemCDialect", "mlir::emitc::EmitCDialect", "mlir::func::FuncDialect"];
-}
-
-//===----------------------------------------------------------------------===//
 // StandardToHandshake
 //===----------------------------------------------------------------------===//
 

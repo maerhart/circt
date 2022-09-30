@@ -23,6 +23,11 @@ namespace hw {
 
 std::unique_ptr<mlir::Pass> createPrintInstanceGraphPass();
 std::unique_ptr<mlir::Pass> createHWSpecializePass();
+std::unique_ptr<mlir::Pass>
+createLowerInteropPass(const mlir::DialectRegistry &registry,
+                       mlir::StringRef cliName);
+std::unique_ptr<mlir::Pass> createLowerInteropPass();
+std::unique_ptr<mlir::Pass> createWrapperPass();
 
 /// Generate the code for registering passes.
 #define GEN_PASS_REGISTRATION

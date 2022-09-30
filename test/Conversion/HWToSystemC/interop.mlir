@@ -11,8 +11,8 @@
   hw.module.extern @Bar (%a: i32, %b: i32) -> (c: i32)
 
   hw.module @Foo (%x: i32) -> (y: i32) {
-    %1 = systemc.model.verilated @Bar (["a", "b"]: %x, %x) -> (["c"]) : (i32, i32) -> i32
-    hw.output %1 : i32
+    %c = systemc.interop.verilated "inst0" @Bar (a: %x: i32, b: %x: i32) -> (c: i32)
+    hw.output %c : i32
   }
 // }
 

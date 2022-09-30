@@ -15,6 +15,7 @@
 #include "circt/Dialect/SystemC/SystemCOps.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
@@ -28,13 +29,13 @@ struct SCModuleOpContainerInterface
     : ProceduralContainerInteropOpInterface::ExternalModel<
           SCModuleOpContainerInterface, systemc::SCModuleOp> {
   SmallVector<InteropMechanism> getInteropSupport(Operation *op) const {
-    return SmallVector<InteropMechanism>({InteropMechanism::CPP});
+    return SmallVector<InteropMechanism>({InteropMechanism::CFFI});
   }
 
-  SmallVector<Value> wrapInterop(Operation *op, ArrayRef<Type> state,
-                                 ArrayRef<Value> input,
-                                 InteropAllocFunc &allocator,
-                                 InteropUpdateFunc &updater,
+  SmallVector<Value> wrapInterop(Operation *op, OpBuilder &updateBuilder,
+                                 ArrayRef<Type> state, ArrayRef<Value> input,
+                                 const InteropAllocFunc &allocator,
+                                 const InteropUpdateFunc &updater,
                                  InteropMechanism mechanism) const {
     SCModuleOp module = cast<SCModuleOp>(op);
 
@@ -76,7 +77,14 @@ struct SCModuleOpContainerInterface
       }
     }
 
-    return updater(variables, input);
+    return updater(updateBuilder, variables, input);
+  }
+
+  static void getDependentDialects(DialectRegistry &registry) {
+    registry.addExtension(+[](MLIRContext *ctx, systemc::SystemCDialect *,
+                              emitc::EmitCDialect *, scf::SCFDialect *) {
+      SCModuleOp::attachInterface<SCModuleOpContainerInterface>(*ctx);
+    });
   }
 };
 
@@ -86,7 +94,7 @@ struct SCModuleOpContainerInterface
 
 struct VerilatedOpInstanceInterface
     : ProceduralInstanceInteropOpInterface::ExternalModel<
-          VerilatedOpInstanceInterface, systemc::ModelVerilatedOp> {
+          VerilatedOpInstanceInterface, systemc::InteropVerilatedOp> {
   SmallVector<InteropMechanism> getInteropSupport(Operation *op) const {
     return SmallVector<InteropMechanism>({InteropMechanism::CPP});
   }
@@ -94,7 +102,7 @@ struct VerilatedOpInstanceInterface
   SmallVector<Type> getRequiredState(Operation *op,
                                      InteropMechanism mechanism) const {
     std::string tn = "V";
-    tn += cast<ModelVerilatedOp>(op).getModuleName();
+    tn += cast<InteropVerilatedOp>(op).getModuleName();
     auto ptrType =
         emitc::PointerType::get(emitc::OpaqueType::get(op->getContext(), tn));
     return {ptrType};
@@ -108,8 +116,8 @@ struct VerilatedOpInstanceInterface
   SmallVector<Value> updateState(Operation *op, OpBuilder &builder,
                                  ArrayRef<Value> state, ArrayRef<Value> input,
                                  InteropMechanism mechanism) const {
-    ModelVerilatedOp verilatedOp = cast<ModelVerilatedOp>(op);
-    ModelVerilatedOp::Adaptor adaptor(input);
+    InteropVerilatedOp verilatedOp = cast<InteropVerilatedOp>(op);
+    InteropVerilatedOp::Adaptor adaptor(input);
     Location loc = verilatedOp->getLoc();
 
     std::string tn = "V";
@@ -124,15 +132,14 @@ struct VerilatedOpInstanceInterface
 
     // Build state update
     for (size_t i = 0; i < verilatedOp.getInputs().size(); ++i) {
-      Value input = verilatedOp.getInputs()[i];
       auto member =
           builder
               .create<MemberAccessOp>(
-                  loc, input.getType(), state[0],
+                  loc, input[i].getType(), state[0],
                   verilatedOp.getInputNames()[i].cast<StringAttr>().getValue(),
                   true)
               .getResult();
-      builder.create<AssignOp>(loc, member, input);
+      builder.create<AssignOp>(loc, member, input[i]);
     }
 
     auto evalFunc = builder.create<MemberAccessOp>(
@@ -153,15 +160,26 @@ struct VerilatedOpInstanceInterface
 
     return results;
   }
+
+  static void getDependentDialects(DialectRegistry &registry) {
+    registry.addExtension(+[](MLIRContext *ctx, systemc::SystemCDialect *,
+                              func::FuncDialect *, emitc::EmitCDialect *) {
+      InteropVerilatedOp::attachInterface<VerilatedOpInstanceInterface>(*ctx);
+    });
+  }
 };
 
 } // namespace
 
 void circt::systemc::registerInteropOpInterfaceExternalModels(
     DialectRegistry &registry) {
-  registry.addExtension(
-      +[](MLIRContext *ctx, systemc::SystemCDialect *dialect) {
-        SCModuleOp::attachInterface<SCModuleOpContainerInterface>(*ctx);
-        ModelVerilatedOp::attachInterface<VerilatedOpInstanceInterface>(*ctx);
-      });
+  SCModuleOpContainerInterface::getDependentDialects(registry);
+  VerilatedOpInstanceInterface::getDependentDialects(registry);
+
+  // registry.addExtension(
+  //     +[](MLIRContext *ctx, systemc::SystemCDialect*, func::FuncDialect*,
+  //     emitc::EmitCDialect*) {
+  //       SCModuleOp::attachInterface<SCModuleOpContainerInterface>(*ctx);
+  //       ModelVerilatedOp::attachInterface<VerilatedOpInstanceInterface>(*ctx);
+  //     });
 }

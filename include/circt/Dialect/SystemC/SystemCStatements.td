@@ -194,12 +194,78 @@ def VariableOp : SystemCOp<"cpp.variable", [HasCustomSSAName,
   let hasVerifier = 1;
 }
 
-def ModelVerilatedOp : SystemCOp<"model.verilated", []> {
+def InteropVerilatedOp : SystemCOp<"interop.verilated", [
+    DeclareOpInterfaceMethods<SymbolUserOpInterface>,
+    DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
   let summary = "";
   let description = [{
   }];
 
-  let arguments = (ins FlatSymbolRefAttr:$moduleName, StrArrayAttr:$inputNames, StrArrayAttr:$resultNames, Variadic<AnyType>:$inputs);
+  let arguments = (ins StrAttr:$instanceName,
+                       FlatSymbolRefAttr:$moduleName,
+                       StrArrayAttr:$inputNames,
+                       StrArrayAttr:$resultNames,
+                       Variadic<AnyType>:$inputs);
   let results = (outs Variadic<AnyType>:$results);
-  let assemblyFormat = "$moduleName `(` $inputNames `:` $inputs `)` `->` `(` $resultNames `)` attr-dict `:` functional-type($inputs, $results)";
+
+  let builders = [
+    /// Create a instance that refers to a known module.
+    OpBuilder<(ins "Operation*":$module, "StringAttr":$name,
+                   "ArrayRef<Value>":$inputs)>,
+    /// Create a instance that refers to a known module.
+    OpBuilder<(ins "Operation*":$module, "StringRef":$name,
+                   "ArrayRef<Value>":$inputs), [{
+      build($_builder, $_state, module, $_builder.getStringAttr(name), inputs);
+    }]>,
+  ];
+
+  let extraClassDeclaration = [{
+    /// Return the name of the specified input port or null if it cannot be
+    /// determined.
+    StringAttr getArgumentName(size_t i);
+
+    /// Return the name of the specified result or null if it cannot be
+    /// determined.
+    StringAttr getResultName(size_t i);
+
+    /// Change the name of the specified input port.
+    void setArgumentName(size_t i, StringAttr name);
+
+    /// Change the name of the specified output port.
+    void setResultName(size_t i, StringAttr name);
+
+    /// Change the names of all the input ports.
+    void setArgumentNames(ArrayAttr names) {
+      setInputNamesAttr(names);
+    }
+
+    /// Change the names of all the result ports.
+    void setResultNames(ArrayAttr names) {
+      setResultNamesAttr(names);
+    }
+
+    /// Lookup the module or extmodule for the symbol.  This returns null on
+    /// invalid IR.
+    Operation *getReferencedModule(const hw::HWSymbolCache *cache);
+    Operation *getReferencedModule();
+
+    /// Get the instances's name.
+    StringAttr getName() {
+      return getInstanceNameAttr();
+    }
+
+    /// Set the instance's name.
+    void setName(StringAttr name) {
+      setInstanceNameAttr(name);
+    }
+
+    //===------------------------------------------------------------------===//
+    // SymbolOpInterface Methods
+    //===------------------------------------------------------------------===//
+
+    /// An InstanceOp may optionally define a symbol.
+    bool isOptionalSymbol() { return true; }
+  }];
+
+  let hasCustomAssemblyFormat = 1;
 }

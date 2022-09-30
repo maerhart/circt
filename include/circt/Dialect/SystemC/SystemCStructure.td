@@ -207,3 +207,35 @@ def DestructorOp : SystemCOp<"cpp.destructor", [
   let hasVerifier = true;
   let skipDefaultBuilders = 1;
 }
+
+def ExternOp : SystemCOp<"cpp.extern", [
+    SingleBlock,
+    NoTerminator,
+    HasParent<"ModuleOp">
+]> {
+  let summary = "A 'extern' scope.";
+  let description = [{
+  }];
+
+  let arguments = (ins UnitAttr:$disableMangling);
+  let regions = (region SizedRegion<1>:$body);
+  let assemblyFormat = "attr-dict-with-keyword $body";
+
+  let builders = [
+    OpBuilder<(ins), "build($_builder, $_state, false);">,
+    OpBuilder<(ins "bool":$disableMangling), [{
+      Region *region = $_state.addRegion();
+      region->push_back(new Block);
+      if (disableMangling)
+        $_state.addAttribute("disableMangling", UnitAttr::get($_builder.getContext()));
+    }]>,
+  ];
+
+  let extraClassDeclaration = [{
+    /// Return the block corresponding to the region.
+    Block *getBodyBlock() { return &getBody().front(); }
+  }];
+
+  let hasVerifier = true;
+  let skipDefaultBuilders = 1;
+}

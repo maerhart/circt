@@ -30,7 +30,6 @@ target_link_libraries(circt-opt
   CIRCTLLHD
   CIRCTLLHDToLLVM
   CIRCTHWToLLVM
-  CIRCTLowerInterop
   CIRCTCombToLLVM
   CIRCTLLHDTransforms
   CIRCTMoore

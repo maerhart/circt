@@ -23,16 +23,17 @@ def ProceduralContainerInteropOpInterface :
 
   let methods = [
     InterfaceMethod<"Get the supported interop mechanisms",
-      "::llvm::SmallVector<::circt::systemc::InteropMechanism>",
+      "::llvm::SmallVector<::circt::hw::InteropMechanism>",
       "getInteropSupport", (ins)>,
 
     InterfaceMethod<"Get the interop builder",
       "::llvm::SmallVector<::mlir::Value>", "wrapInterop",
-      (ins "::llvm::ArrayRef<::mlir::Type>":$state,
-          "::llvm::ArrayRef<::mlir::Value>":$input,
-          "::circt::systemc::InteropAllocFunc&":$allocator,
-          "::circt::systemc::InteropUpdateFunc&":$updater,
-          "::circt::systemc::InteropMechanism":$mechanism)>,
+      (ins "::mlir::OpBuilder&":$builder,
+           "::llvm::ArrayRef<::mlir::Type>":$state,
+           "::llvm::ArrayRef<::mlir::Value>":$input,
+           "const ::circt::hw::InteropAllocFunc&":$allocator,
+           "const ::circt::hw::InteropUpdateFunc&":$updater,
+           "::circt::hw::InteropMechanism":$mechanism)>,
   ];
 }
 
@@ -44,24 +45,24 @@ def ProceduralInstanceInteropOpInterface :
 
   let methods = [
     InterfaceMethod<"Get the supported interop mechanisms",
-      "::llvm::SmallVector<::circt::systemc::InteropMechanism>",
+      "::llvm::SmallVector<::circt::hw::InteropMechanism>",
       "getInteropSupport", (ins)>,
 
     InterfaceMethod<"Get the state builder",
       "::llvm::SmallVector<::mlir::Type>", "getRequiredState",
-      (ins "::circt::systemc::InteropMechanism":$mechanism)>,
+      (ins "::circt::hw::InteropMechanism":$mechanism)>,
 
     InterfaceMethod<"Get the state builder",
       "::llvm::Optional<::llvm::SmallVector<::mlir::Value>>", "allocState",
       (ins "::mlir::OpBuilder&":$builder,
-           "::circt::systemc::InteropMechanism":$mechanism)>,
+           "::circt::hw::InteropMechanism":$mechanism)>,
 
     InterfaceMethod<"Get the state builder",
       "::llvm::SmallVector<::mlir::Value>", "updateState",
       (ins "::mlir::OpBuilder&":$builder,
           "::llvm::ArrayRef<::mlir::Value>":$state,
           "::llvm::ArrayRef<::mlir::Value>":$input,
-          "::circt::systemc::InteropMechanism":$mechanism)>,
+          "::circt::hw::InteropMechanism":$mechanism)>,
   ];
 }
 

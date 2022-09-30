@@ -455,6 +455,17 @@ LogicalResult DestructorOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// ExternOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult ExternOp::verify() {
+  if (getBody().getNumArguments() != 0)
+    return emitOpError("must not have any arguments");
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // BindPortOp
 //===----------------------------------------------------------------------===//
 
@@ -606,8 +617,290 @@ LogicalResult VariableOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// ModelVerilatedOp
+// InteropVerilatedOp
 //===----------------------------------------------------------------------===//
+
+/// Create a instance that refers to a known module.
+void InteropVerilatedOp::build(OpBuilder &builder, OperationState &result,
+                               Operation *module, StringAttr name,
+                               ArrayRef<Value> inputs) {
+  assert(hw::isAnyModule(module) && "Can only reference a module");
+
+  FunctionType modType = hw::getModuleType(module);
+  build(builder, result, modType.getResults(), name,
+        FlatSymbolRefAttr::get(SymbolTable::getSymbolName(module)),
+        module->getAttrOfType<ArrayAttr>("argNames"),
+        module->getAttrOfType<ArrayAttr>("resultNames"), inputs);
+}
+
+/// Lookup the module or extmodule for the symbol.  This returns null on
+/// invalid IR.
+Operation *
+InteropVerilatedOp::getReferencedModule(const hw::HWSymbolCache *cache) {
+  if (cache)
+    if (auto *result = cache->getDefinition(getModuleNameAttr()))
+      return result;
+
+  auto topLevelModuleOp = (*this)->getParentOfType<ModuleOp>();
+  return topLevelModuleOp.lookupSymbol(getModuleName());
+}
+
+Operation *InteropVerilatedOp::getReferencedModule() {
+  return getReferencedModule(/*cache=*/nullptr);
+}
+
+LogicalResult
+InteropVerilatedOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  auto *module =
+      symbolTable.lookupNearestSymbolFrom(*this, getModuleNameAttr());
+  if (module == nullptr)
+    return emitError("Cannot find module definition '")
+           << getModuleName() << "'";
+
+  // It must be some sort of module.
+  if (!hw::isAnyModule(module))
+    return emitError("symbol reference '")
+           << getModuleName() << "' isn't a module";
+
+  // Check that input and result types are consistent with the referenced
+  // module.
+  // Emit an error message on the instance, with a note indicating which module
+  // is being referenced.
+  auto emitError =
+      [&](std::function<void(InFlightDiagnostic & diag)> fn) -> LogicalResult {
+    auto diag = emitOpError();
+    fn(diag);
+    diag.attachNote(module->getLoc()) << "module declared here";
+    return failure();
+  };
+
+  // Make sure our port and result names match.
+  ArrayAttr argNames = getInputNamesAttr();
+  ArrayAttr modArgNames = module->getAttrOfType<ArrayAttr>("argNames");
+
+  // Check operand types first.
+  auto numOperands = getOperation()->getNumOperands();
+  auto expectedOperandTypes = hw::getModuleType(module).getInputs();
+
+  if (expectedOperandTypes.size() != numOperands)
+    return emitError([&](auto &diag) {
+      diag << "has a wrong number of operands; expected "
+           << expectedOperandTypes.size() << " but got " << numOperands;
+    });
+
+  if (argNames.size() != numOperands)
+    return emitError([&](auto &diag) {
+      diag << "has a wrong number of input port names; expected " << numOperands
+           << " but got " << argNames.size();
+    });
+
+  for (size_t i = 0; i != numOperands; ++i) {
+    auto expectedType = expectedOperandTypes[i];
+
+    auto operandType = getOperand(i).getType();
+    if (operandType != expectedType) {
+      return emitError([&](auto &diag) {
+        diag << "operand type #" << i << " must be " << expectedType
+             << ", but got " << operandType;
+      });
+    }
+
+    if (argNames[i] != modArgNames[i])
+      return emitError([&](auto &diag) {
+        diag << "input label #" << i << " must be " << modArgNames[i]
+             << ", but got " << argNames[i];
+      });
+  }
+
+  // Check result types and labels.
+  auto numResults = getOperation()->getNumResults();
+  auto expectedResultTypes = hw::getModuleType(module).getResults();
+  ArrayAttr resultNames = getResultNamesAttr();
+  ArrayAttr modResultNames = module->getAttrOfType<ArrayAttr>("resultNames");
+
+  if (expectedResultTypes.size() != numResults)
+    return emitError([&](auto &diag) {
+      diag << "has a wrong number of results; expected "
+           << expectedResultTypes.size() << " but got " << numResults;
+    });
+  if (resultNames.size() != numResults)
+    return emitError([&](auto &diag) {
+      diag << "has a wrong number of results port labels; expected "
+           << numResults << " but got " << resultNames.size();
+    });
+
+  for (size_t i = 0; i != numResults; ++i) {
+    auto expectedType = expectedResultTypes[i];
+
+    auto resultType = getResult(i).getType();
+    if (resultType != expectedType)
+      return emitError([&](auto &diag) {
+        diag << "result type #" << i << " must be " << expectedType
+             << ", but got " << resultType;
+      });
+
+    if (resultNames[i] != modResultNames[i])
+      return emitError([&](auto &diag) {
+        diag << "input label #" << i << " must be " << modResultNames[i]
+             << ", but got " << resultNames[i];
+      });
+  }
+
+  return success();
+}
+
+ParseResult InteropVerilatedOp::parse(OpAsmParser &parser,
+                                      OperationState &result) {
+  auto *context = result.getContext();
+  StringAttr instanceNameAttr;
+  FlatSymbolRefAttr moduleNameAttr;
+  SmallVector<OpAsmParser::UnresolvedOperand, 4> inputsOperands;
+  SmallVector<Type> inputsTypes;
+  SmallVector<Type> allResultTypes;
+  SmallVector<Attribute> inputNames, resultNames;
+  auto noneType = parser.getBuilder().getType<NoneType>();
+
+  if (parser.parseAttribute(instanceNameAttr, noneType, "instanceName",
+                            result.attributes))
+    return failure();
+
+  auto parseInputPort = [&]() -> ParseResult {
+    std::string portName;
+    if (parser.parseKeywordOrString(&portName))
+      return failure();
+    inputNames.push_back(StringAttr::get(context, portName));
+    inputsOperands.push_back({});
+    inputsTypes.push_back({});
+    return failure(parser.parseColon() ||
+                   parser.parseOperand(inputsOperands.back()) ||
+                   parser.parseColon() || parser.parseType(inputsTypes.back()));
+  };
+
+  auto parseResultPort = [&]() -> ParseResult {
+    std::string portName;
+    if (parser.parseKeywordOrString(&portName))
+      return failure();
+    resultNames.push_back(StringAttr::get(parser.getContext(), portName));
+    allResultTypes.push_back({});
+    return parser.parseColonType(allResultTypes.back());
+  };
+
+  llvm::SMLoc inputsOperandsLoc;
+  if (parser.parseAttribute(moduleNameAttr, noneType, "moduleName",
+                            result.attributes) ||
+      parser.getCurrentLocation(&inputsOperandsLoc) ||
+      parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Paren,
+                                     parseInputPort) ||
+      parser.resolveOperands(inputsOperands, inputsTypes, inputsOperandsLoc,
+                             result.operands) ||
+      parser.parseArrow() ||
+      parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Paren,
+                                     parseResultPort) ||
+      parser.parseOptionalAttrDict(result.attributes)) {
+    return failure();
+  }
+
+  result.addAttribute("inputNames",
+                      parser.getBuilder().getArrayAttr(inputNames));
+  result.addAttribute("resultNames",
+                      parser.getBuilder().getArrayAttr(resultNames));
+  result.addTypes(allResultTypes);
+  return success();
+}
+
+void InteropVerilatedOp::print(OpAsmPrinter &p) {
+  // hw::ModulePortInfo portInfo = hw::getModulePortInfo(*this);
+  size_t nextInputPort = 0, nextOutputPort = 0;
+
+  auto printPortName = [&](size_t &nextPort, ArrayAttr portList) {
+    // Allow printing mangled instances.
+    if (nextPort >= portList.size()) {
+      p << "<corrupt port>: ";
+      return;
+    }
+
+    p.printKeywordOrString(portList[nextPort++].cast<StringAttr>().getValue());
+    p << ": ";
+  };
+
+  p << ' ';
+  p.printAttributeWithoutType(getInstanceNameAttr());
+  p << ' ';
+  p.printAttributeWithoutType(getModuleNameAttr());
+  p << '(';
+  llvm::interleaveComma(getInputs(), p, [&](Value op) {
+    // printPortName(nextInputPort, portInfo.inputs);
+    printPortName(nextInputPort, getInputNames());
+    p << op << ": " << op.getType();
+  });
+  p << ") -> (";
+  llvm::interleaveComma(getResults(), p, [&](Value res) {
+    printPortName(nextOutputPort, getResultNames());
+    p << res.getType();
+  });
+  p << ')';
+  p.printOptionalAttrDict((*this)->getAttrs(),
+                          /*elidedAttrs=*/{"instanceName", "moduleName",
+                                           "inputNames", "resultNames"});
+}
+
+/// Return the name of the specified input port or null if it cannot be
+/// determined.
+StringAttr InteropVerilatedOp::getArgumentName(size_t idx) {
+  auto names = getInputNames();
+  // Tolerate malformed IR here to enable debug printing etc.
+  if (names && idx < names.size())
+    return names[idx].cast<StringAttr>();
+  return StringAttr();
+}
+
+/// Return the name of the specified result or null if it cannot be
+/// determined.
+StringAttr InteropVerilatedOp::getResultName(size_t idx) {
+  auto names = getResultNames();
+  // Tolerate malformed IR here to enable debug printing etc.
+  if (names && idx < names.size())
+    return names[idx].cast<StringAttr>();
+  return StringAttr();
+}
+
+/// Change the name of the specified input port.
+void InteropVerilatedOp::setArgumentName(size_t i, StringAttr name) {
+  auto names = getInputNames();
+  SmallVector<Attribute> newNames(names.begin(), names.end());
+  if (newNames[i] == name)
+    return;
+  newNames[i] = name;
+  setArgumentNames(ArrayAttr::get(getContext(), names));
+}
+
+/// Change the name of the specified output port.
+void InteropVerilatedOp::setResultName(size_t i, StringAttr name) {
+  auto names = getResultNames();
+  SmallVector<Attribute> newNames(names.begin(), names.end());
+  if (newNames[i] == name)
+    return;
+  newNames[i] = name;
+  setResultNames(ArrayAttr::get(getContext(), names));
+}
+
+/// Suggest a name for each result value based on the saved result names
+/// attribute.
+void InteropVerilatedOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
+  // Provide default names for instance results.
+  std::string name = getInstanceName().str() + ".";
+  size_t baseNameLen = name.size();
+
+  for (size_t i = 0, e = getNumResults(); i != e; ++i) {
+    auto resName = getResultName(i);
+    name.resize(baseNameLen);
+    if (resName && !resName.getValue().empty())
+      name += resName.getValue().str();
+    else
+      name += std::to_string(i);
+    setNameFn(getResult(i), name);
+  }
+}
 
 //===----------------------------------------------------------------------===//
 // TableGen generated logic.

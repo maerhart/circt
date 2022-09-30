@@ -33,4 +33,29 @@ def HWSpecialize : Pass<"hw-specialize", "mlir::ModuleOp"> {
   }];
 }
 
+//===----------------------------------------------------------------------===//
+// LowerInterop
+//===----------------------------------------------------------------------===//
+
+def LowerInterop : Pass<"lower-interop", "mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+  }];
+  let constructor = "circt::hw::createLowerInteropPass()";
+  let dependentDialects = ["systemc::SystemCDialect", "mlir::emitc::EmitCDialect", "mlir::func::FuncDialect"];
+}
+
+def WrappedModuleNameOption : Option<"wrappedModuleName", "wrappedModule",
+                                     "std::string", "",
+                                     "Name of the module to be wrapped">;
+
+def CreateWrapper : Pass<"create-wrapper", "mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+  }];
+  let options = [WrappedModuleNameOption];
+  let constructor = "circt::hw::createWrapperPass()";
+  let dependentDialects = ["hw::HWDialect"];
+}
+
 #endif // CIRCT_DIALECT_HW_PASSES_TD
