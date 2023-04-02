@@ -16,6 +16,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/Transforms/InliningUtils.h"
 
 using namespace circt;
 using namespace comb;
@@ -24,12 +25,30 @@ using namespace comb;
 // Dialect specification.
 //===----------------------------------------------------------------------===//
 
+namespace {
+/// This class defines the interface for handling inlining with Arc operations.
+struct CombInlinerInterface : public mlir::DialectInlinerInterface {
+  using mlir::DialectInlinerInterface::DialectInlinerInterface;
+
+  bool isLegalToInline(Region *dest, Region *src, bool wouldBeCloned,
+                       IRMapping &valueMapping) const override {
+    return true;
+  }
+  bool isLegalToInline(Operation *op, Region *dest, bool wouldBeCloned,
+                       IRMapping &valueMapping) const override {
+    return true;
+  }
+};
+} // end anonymous namespace
+
 void CombDialect::initialize() {
   // Register operations.
   addOperations<
 #define GET_OP_LIST
 #include "circt/Dialect/Comb/Comb.cpp.inc"
       >();
+
+  addInterfaces<CombInlinerInterface>();
 }
 
 /// Registered hook to materialize a single constant operation from a given
