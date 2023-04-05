@@ -11,6 +11,8 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/ImplicitLocOpBuilder.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
 
@@ -277,26 +279,6 @@ void ModuleLowering::addStorageArg() {
   assert(!storageArg);
   storageArg = moduleOp.getBodyBlock()->addArgument(
       StorageType::get(context, {}), moduleOp.getLoc());
-}
-
-/// Lower the primary inputs of the module to dedicated ops that allocate the
-/// inputs in the model's storage.
-LogicalResult ModuleLowering::lowerPrimaryInputs() {
-  builder.setInsertionPointToStart(moduleOp.getBodyBlock());
-  for (auto blockArg : moduleOp.getArguments()) {
-    if (blockArg == storageArg)
-      continue;
-    auto name =
-        moduleOp.getArgNames()[blockArg.getArgNumber()].cast<StringAttr>();
-    auto intType = blockArg.getType().dyn_cast<IntegerType>();
-    if (!intType)
-      return mlir::emitError(blockArg.getLoc(), "input ")
-             << name << " is of non-integer type " << blockArg.getType();
-    auto state = builder.create<RootInputOp>(
-        blockArg.getLoc(), StateType::get(intType), name, storageArg);
-    replaceValueWithStateRead(blockArg, state);
-  }
-  return success();
 }
 
 /// Lower the primary outputs of the module to dedicated ops that allocate the
@@ -585,11 +567,61 @@ struct LowerStatePass : public LowerStateBase<LowerStatePass> {
 };
 } // namespace
 
+namespace {
+struct HWModuleLowering : OpConversionPattern<HWModuleOp> {
+  LogicalResult
+  matchAndRewrite(HWModuleOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+  /// Lower the primary inputs of the module to dedicated ops that allocate the
+  /// inputs in the model's storage.
+  LogicalResult lowerPrimaryInputs() const;
+};
+} // namespace
+
+LogicalResult
+HwModuleLowering::lowerPrimaryInputs(ConversionPatternRewriter &rewriter,
+                                     Block &block) const {
+  auto ipSave = rewriter.saveInsertionPoint();
+  rewriter.setInsertionPointToStart(&block);
+
+  for (auto blockArg : block.getArguments()) {
+    auto name =
+        moduleOp.getArgNames()[blockArg.getArgNumber()].cast<StringAttr>();
+    auto intType = blockArg.getType().dyn_cast<IntegerType>();
+    if (!intType)
+      return mlir::emitError(blockArg.getLoc(), "input ")
+             << name << " is of non-integer type " << blockArg.getType();
+    auto state = rewriter.create<RootInputOp>(
+        blockArg.getLoc(), StateType::get(intType), name, storageArg);
+    replaceValueWithStateRead(blockArg, state);
+  }
+
+  rewriter.restoreInsertionPoint(ipSave);
+  return success();
+}
+
+LogicalResult
+HWModuleLowering::matchAndRewrite(HWModuleOp op, OpAdaptor adaptor,
+                                  ConversionPatternRewriter &rewriter) const {
+  auto modelOp = rewriter.create<ModelOp>(op.getLoc(), op.moduleNameAttr());
+  rewriter.inlineRegionBefore(adaptor.getBody(), modelOp.getBody(),
+                              modelOp->getRegion(0).begin());
+  rewriter.eraseOp(modelOp.getBodyBlock().getTerminator());
+  rewriter.eraseOp(op);
+  // rewriter.convertRegionTypes(&modelOp.getBody(), typeConverter);
+  rewriter.replaceUsesOfBlockArgument(BlockArgument from,
+                                      Value to) return success();
+}
+
 void LowerStatePass::runOnOperation() {
-  for (auto op :
-       llvm::make_early_inc_range(getOperation().getOps<HWModuleOp>()))
-    if (failed(runOnModule(op)))
-      return signalPassFailure();
+  ConversionTarget target(getContext());
+  RewritePatternSet patterns(&getContext());
+  TypeConverter converter;
+  converter.addConversion([](Type type) { return type; });
+
+  if (failed(
+          applyPartialConversion(getOperation(), target, std::move(patterns))))
+    return signalPassFailure();
 }
 
 LogicalResult LowerStatePass::runOnModule(HWModuleOp moduleOp) {
