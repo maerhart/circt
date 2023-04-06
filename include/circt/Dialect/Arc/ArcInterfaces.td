@@ -28,4 +28,50 @@ def CallOpMutableInterface : OpInterface<"CallOpMutableInterface"> {
   ];
 }
 
+def ClockedOpMutableInterface : OpInterface<"ClockedOpMutableInterface"> {
+  let description = [{
+  }];
+  let cppNamespace = "::circt::arc";
+
+  let methods = [
+    InterfaceMethod<[{
+      }],
+      "::mlir::Value", "getClock"
+    >,
+    InterfaceMethod<[{
+      }],
+      "::mlir::Value", "getNearestStrictlyDominatingClock", (ins), [{}], [{
+        ClockedOpMutableInterface currClock = $_op;
+        ClockedOpMutableInterface clockOp = currClock->getParentOfType<ClockedOpMutableInterface>();
+        while (clockOp) {
+          if (clockOp.getClock())
+            return clockOp.getClock();
+          clockOp = clockOp->getParentOfType<ClockedOpMutableInterface>();
+        }
+        return {};
+      }]
+    >,
+    InterfaceMethod<[{
+      }],
+      "::mlir::MutableOperandRange", "getClockMutable"
+    >,
+    InterfaceMethod<[{
+      }],
+      "bool", "isClockOptional", (ins), [{}], [{ return false; }]
+    >,
+  ];
+
+  let verify = [{
+    auto clockOp = mlir::cast<ClockedOpMutableInterface>($_op);
+    auto dominatingClock = clockOp.getNearestStrictlyDominatingClock();
+    if (dominatingClock && clockOp.getClock() && clockOp.isClockOptional())
+        return clockOp->emitOpError("must not have a clock when dominated by same clock");
+    
+    if (!dominatingClock && !clockOp.getClock())
+        return clockOp->emitOpError("must have a clock");
+      
+    return mlir::success();
+  }];
+}
+
 #endif // CIRCT_DIALECT_ARC_ARCINTERFACES_TD

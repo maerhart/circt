@@ -181,6 +181,8 @@ LogicalResult StateOp::verify() {
   return success();
 }
 
+bool StateOp::isClockOptional() { return true; }
+
 //===----------------------------------------------------------------------===//
 // CallOp
 //===----------------------------------------------------------------------===//
@@ -188,6 +190,12 @@ LogicalResult StateOp::verify() {
 LogicalResult CallOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   return verifyArcSymbolUse(*this, getInputs(), getResults(), symbolTable);
 }
+
+//===----------------------------------------------------------------------===//
+// MemoryReadOp
+//===----------------------------------------------------------------------===//
+
+bool MemoryReadOp::isClockOptional() { return true; }
 
 //===----------------------------------------------------------------------===//
 // MemoryWriteOp
@@ -199,6 +207,8 @@ LogicalResult MemoryWriteOp::verify() {
 
   return success();
 }
+
+bool MemoryWriteOp::isClockOptional() { return true; }
 
 //===----------------------------------------------------------------------===//
 // ClockDomainOp

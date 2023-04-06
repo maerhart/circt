@@ -119,6 +119,7 @@ def OutputOp : ArcOp<"output", [
 def StateOp : ArcOp<"state", [
   CallOpInterface, MemRefsNormalizable,
   CallOpMutableInterface,
+  DeclareOpInterfaceMethods<ClockedOpMutableInterface, ["isClockOptional"]>,
   DeclareOpInterfaceMethods<SymbolUserOpInterface>,
   AttrSizedOperandSegments
 ]> {
@@ -260,13 +261,14 @@ class MemoryAndDataTypesMatch<string mem, string data> : TypesMatchWith<
 
 def MemoryReadOp : ArcOp<"memory_read", [
   MemoryEffects<[MemRead]>,
+  DeclareOpInterfaceMethods<ClockedOpMutableInterface, ["isClockOptional"]>,
   MemoryAndDataTypesMatch<"memory", "data">
 ]> {
   let summary = "Read word from memory";
   let arguments = (ins
     MemoryType:$memory,
     AnyInteger:$address,
-    I1:$clock,
+    Optional<I1>:$clock,
     I1:$enable
   );
   let results = (outs AnyInteger:$data);
@@ -278,6 +280,7 @@ def MemoryReadOp : ArcOp<"memory_read", [
 
 def MemoryWriteOp : ArcOp<"memory_write", [
   MemoryEffects<[MemWrite]>,
+  DeclareOpInterfaceMethods<ClockedOpMutableInterface, ["isClockOptional"]>,
   MemoryAndDataTypesMatch<"memory", "data">,
   AttrSizedOperandSegments
 ]> {
@@ -285,7 +288,7 @@ def MemoryWriteOp : ArcOp<"memory_write", [
   let arguments = (ins
     MemoryType:$memory,
     AnyInteger:$address,
-    I1:$clock,
+    Optional<I1>:$clock,
     I1:$enable,
     AnyInteger:$data,
     Optional<AnyInteger>:$mask,
@@ -309,6 +312,7 @@ def ClockDomainOp : ArcOp<"clock_domain", [
   IsolatedFromAbove,
   RegionKindInterface,
   RecursiveMemoryEffects,
+  ClockedOpMutableInterface,
   SingleBlockImplicitTerminator<"arc::OutputOp">
 ]> {
   let summary = "a clock domain";
@@ -332,7 +336,11 @@ def ClockDomainOp : ArcOp<"clock_domain", [
   let hasRegionVerifier = 1;
 }
 
-def ClockTreeOp : ArcOp<"clock_tree", [NoTerminator, NoRegionArguments]> {
+def ClockTreeOp : ArcOp<"clock_tree", [
+  NoTerminator,
+  NoRegionArguments,
+  ClockedOpMutableInterface
+]> {
   let summary = "A clock tree";
   let arguments = (ins I1:$clock);
   let regions = (region SizedRegion<1>:$body);
