@@ -31,6 +31,9 @@ arc.model "Bar" {
   // CHECK-NEXT: "type": "register"
   arc.alloc_state %arg0 {name = "x", offset = 24} : (!arc.storage<9001>) -> !arc.state<i63>
 
+  %0 = arc.storage.get %arg0[24] : !arc.storage<9001> -> !arc.state<i63>
+  arc.tap %0 register "x" : !arc.state<i63>
+
   // CHECK:      "name": "y"
   // CHECK-NEXT: "offset": 48
   // CHECK-NEXT: "numBits": 17

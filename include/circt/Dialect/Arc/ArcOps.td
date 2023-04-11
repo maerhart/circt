@@ -393,20 +393,15 @@ def PassThroughOp : ArcOp<"passthrough", [NoTerminator, NoRegionArguments]> {
 
 def AllocStateOp : ArcOp<"alloc_state", [MemoryEffects<[MemAlloc]>]> {
   let summary = "Allocate internal state";
-  let arguments = (ins StorageType:$storage, UnitAttr:$tap);
+  let arguments = (ins UnitAttr:$tap);
   let results = (outs StateType:$state);
-  let assemblyFormat = [{
-    $storage (`tap` $tap^)? attr-dict `:` functional-type($storage, $state)
-  }];
+  let assemblyFormat = "(`tap` $tap^)? attr-dict type($state)";
 }
 
 def AllocMemoryOp : ArcOp<"alloc_memory", [MemoryEffects<[MemAlloc]>]> {
   let summary = "Allocate a memory";
-  let arguments = (ins StorageType:$storage);
   let results = (outs MemoryType:$memory);
-  let assemblyFormat = [{
-    $storage attr-dict `:` functional-type($storage, $memory)
-  }];
+  let assemblyFormat = "attr-dict type($memory)";
 }
 
 def AllocStorageOp : ArcOp<"alloc_storage", [MemoryEffects<[MemAlloc]>]> {
@@ -422,22 +417,18 @@ def RootInputOp : ArcOp<"root_input", [
   DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
 ]> {
   let summary = "A root input";
-  let arguments = (ins StrAttr:$name, StorageType:$storage);
+  let arguments = (ins StrAttr:$name);
   let results = (outs StateType:$state);
-  let assemblyFormat = [{
-    $name `,` $storage attr-dict `:` functional-type($storage, $state)
-  }];
+  let assemblyFormat = "$name attr-dict type($state)";
 }
 
 def RootOutputOp : ArcOp<"root_output", [
   DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
 ]> {
   let summary = "A root output";
-  let arguments = (ins StrAttr:$name, StorageType:$storage);
+  let arguments = (ins StrAttr:$name);
   let results = (outs StateType:$state);
-  let assemblyFormat = [{
-    $name `,` $storage attr-dict `:` functional-type($storage, $state)
-  }];
+  let assemblyFormat = "$name attr-dict type($state)";
 }
 
 //===----------------------------------------------------------------------===//

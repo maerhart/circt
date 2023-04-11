@@ -2,7 +2,7 @@
 
 // CHECK-LABEL: func.func @Unaffected
 func.func @Unaffected(%arg0: !arc.storage, %arg1: i4) -> i4 {
-  %0 = arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i4>
+  %0 = arc.alloc_state <i4>
   %1 = arc.state_read %0 : <i4>
   arc.state_write %0 = %arg1 : <i4>
   return %1 : i4
@@ -15,7 +15,7 @@ func.func @Unaffected(%arg0: !arc.storage, %arg1: i4) -> i4 {
 
 // CHECK-LABEL: func.func @SameBlock
 func.func @SameBlock(%arg0: !arc.storage, %arg1: i4) -> i4 {
-  %0 = arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i4>
+  %0 = arc.alloc_state <i4>
   %1 = arc.state_read %0 : <i4>
   // CHECK-NEXT: [[STATE:%.+]] = arc.alloc_state
   // CHECK-NEXT: arc.state_read [[STATE]]
@@ -39,7 +39,7 @@ func.func @SameBlock(%arg0: !arc.storage, %arg1: i4) -> i4 {
 
 // CHECK-LABEL: func.func @FuncLegal
 func.func @FuncLegal(%arg0: !arc.storage, %arg1: i4) -> i4 {
-  %0 = arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i4>
+  %0 = arc.alloc_state <i4>
   %1 = call @ReadFunc(%0) : (!arc.state<i4>) -> i4
   call @WriteFunc(%0, %arg1) : (!arc.state<i4>, i4) -> ()
   return %1 : i4
@@ -52,7 +52,7 @@ func.func @FuncLegal(%arg0: !arc.storage, %arg1: i4) -> i4 {
 
 // CHECK-LABEL: func.func @FuncIllegal
 func.func @FuncIllegal(%arg0: !arc.storage, %arg1: i4) -> i4 {
-  %0 = arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i4>
+  %0 = arc.alloc_state <i4>
   %1 = call @ReadFunc(%0) : (!arc.state<i4>) -> i4
   // CHECK-NEXT: [[STATE:%.+]] = arc.alloc_state
   // CHECK-NEXT: call @ReadFunc
@@ -76,8 +76,8 @@ func.func @FuncIllegal(%arg0: !arc.storage, %arg1: i4) -> i4 {
 
 // CHECK-LABEL: func.func @NestedBlocks
 func.func @NestedBlocks(%arg0: !arc.storage, %arg1: i4) -> i4 {
-  %0 = arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i4>
-  %11 = arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i4>
+  %0 = arc.alloc_state <i4>
+  %11 = arc.alloc_state <i4>
   // CHECK-NEXT: [[S0:%.+]] = arc.alloc_state
   // CHECK-NEXT: [[S1:%.+]] = arc.alloc_state
 
@@ -168,10 +168,10 @@ func.func @InnerWriteFunc(%arg0: !arc.state<i4>, %arg1: i4) {
 arc.model "DontLeakThroughClockTreeOrPassthrough" {
 ^bb0(%arg0: !arc.storage):
   %false = hw.constant false
-  %in_a = arc.root_input "a", %arg0 : (!arc.storage) -> !arc.state<i1>
-  %out_b = arc.root_output "b", %arg0 : (!arc.storage) -> !arc.state<i1>
-  // CHECK: arc.alloc_state %arg0 {foo}
-  %0 = arc.alloc_state %arg0 {foo} : (!arc.storage) -> !arc.state<i1>
+  %in_a = arc.root_input "a" <i1>
+  %out_b = arc.root_output "b" <i1>
+  // CHECK: arc.alloc_state {foo}
+  %0 = arc.alloc_state {foo} <i1>
   // CHECK-NOT: arc.alloc_state
   // CHECK-NOT: arc.state_read
   // CHECK-NOT: arc.state_write

@@ -82,7 +82,6 @@ struct ModuleLowering {
   MLIRContext *context;
   DenseMap<Value, std::unique_ptr<ClockLowering>> clockLowerings;
   DenseMap<Value, GatedClockLowering> gatedClockLowerings;
-  Value storageArg;
 
   ModuleLowering(HWModuleOp moduleOp, Statistics &stats)
       : moduleOp(moduleOp), stats(stats), context(moduleOp.getContext()),
@@ -94,7 +93,6 @@ struct ModuleLowering {
   ClockLowering &getOrCreatePassThrough();
   void replaceValueWithStateRead(Value value, Value state);
 
-  void addStorageArg();
   LogicalResult lowerPrimaryInputs();
   LogicalResult lowerPrimaryOutputs();
   LogicalResult lowerStates();
@@ -275,28 +273,19 @@ void ModuleLowering::replaceValueWithStateRead(Value value, Value state) {
   readsToSink.push_back(readOp);
 }
 
-/// Add the global state as an argument to the module's body block.
-void ModuleLowering::addStorageArg() {
-  assert(!storageArg);
-  storageArg = moduleOp.getBodyBlock()->addArgument(
-      StorageType::get(context, {}), moduleOp.getLoc());
-}
-
 /// Lower the primary inputs of the module to dedicated ops that allocate the
 /// inputs in the model's storage.
 LogicalResult ModuleLowering::lowerPrimaryInputs() {
   builder.setInsertionPointToStart(moduleOp.getBodyBlock());
   for (auto blockArg : moduleOp.getArguments()) {
-    if (blockArg == storageArg)
-      continue;
     auto name =
         moduleOp.getArgNames()[blockArg.getArgNumber()].cast<StringAttr>();
     auto intType = blockArg.getType().dyn_cast<IntegerType>();
     if (!intType)
       return mlir::emitError(blockArg.getLoc(), "input ")
              << name << " is of non-integer type " << blockArg.getType();
-    auto state = builder.create<RootInputOp>(
-        blockArg.getLoc(), StateType::get(intType), name, storageArg);
+    auto state = builder.create<RootInputOp>(blockArg.getLoc(),
+                                             StateType::get(intType), name);
     replaceValueWithStateRead(blockArg, state);
   }
   return success();
@@ -316,8 +305,7 @@ LogicalResult ModuleLowering::lowerPrimaryOutputs() {
                << name << " is of non-integer type " << value.getType();
       auto materializedValue = passThrough.materializeValue(value);
       auto state = builder.create<RootOutputOp>(
-          outputOp.getLoc(), StateType::get(intType), name.cast<StringAttr>(),
-          storageArg);
+          outputOp.getLoc(), StateType::get(intType), name.cast<StringAttr>());
       passThrough.builder.create<StateWriteOp>(outputOp.getLoc(), state,
                                                materializedValue, Value{});
     }
@@ -373,8 +361,7 @@ LogicalResult ModuleLowering::lowerState(StateOp stateOp) {
              << stateIdx << " has non-integer type " << type
              << "; only integer types are supported";
     auto stateType = StateType::get(intType);
-    auto state =
-        builder.create<AllocStateOp>(stateOp.getLoc(), stateType, storageArg);
+    auto state = builder.create<AllocStateOp>(stateOp.getLoc(), stateType);
     if (auto names = stateOp->getAttrOfType<ArrayAttr>("names"))
       state->setAttr("name", names[stateIdx]);
     allocatedStates.push_back(state);
@@ -434,7 +421,7 @@ LogicalResult ModuleLowering::lowerState(StateOp stateOp) {
 
 LogicalResult ModuleLowering::lowerState(MemoryOp memOp) {
   auto allocMemOp = builder.create<AllocMemoryOp>(
-      memOp.getLoc(), memOp.getType(), storageArg, memOp->getAttrs());
+      memOp.getLoc(), memOp.getType(), ValueRange{}, memOp->getAttrs());
   memOp.replaceAllUsesWith(allocMemOp.getResult());
   builder.setInsertionPointAfter(memOp);
   memOp.erase();
@@ -543,8 +530,8 @@ LogicalResult ModuleLowering::lowerState(TapOp tapOp) {
            << tapOp.getValue().getType();
   auto &passThrough = getOrCreatePassThrough();
   auto materializedValue = passThrough.materializeValue(tapOp.getValue());
-  auto state = builder.create<AllocStateOp>(
-      tapOp.getLoc(), StateType::get(intType), storageArg, true);
+  auto state = builder.create<AllocStateOp>(tapOp.getLoc(),
+                                            StateType::get(intType), true);
   state->setAttr("name", tapOp.getNameAttr());
   passThrough.builder.create<StateWriteOp>(tapOp.getLoc(), state,
                                            materializedValue, Value{});
@@ -635,7 +622,6 @@ LogicalResult LowerStatePass::runOnModule(HWModuleOp moduleOp) {
   LLVM_DEBUG(llvm::dbgs() << "Lowering state in `" << moduleOp.getModuleName()
                           << "`\n");
   ModuleLowering lowering(moduleOp, stats);
-  lowering.addStorageArg();
   if (failed(lowering.lowerStates()))
     return failure();
 
@@ -664,8 +650,7 @@ LogicalResult LowerStatePass::runOnModule(HWModuleOp moduleOp) {
     return failure();
 
   // Replace the `HWModuleOp` with a `ModelOp`.
-  moduleOp.getBodyBlock()->eraseArguments(
-      [&](auto arg) { return arg != lowering.storageArg; });
+  moduleOp.getBodyBlock()->eraseArguments(0, moduleOp.getNumArguments());
   moduleOp.getBodyBlock()->getTerminator()->erase();
   ImplicitLocOpBuilder builder(moduleOp.getLoc(), moduleOp);
   auto modelOp =

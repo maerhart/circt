@@ -250,11 +250,12 @@ void RootOutputOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
 //===----------------------------------------------------------------------===//
 
 LogicalResult ModelOp::verify() {
-  if (getBodyBlock().getArguments().size() != 1)
-    return emitOpError("must have exactly one argument");
-  if (auto type = getBodyBlock().getArgument(0).getType();
-      !isa<StorageType>(type))
-    return emitOpError("argument must be of storage type");
+  if (getBodyBlock().getArguments().size() > 1)
+    return emitOpError("must have zero or one argument");
+  if (getBodyBlock().getArguments().size() == 1)
+    if (auto type = getBodyBlock().getArgument(0).getType();
+        !isa<StorageType>(type))
+      return emitOpError("argument must be of storage type");
   return success();
 }
 

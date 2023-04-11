@@ -2,20 +2,20 @@
 
 // CHECK-LABEL: arc.model "test"
 arc.model "test" {
-^bb0(%arg0: !arc.storage):
+^bb0:
   // CHECK-NEXT: ([[PTR:%.+]]: !arc.storage<5724>):
 
   // CHECK-NEXT: arc.alloc_storage [[PTR]][0] : (!arc.storage<5724>) -> !arc.storage<1143>
   // CHECK-NEXT: arc.passthrough {
   arc.passthrough {
     // CHECK-NEXT: [[SUBPTR:%.+]] = arc.storage.get [[PTR]][0] : !arc.storage<5724> -> !arc.storage<1143>
-    %0 = arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i1>
-    arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i8>
-    arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i16>
-    arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i32>
-    arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i64>
-    arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i9001>
-    %1 = arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i1>
+    %0 = arc.alloc_state !arc.state<i1>
+    arc.alloc_state !arc.state<i8>
+    arc.alloc_state !arc.state<i16>
+    arc.alloc_state !arc.state<i32>
+    arc.alloc_state !arc.state<i64>
+    arc.alloc_state !arc.state<i9001>
+    %1 = arc.alloc_state !arc.state<i1>
     // CHECK-NEXT: arc.alloc_state [[SUBPTR]] {offset = 0 : i32}
     // CHECK-NEXT: arc.alloc_state [[SUBPTR]] {offset = 1 : i32}
     // CHECK-NEXT: arc.alloc_state [[SUBPTR]] {offset = 2 : i32}
@@ -43,13 +43,13 @@ arc.model "test" {
   // CHECK-NEXT: arc.passthrough {
   arc.passthrough {
     // CHECK-NEXT: [[SUBPTR:%.+]] = arc.storage.get [[PTR]][1144] : !arc.storage<5724> -> !arc.storage<4577>
-    arc.alloc_memory %arg0 : (!arc.storage) -> !arc.memory<4 x i1>
-    arc.alloc_memory %arg0 : (!arc.storage) -> !arc.memory<4 x i8>
-    arc.alloc_memory %arg0 : (!arc.storage) -> !arc.memory<4 x i16>
-    arc.alloc_memory %arg0 : (!arc.storage) -> !arc.memory<4 x i32>
-    arc.alloc_memory %arg0 : (!arc.storage) -> !arc.memory<4 x i64>
-    arc.alloc_memory %arg0 : (!arc.storage) -> !arc.memory<4 x i9001>
-    arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i1>
+    arc.alloc_memory !arc.memory<4 x i1>
+    arc.alloc_memory !arc.memory<4 x i8>
+    arc.alloc_memory !arc.memory<4 x i16>
+    arc.alloc_memory !arc.memory<4 x i32>
+    arc.alloc_memory !arc.memory<4 x i64>
+    arc.alloc_memory !arc.memory<4 x i9001>
+    arc.alloc_state !arc.state<i1>
     // CHECK-NEXT: arc.alloc_memory [[SUBPTR]] {offset = 0 : i32, stride = 1 : i32}
     // CHECK-SAME: -> !arc.memory<4 x i1, 1>
     // CHECK-NEXT: arc.alloc_memory [[SUBPTR]] {offset = 4 : i32, stride = 1 : i32}
@@ -69,8 +69,8 @@ arc.model "test" {
   // CHECK-NEXT: arc.alloc_storage [[PTR]][5722] : (!arc.storage<5724>) -> !arc.storage<2>
   // CHECK-NEXT: arc.passthrough {
   arc.passthrough {
-    arc.root_input "x", %arg0 : (!arc.storage) -> !arc.state<i1>
-    arc.root_output "y", %arg0 : (!arc.storage) -> !arc.state<i1>
+    arc.root_input "x" !arc.state<i1>
+    arc.root_output "y" !arc.state<i1>
     // CHECK-NEXT: [[SUBPTR:%.+]] = arc.storage.get [[PTR]][5722] : !arc.storage<5724> -> !arc.storage<2>
     // CHECK-NEXT: arc.root_input "x", [[SUBPTR]] {offset = 0 : i32}
     // CHECK-NEXT: arc.root_output "y", [[SUBPTR]] {offset = 1 : i32}

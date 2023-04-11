@@ -1,7 +1,6 @@
 // RUN: circt-opt %s --arc-lower-state | FileCheck %s
 
 // CHECK-LABEL: arc.model "Empty" {
-// CHECK-NEXT:  ^bb0(%arg0: !arc.storage):
 // CHECK-NEXT:  }
 hw.module @Empty() {
 }
@@ -11,9 +10,8 @@ hw.module @InputsAndOutputs(%a: i42, %b: i17) -> (c: i42, d: i17) {
   %0 = comb.add %a, %a : i42
   %1 = comb.add %b, %b : i17
   hw.output %0, %1 : i42, i17
-  // CHECK-NEXT: ([[PTR:%.+]]: !arc.storage):
-  // CHECK-NEXT: [[INA:%.+]] = arc.root_input "a", [[PTR]] : (!arc.storage) -> !arc.state<i42>
-  // CHECK-NEXT: [[INB:%.+]] = arc.root_input "b", [[PTR]] : (!arc.storage) -> !arc.state<i17>
+  // CHECK-NEXT: [[INA:%.+]] = arc.root_input "a" <i42>
+  // CHECK-NEXT: [[INB:%.+]] = arc.root_input "b" <i17>
   // CHECK-NEXT: arc.passthrough {
   // CHECK-NEXT:   [[A:%.+]] = arc.state_read [[INA]] : <i42>
   // CHECK-NEXT:   [[TMP:%.+]] = comb.add [[A]], [[A]] : i42
@@ -22,8 +20,8 @@ hw.module @InputsAndOutputs(%a: i42, %b: i17) -> (c: i42, d: i17) {
   // CHECK-NEXT:   [[TMP:%.+]] = comb.add [[B]], [[B]] : i17
   // CHECK-NEXT:   arc.state_write [[OUTB:%.+]] = [[TMP]] : <i17>
   // CHECK-NEXT: }
-  // CHECK-NEXT: [[OUTA]] = arc.root_output "c", [[PTR]] : (!arc.storage) -> !arc.state<i42>
-  // CHECK-NEXT: [[OUTB]] = arc.root_output "d", [[PTR]] : (!arc.storage) -> !arc.state<i17>
+  // CHECK-NEXT: [[OUTA]] = arc.root_output "c" <i42>
+  // CHECK-NEXT: [[OUTB]] = arc.root_output "d" <i17>
 }
 
 // CHECK-LABEL: arc.model "State" {
@@ -33,9 +31,8 @@ hw.module @State(%clk: i1, %en: i1) {
   %4 = arc.state @DummyArc(%5) clock %gclk lat 1 : (i42) -> i42
   %5 = comb.add %3, %3 : i42
   %6 = comb.add %4, %4 : i42
-  // CHECK-NEXT: ([[PTR:%.+]]: !arc.storage):
-  // CHECK-NEXT: [[INCLK:%.+]] = arc.root_input "clk", [[PTR]] : (!arc.storage) -> !arc.state<i1>
-  // CHECK-NEXT: [[INEN:%.+]] = arc.root_input "en", [[PTR]] : (!arc.storage) -> !arc.state<i1>
+  // CHECK-NEXT: [[INCLK:%.+]] = arc.root_input "clk" <i1>
+  // CHECK-NEXT: [[INEN:%.+]] = arc.root_input "en" <i1>
   // CHECK-NEXT: [[CLK:%.+]] = arc.state_read [[INCLK]] : <i1>
   // CHECK-NEXT: arc.clock_tree [[CLK]] {
   // CHECK-NEXT:   [[TMP0:%.+]] = arc.state_read [[S1:%.+]] : <i42>
@@ -48,16 +45,15 @@ hw.module @State(%clk: i1, %en: i1) {
   // CHECK-NEXT:   [[EN:%.+]] = arc.state_read [[INEN]] : <i1>
   // CHECK-NEXT:   arc.state_write [[S1]] = [[TMP2]] if [[EN]] : <i42>
   // CHECK-NEXT: }
-  // CHECK-NEXT: [[S0]] = arc.alloc_state [[PTR]] : (!arc.storage) -> !arc.state<i42>
-  // CHECK-NEXT: [[S1]] = arc.alloc_state [[PTR]] : (!arc.storage) -> !arc.state<i42>
+  // CHECK-NEXT: [[S0]] = arc.alloc_state <i42>
+  // CHECK-NEXT: [[S1]] = arc.alloc_state <i42>
 }
 
 // CHECK-LABEL: arc.model "State2" {
 hw.module @State2(%clk: i1) {
   %3 = arc.state @DummyArc(%3) clock %clk lat 1 : (i42) -> i42
   %4 = arc.state @DummyArc(%4) clock %clk lat 1 : (i42) -> i42
-  // CHECK-NEXT: ^bb
-  // CHECK-NEXT: %in_clk = arc.root_input "clk", %arg0 : (!arc.storage) -> !arc.state<i1>
+  // CHECK-NEXT: %in_clk = arc.root_input "clk" <i1>
   // CHECK-NEXT: [[CLK:%.+]] = arc.state_read %in_clk : <i1>
   // CHECK-NEXT: arc.clock_tree [[CLK]] {
   // CHECK-NEXT:   [[TMP0:%.+]] = arc.state_read [[S0:%.+]] : <i42>
@@ -67,8 +63,8 @@ hw.module @State2(%clk: i1) {
   // CHECK-NEXT:   [[TMP3:%.+]] = arc.state @DummyArc([[TMP2]]) lat 0 : (i42) -> i42
   // CHECK-NEXT:   arc.state_write [[S1]] = [[TMP3]] : <i42>
   // CHECK-NEXT: }
-  // CHECK-NEXT: [[S0]] = arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i42>
-  // CHECK-NEXT: [[S1]] = arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i42>
+  // CHECK-NEXT: [[S0]] = arc.alloc_state <i42>
+  // CHECK-NEXT: [[S1]] = arc.alloc_state <i42>
 }
 
 arc.define @DummyArc(%arg0: i42) -> i42 {
@@ -85,8 +81,7 @@ hw.module @MemoryReadAndNonMaskedWrite(%clk0: i1) {
   // COM: also checks that the read is properly reordered to be before the write
   %read0 = arc.memory_read_port %mem[%c0_i2], %true clock %clk0 : <4 x i42>, i2
 
-  // CHECK-NEXT: ([[PTR:%.+]]: !arc.storage):
-  // CHECK-NEXT: [[INCLK0:%.+]] = arc.root_input "clk0", [[PTR]] : (!arc.storage) -> !arc.state<i1>
+  // CHECK-NEXT: [[INCLK0:%.+]] = arc.root_input "clk0" <i1>
   // CHECK-NEXT: [[CLK0:%.+]] = arc.state_read [[INCLK0]] : <i1>
   // CHECK-NEXT: arc.clock_tree [[CLK0]] {
   // CHECK:        %2 = scf.if %true -> (i42) {
@@ -97,7 +92,7 @@ hw.module @MemoryReadAndNonMaskedWrite(%clk0: i1) {
   // CHECK-NEXT:   }
   // CHECK:        arc.memory_write [[MEM]][%c0_i2], %true, %c9001_i42 : <4 x i42>, i2
   // CHECK-NEXT: }
-  // CHECK-NEXT: [[MEM]] = arc.alloc_memory [[PTR]] : (!arc.storage) -> !arc.memory<4 x i42>
+  // CHECK-NEXT: [[MEM]] = arc.alloc_memory <4 x i42>
 }
 
 // CHECK-LABEL:  arc.model "maskedMemoryWrite"
@@ -123,7 +118,7 @@ hw.module @maskedMemoryWrite(%clk: i1) {
 hw.module @Taps() {
   // CHECK-NOT: arc.tap
   // CHECK-DAG: [[VALUE:%.+]] = hw.constant 0 : i42
-  // CHECK-DAG: [[STATE:%.+]] = arc.alloc_state %arg0 tap {name = "myTap"}
+  // CHECK-DAG: [[STATE:%.+]] = arc.alloc_state tap {name = "myTap"}
   // CHECK-DAG: arc.state_write [[STATE]] = [[VALUE]]
   %c0_i42 = hw.constant 0 : i42
   arc.tap %c0_i42 {name = "myTap"} : i42
@@ -213,5 +208,5 @@ hw.module @stateReset(%clk: i1, %arg0: i42, %rst: i1) -> (out0: i42, out1: i42) 
 // CHECK:     arc.state_write [[ALLOC2]] = [[STATE]]#1 if [[EN]] : <i42>
 // CHECK:   }
 // CHECK: }
-// CHECK: [[ALLOC1]] = arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i42>
-// CHECK: [[ALLOC2]] = arc.alloc_state %arg0 : (!arc.storage) -> !arc.state<i42>
+// CHECK: [[ALLOC1]] = arc.alloc_state <i42>
+// CHECK: [[ALLOC2]] = arc.alloc_state <i42>
