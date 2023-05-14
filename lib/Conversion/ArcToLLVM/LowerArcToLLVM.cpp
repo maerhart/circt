@@ -323,7 +323,7 @@ struct ZeroCountOpLowering : public OpConversionPattern<arc::ZeroCountOp> {
   matchAndRewrite(arc::ZeroCountOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Use poison when input is zero.
-    IntegerAttr isZeroPoison = rewriter.getBoolAttr(true);
+    IntegerAttr isZeroPoison = rewriter.getBoolAttr(false);
 
     if (op.getPredicate() == arc::ZeroCountPredicate::leading) {
       rewriter.replaceOpWithNewOp<LLVM::CountLeadingZerosOp>(

@@ -16,10 +16,12 @@
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Support/Namespace.h"
 #include "circt/Support/SymCache.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/MathExtras.h"
 
 #define DEBUG_TYPE "arc-canonicalizer"
 
@@ -177,6 +179,28 @@ struct SinkArcInputsPattern : public SymOpRewritePattern<DefineOp> {
                                 PatternRewriter &rewriter) const final;
 };
 
+class ZeroCountRaising : public OpRewritePattern<comb::MuxOp> {
+public:
+  using OpRewritePattern::OpRewritePattern;
+  LogicalResult matchAndRewrite(comb::MuxOp op,
+                                PatternRewriter &rewriter) const final;
+
+private:
+  using DeltaFunc = std::function<uint32_t(uint32_t, bool)>;
+  LogicalResult handleSequenceInitializer(OpBuilder &rewriter, Location loc,
+                                          const DeltaFunc &deltaFunc,
+                                          bool isLeading, Value falseValue,
+                                          Value extractedFrom,
+                                          SmallVectorImpl<Value> &arrayElements,
+                                          uint32_t &currIndex) const;
+};
+
+struct IndexingConstArray : public OpRewritePattern<hw::ArrayGetOp> {
+  using OpRewritePattern::OpRewritePattern;
+  LogicalResult matchAndRewrite(hw::ArrayGetOp op,
+                                PatternRewriter &rewriter) const final;
+};
+
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -194,6 +218,22 @@ LogicalResult canonicalizePassthoughCall(mlir::CallOpInterface callOp,
     return success();
   }
   return failure();
+}
+
+static Value zextUsingConcatOp(OpBuilder &builder, Location loc, Value toZext,
+                               uint32_t targetWidth) {
+  assert(toZext.getType().isSignlessInteger() &&
+         "Can only concatenate integers");
+
+  uint32_t bitWidth = toZext.getType().getIntOrFloatBitWidth();
+  assert(bitWidth <= targetWidth && "cannot zext to a smaller bitwidth");
+
+  if (bitWidth == targetWidth)
+    return toZext;
+
+  Value zero =
+      builder.create<hw::ConstantOp>(loc, APInt(targetWidth - bitWidth, 0));
+  return builder.create<comb::ConcatOp>(loc, zero, toZext);
 }
 
 //===----------------------------------------------------------------------===//
@@ -478,6 +518,442 @@ SinkArcInputsPattern::matchAndRewrite(DefineOp op,
   }
 
   return success(toDelete.any());
+                                      }
+
+LogicalResult
+IndexingConstArray::matchAndRewrite(hw::ArrayGetOp op,
+                                    PatternRewriter &rewriter) const {
+  auto constArray = op.getInput().getDefiningOp<hw::AggregateConstantOp>();
+  if (!constArray)
+    return failure();
+
+  Type elementType = op.getResult().getType();
+
+  if (!elementType.isSignlessInteger())
+    return failure();
+
+  uint32_t elementBitWidth = elementType.getIntOrFloatBitWidth();
+  uint32_t indexBitWidth = op.getIndex().getType().getIntOrFloatBitWidth();
+
+  if (elementBitWidth < indexBitWidth)
+    return failure();
+
+  APInt one(elementBitWidth, 1);
+  bool isIdentity = true, isShlOfOne = true;
+
+  auto size = constArray.getFields().size();
+  for (auto [i, fieldAttr] : llvm::enumerate(constArray.getFields())) {
+    APInt elementValue = fieldAttr.cast<IntegerAttr>().getValue();
+
+    if (elementValue != APInt(elementBitWidth, size-i-1))
+      isIdentity = false;
+
+    if (elementValue != one << APInt(elementBitWidth, size-i-1))
+      isShlOfOne = false;
+  }
+
+  Value optionalZext = op.getIndex();
+  if (isIdentity || isShlOfOne)
+    optionalZext = zextUsingConcatOp(rewriter, op.getLoc(), op.getIndex(),
+                                     elementBitWidth);
+
+  if (isIdentity) {
+    rewriter.replaceOp(op, optionalZext);
+    return success();
+  }
+
+  if (isShlOfOne) {
+    Value one =
+        rewriter.create<hw::ConstantOp>(op.getLoc(), optionalZext.getType(), 1);
+    rewriter.replaceOpWithNewOp<comb::ShlOp>(op, one, optionalZext);
+    return success();
+  }
+
+  return failure();
+}
+
+/// Check to see if the condition to the specified mux is an equality
+/// comparison `indexValue` and one or more constants.  If so, put the
+/// constants in the constants vector and return true, otherwise return false.
+///
+/// This is part of foldMuxChain.
+///
+static bool
+getMuxChainCondConstant(Value cond, Value extractValue, bool isInverted,
+                        const std::function<void(uint32_t)> &constantFn) {
+  if (auto cmp = cond.getDefiningOp<comb::ICmpOp>()) {
+    // auto pred = isInverted ? comb::ICmpPredicate::ne : comb::ICmpPredicate::eq;
+    if (auto constOp = cmp.getRhs().getDefiningOp<hw::ConstantOp>(); constOp && constOp.getValue().isZero()
+    //  && cmp.getPredicate() == pred
+     ) {
+      if (auto extract = cmp.getLhs().getDefiningOp<comb::ExtractOp>())
+        return getMuxChainCondConstant(extract, extractValue, true, constantFn);
+    }
+    return false;
+  }
+
+  if(!isInverted) {
+    if (auto notOp = cond.getDefiningOp<comb::XorOp>(); notOp && notOp.isBinaryNot())
+      return getMuxChainCondConstant(notOp.getOperands()[0], extractValue, !isInverted, constantFn);
+    return false;
+  }
+
+  if (auto extract = cond.getDefiningOp<comb::ExtractOp>()) {
+    if (extract.getInput() == extractValue) {
+      auto width = cast<IntegerType>(extract.getResult().getType()).getWidth();
+      for (unsigned idx = 0; idx < width; ++idx)
+        constantFn(extract.getLowBit());
+      return true;
+    }
+    return false;
+  }
+  // // Handle mux(`idx == 1 || idx == 3`, value, muxchain).
+  // if (auto orOp = cond.getDefiningOp<OrOp>()) {
+  //   if (!isInverted)
+  //     return false;
+  //   for (auto operand : orOp.getOperands())
+  //     if (!getMuxChainCondConstant(operand, indexValue, isInverted, constantFn))
+  //       return false;
+  //   return true;
+  // }
+
+  // // Handle mux(`idx != 1 && idx != 3`, muxchain, value).
+  // if (auto andOp = cond.getDefiningOp<AndOp>()) {
+  //   if (isInverted)
+  //     return false;
+  //   for (auto operand : andOp.getOperands())
+  //     if (!getMuxChainCondConstant(operand, indexValue, isInverted, constantFn))
+  //       return false;
+  //   return true;
+  // }
+
+  return false;
+}
+
+static bool foldMuxChain(comb::MuxOp rootMux, bool isFalseSide,
+                         PatternRewriter &rewriter) {
+  auto rootExtract = rootMux.getCond().getDefiningOp<comb::ExtractOp>();
+  if (!rootExtract)
+    return false;
+  Value extractedValue = rootExtract.getInput();
+
+  // Return the value to use if the equality match succeeds.
+  auto getCaseValue = [&](comb::MuxOp mux) -> Value {
+    return mux.getOperand(1 + unsigned(!isFalseSide));
+  };
+
+  // Return the value to use if the equality match fails.  This is the next
+  // mux in the sequence or the "otherwise" value.
+  auto getTreeValue = [&](comb::MuxOp mux) -> Value {
+    return mux.getOperand(1 + unsigned(isFalseSide));
+  };
+
+  // Start scanning the mux tree to see what we've got.  Keep track of the
+  // constant comparison value and the SSA value to use when equal to it.
+  SmallVector<std::pair<uint32_t, Value>, 4> valuesFound;
+
+  /// Extract constants and values into `valuesFound` and return true if this is
+  /// part of the mux tree, otherwise return false.
+  auto collectConstantValues = [&](comb::MuxOp mux) -> bool {
+    return getMuxChainCondConstant(
+        mux.getCond(), extractedValue, isFalseSide, [&](uint32_t cst) {
+          valuesFound.push_back({cst, getCaseValue(mux)});
+        });
+  };
+
+  // Make sure the root is a correct comparison with a constant.
+  if (!collectConstantValues(rootMux))
+    return false;
+
+  // Make sure that we're not looking at the intermediate node in a mux tree.
+  if (rootMux->hasOneUse()) {
+    if (auto userMux = dyn_cast<comb::MuxOp>(*rootMux->user_begin())) {
+      if (getTreeValue(userMux) == rootMux.getResult() &&
+          getMuxChainCondConstant(userMux.getCond(), extractedValue, isFalseSide,
+                                  [&](uint32_t cst) {}))
+        return false;
+    }
+  }
+
+  // Scan up the tree linearly.
+  auto nextTreeValue = getTreeValue(rootMux);
+  while (true) {
+    auto nextMux = nextTreeValue.getDefiningOp<comb::MuxOp>();
+    if (!nextMux || !nextMux->hasOneUse())
+      break;
+    if (!collectConstantValues(nextMux))
+      break;
+    nextTreeValue = getTreeValue(nextMux);
+  }
+
+  if (auto concat = nextTreeValue.getDefiningOp<comb::ConcatOp>()) {
+    if (concat.getInputs().size() == 2) {
+      if (auto constOp = concat.getInputs()[0].getDefiningOp<hw::ConstantOp>(); constOp && cast<IntegerType>(concat.getInputs()[1].getType()).getWidth() == 1) {
+        if (getMuxChainCondConstant(concat.getInputs()[1], extractedValue, false, [&](uint32_t cst) {
+              APInt concatenatedInput = constOp.getValue().concat(APInt(1, false));
+              Value caseVal = rewriter.create<hw::ConstantOp>(rootMux.getLoc(), concatenatedInput);
+              valuesFound.push_back({cst, caseVal});
+            })) {
+              APInt concatenatedInput = constOp.getValue().concat(APInt(1, true));
+              Value caseVal = rewriter.create<hw::ConstantOp>(rootMux.getLoc(), concatenatedInput);
+              nextTreeValue = caseVal;
+            }
+        else if (getMuxChainCondConstant(concat.getInputs()[1], extractedValue, true, [&](uint32_t cst) {
+              APInt concatenatedInput = constOp.getValue().concat(APInt(1, true));
+              Value caseVal = rewriter.create<hw::ConstantOp>(rootMux.getLoc(), concatenatedInput);
+              valuesFound.push_back({cst, caseVal});
+            })) {
+              APInt concatenatedInput = constOp.getValue().concat(APInt(1, false));
+              Value caseVal = rewriter.create<hw::ConstantOp>(rootMux.getLoc(), concatenatedInput);
+              nextTreeValue = caseVal;
+            }
+      }
+      else if (auto constOp = concat.getInputs()[1].getDefiningOp<hw::ConstantOp>(); constOp && cast<IntegerType>(concat.getInputs()[0].getType()).getWidth() == 1) {
+        if (getMuxChainCondConstant(concat.getInputs()[0], extractedValue, false, [&](uint32_t cst) {
+              APInt concatenatedInput = APInt(1, false).concat(constOp.getValue());
+              Value caseVal = rewriter.create<hw::ConstantOp>(rootMux.getLoc(), concatenatedInput);
+              valuesFound.push_back({cst, caseVal});
+            })) {
+              APInt concatenatedInput = APInt(1, true).concat(constOp.getValue());
+              Value caseVal = rewriter.create<hw::ConstantOp>(rootMux.getLoc(), concatenatedInput);
+              nextTreeValue = caseVal;
+            }
+        else if (getMuxChainCondConstant(concat.getInputs()[0], extractedValue, true, [&](uint32_t cst) {
+              APInt concatenatedInput = APInt(1, true).concat(constOp.getValue());
+              Value caseVal = rewriter.create<hw::ConstantOp>(rootMux.getLoc(), concatenatedInput);
+              valuesFound.push_back({cst, caseVal});
+            })) {
+              APInt concatenatedInput = APInt(1, false).concat(constOp.getValue());
+              Value caseVal = rewriter.create<hw::ConstantOp>(rootMux.getLoc(), concatenatedInput);
+              nextTreeValue = caseVal;
+            }
+      }
+    }
+  }
+  
+
+  // We need to have more than three values to create an array.  This is an
+  // arbitrary threshold which is saying that one or two muxes together is ok,
+  // but three should be folded.
+  if (valuesFound.size() < 3)
+    return false;
+
+  // If the array is greater that 9 bits, it will take over 512 elements and
+  // it will be too large for a single expression.
+  auto indexWidth = extractedValue.getType().cast<IntegerType>().getWidth();
+  // if (indexWidth >= 9)
+  //   return false;
+
+  // Next we need to see if the values are dense-ish.  We don't want to have
+  // a tremendous number of replicated entries in the array.  Some sparsity is
+  // ok though, so we require the table to be at least 5/8 utilized.
+  // uint64_t tableSize = 1ULL << indexWidth;
+  // if (valuesFound.size() < (tableSize * 5) / 8)
+  //   return false; // Not dense enough.
+
+  // Ok, we're going to do the transformation, start by building the table
+  // filled with the "otherwise" value.
+  SmallVector<Value, 8> table(indexWidth, nextTreeValue);
+
+  unsigned prevIdx = valuesFound[0].first;
+  std::optional<bool> increasing;
+  for (auto [extIdx, val] : valuesFound) {
+    if (increasing.has_value()) {
+      if (*increasing && extIdx < prevIdx)
+        return false;
+      if (!(*increasing) && extIdx > prevIdx) {
+        // llvm::errs() << "Got " << extIdx << " and " << prevIdx << "\n";
+        return false;
+      }
+      prevIdx = extIdx;
+      continue;
+    }
+    if (prevIdx < extIdx)
+      increasing = true;
+    if (prevIdx > extIdx)
+      increasing = false;
+    prevIdx = extIdx;
+  }
+
+  // Fill in entries in the table from the leaf to the root of the expression.
+  // This ensures that any duplicate matches end up with the ultimate value,
+  // which is the one closer to the root.
+  int pIdx = -1;
+  int runner = 1;
+  for (auto &elt : llvm::reverse(valuesFound)) {
+    int64_t idx = elt.first;
+    if (idx == pIdx) {
+      if (*increasing)
+        idx -= runner++;
+      else
+        idx += runner++;
+    } else {
+      pIdx = idx;
+      runner = 1;
+    }
+    assert(idx < table.size() && "constant should be same bitwidth as index");
+    table[idx] = elt.second;
+  }
+
+  // The hw.array_create operation has the operand list in unintuitive order
+  // with a[0] stored as the last element, not the first.
+  if (*increasing)
+    std::reverse(table.begin(), table.end());
+
+  // Build the array_create and the array_get.
+  auto array = rewriter.create<hw::ArrayCreateOp>(rootMux.getLoc(), table);
+  Value lcz = rewriter.create<arc::ZeroCountOp>(rootMux.getLoc(), extractedValue,
+  *increasing ? ZeroCountPredicate::trailing : ZeroCountPredicate::leading);
+  Value ext = rewriter.create<comb::ExtractOp>(rootMux.getLoc(), lcz, 0, std::max(llvm::Log2_64_Ceil(table.size()), 1U));
+  rewriter.replaceOpWithNewOp<hw::ArrayGetOp>(rootMux, array, ext);
+  return true;
+}
+
+LogicalResult
+ZeroCountRaising::matchAndRewrite(comb::MuxOp op,
+                                  PatternRewriter &rewriter) const {
+  if (foldMuxChain(op, true, rewriter))
+    return success();
+  if (foldMuxChain(op, false, rewriter))
+    return success();
+  return failure();
+          
+  // We don't want to match on muxes in the middle of a sequence.
+  if (llvm::any_of(op.getResult().getUsers(),
+                   [](auto user) { return isa<comb::MuxOp>(user); }))
+    return failure();
+
+  comb::MuxOp curr = op;
+  uint32_t currIndex = -1;
+  Value extractedFrom;
+  SmallVector<Value> arrayElements;
+  std::optional<bool> isLeading = std::nullopt;
+  auto deltaFunc = [](uint32_t input, bool isLeading) {
+    return isLeading ? --input : ++input;
+  };
+
+  while (true) {
+    // Muxes not at the end of the sequence must not be used anywhere else as we
+    // cannot remove them then.
+    if (curr != op && !curr->hasOneUse())
+      return failure();
+
+    // We force the condition to be extracts for now as we otherwise have to
+    // insert a concat which might be more expensive than what we gain.
+    auto ext = curr.getCond().getDefiningOp<comb::ExtractOp>();
+    if (!ext)
+      return failure();
+
+    if (ext.getResult().getType().getIntOrFloatBitWidth() != 1)
+      return failure();
+
+    if (currIndex == -1U)
+      extractedFrom = ext.getInput();
+
+    if (extractedFrom != ext.getInput())
+      return failure();
+
+    if (currIndex != -1U) {
+      if (!isLeading.has_value()) {
+        if (ext.getLowBit() == currIndex - 1)
+          isLeading = true;
+        else if (ext.getLowBit() == currIndex + 1)
+          isLeading = false;
+        else
+          return failure();
+      }
+
+      if (ext.getLowBit() != deltaFunc(currIndex, *isLeading))
+        return failure();
+    }
+
+    currIndex = ext.getLowBit();
+
+    arrayElements.push_back(curr.getTrueValue());
+    Value falseValue = curr.getFalseValue();
+
+    curr = curr.getFalseValue().getDefiningOp<comb::MuxOp>();
+    if (!curr) {
+      // Check for init value patterns
+      if (failed(handleSequenceInitializer(
+              rewriter, op.getLoc(), deltaFunc, isLeading.value(), falseValue,
+              extractedFrom, arrayElements, currIndex)))
+        arrayElements.push_back(falseValue);
+
+      break;
+    }
+  }
+
+  if (arrayElements.size() < 4)
+    return failure();
+
+  Value extForLzc = rewriter.create<comb::ExtractOp>(
+      op.getLoc(), extractedFrom,
+      *isLeading ? currIndex : ((int)currIndex - (int)arrayElements.size() + 2),
+      arrayElements.size() - 1);
+  Value lcz = rewriter.create<arc::ZeroCountOp>(
+      op.getLoc(), extForLzc,
+      *isLeading ? ZeroCountPredicate::leading : ZeroCountPredicate::trailing);
+  Value arrayIndex = rewriter.create<comb::ExtractOp>(
+      op.getLoc(), lcz, 0, llvm::Log2_64_Ceil(arrayElements.size()));
+  Value array = rewriter.create<hw::ArrayCreateOp>(op.getLoc(), arrayElements);
+  rewriter.replaceOpWithNewOp<hw::ArrayGetOp>(op, array, arrayIndex);
+
+  return success();
+}
+
+LogicalResult ZeroCountRaising::handleSequenceInitializer(
+    OpBuilder &rewriter, Location loc, const DeltaFunc &deltaFunc,
+    bool isLeading, Value falseValue, Value extractedFrom,
+    SmallVectorImpl<Value> &arrayElements, uint32_t &currIndex) const {
+  if (auto concat = falseValue.getDefiningOp<comb::ConcatOp>()) {
+    if (concat.getInputs().size() != 2) {
+      arrayElements.push_back(falseValue);
+      return failure();
+    }
+    Value nonConstant;
+    if (auto constAllSet = concat.getOperand(0).getDefiningOp<hw::ConstantOp>())
+      nonConstant = concat.getOperand(1);
+    else if (auto constAllSet =
+                 concat.getOperand(1).getDefiningOp<hw::ConstantOp>())
+      nonConstant = concat.getOperand(0);
+    else
+      return failure();
+
+    Value indirection = nonConstant;
+    bool negated = false;
+    if (auto xorOp = nonConstant.getDefiningOp<comb::XorOp>();
+        xorOp && xorOp.isBinaryNot()) {
+      indirection = xorOp.getOperand(0);
+      negated = true;
+    }
+
+    auto ext = indirection.getDefiningOp<comb::ExtractOp>();
+    if (ext.getInput() == extractedFrom &&
+        ext.getResult().getType().getIntOrFloatBitWidth() == 1 &&
+        ext.getLowBit() == deltaFunc(currIndex, isLeading)) {
+      currIndex = ext.getLowBit();
+      Value zero =
+          rewriter.create<hw::ConstantOp>(loc, rewriter.getI1Type(), 0);
+      Value one =
+          rewriter.create<hw::ConstantOp>(loc, rewriter.getI1Type(), -1);
+      // Value stoppers = rewriter.create<comb::OrOp>(op.getLoc(),
+      // extractedFrom, c);
+      IRMapping mapping;
+      mapping.map(nonConstant, zero);
+      auto *clonedZeroConcat = rewriter.clone(*concat, mapping);
+      mapping.map(nonConstant, one);
+      auto *clonedOneConcat = rewriter.clone(*concat, mapping);
+
+      if (negated)
+        arrayElements.push_back(clonedZeroConcat->getResult(0));
+      arrayElements.push_back(clonedOneConcat->getResult(0));
+      if (!negated)
+        arrayElements.push_back(clonedZeroConcat->getResult(0));
+      return success();
+    }
+  }
+  return failure();
 }
 
 //===----------------------------------------------------------------------===//
@@ -525,7 +1001,8 @@ void ArcCanonicalizerPass::runOnOperation() {
     dialect->getCanonicalizationPatterns(patterns);
   for (mlir::RegisteredOperationName op : ctxt.getRegisteredOperations())
     op.getCanonicalizationPatterns(patterns, &ctxt);
-  patterns.add<ICMPCanonicalizer>(&getContext());
+  patterns.add<ICMPCanonicalizer, ZeroCountRaising, IndexingConstArray>(
+      &getContext());
 
   // Don't test for convergence since it is often not reached.
   (void)mlir::applyPatternsAndFoldGreedily(getOperation(), std::move(patterns),
