@@ -115,7 +115,7 @@ def DefineOp : ArcOp<"define", [
 
 def OutputOp : ArcOp<"output", [
   Terminator,
-  ParentOneOf<["DefineOp", "LutOp", "ClockDomainOp"]>,
+  ParentOneOf<["DefineOp", "LutOp", "ClockDomainOp", "ParallelOp"]>,
   Pure,
   ReturnLike
 ]> {
@@ -647,6 +647,24 @@ def ZeroCountOp : ArcOp<"zero_count", [Pure, SameOperandsAndResultType]> {
                        ZeroCountPredicate:$predicate);
   let results = (outs AnySignlessInteger:$output);
   let assemblyFormat = "$predicate $input attr-dict `:` type($input)";
+}
+
+def ParallelOp : ArcOp<"parallel", [RecursiveMemoryEffects, RegionKindInterface]> {
+  let summary = "parallelizable";
+  let arguments = (ins
+    VariadicOfVariadic<AnySignlessInteger, "inputOperandSegments">:$inputs,
+    DenseI32ArrayAttr:$inputOperandSegments);
+  let results = (outs Variadic<AnySignlessInteger>:$results);
+  let regions = (region SizedRegion<1>:$body);
+
+  let assemblyFormat = "$inputs attr-dict `:` functional-type($inputs, $results) $body";
+
+  let extraClassDeclaration = [{
+    static mlir::RegionKind getRegionKind(unsigned index) {
+      return mlir::RegionKind::Graph;
+    }
+    mlir::Block &getBodyBlock() { return getBody().front(); }
+  }];
 }
 
 #endif // CIRCT_DIALECT_ARC_ARCOPS_TD

@@ -132,9 +132,14 @@ bool DefineOp::isPassthrough() {
 
 LogicalResult OutputOp::verify() {
   auto *parent = (*this)->getParentOp();
-  TypeRange expectedTypes = parent->getResultTypes();
+  SmallVector<Type> expectedTypes(parent->getResultTypes());
   if (auto defOp = dyn_cast<DefineOp>(parent))
-    expectedTypes = defOp.getResultTypes();
+    expectedTypes = SmallVector<Type>(defOp.getResultTypes());
+  else if (auto parallelOp = dyn_cast<ParallelOp>(parent))
+    expectedTypes =
+        parallelOp->getNumResults() > 0
+            ? SmallVector<Type>{parallelOp->getResultTypes().front()}
+            : SmallVector<Type>{};
 
   TypeRange actualTypes = getOperands().getTypes();
   return verifyTypeListEquivalence(*this, expectedTypes, actualTypes, "output");

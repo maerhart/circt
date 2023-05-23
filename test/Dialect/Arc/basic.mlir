@@ -158,3 +158,15 @@ arc.define @identity2(%arg0: i32, %arg1: i32, %arg2: i1, %arg3: i32) -> (i32, i3
 arc.define @identity3(%arg0: i32, %arg1: i32, %arg2: i32) -> (i32, i32, i32) {
   arc.output %arg0, %arg1, %arg2 : i32, i32, i32
 }
+
+hw.module @parallel(%in0: i1, %in1: i1, %in2: i1, %in3: i1) {
+  %0:2 = arc.parallel (%in0, %in1), (%in2, %in3) : (i1, i1, i1, i1) -> (i1, i1) {
+  ^bb0(%arg0: i1, %arg1: i1):
+    %1 = arc.call @vectorizable(%arg0, %arg1) : (i1, i1) -> i1
+    arc.output %1 : i1
+  }
+}
+arc.define @vectorizable(%arg0: i1, %arg1: i1) -> i1 {
+  %0 = comb.and %arg0, %arg1 : i1
+  arc.output %0 : i1
+}
