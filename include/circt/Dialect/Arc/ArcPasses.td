@@ -210,4 +210,16 @@ def StripSV : Pass<"arc-strip-sv", "mlir::ModuleOp"> {
                            "hw::HWDialect", "seq::SeqDialect"];
 }
 
+def Vectorize : Pass<"arc-vectorize", "mlir::ModuleOp"> {
+  let summary = "Gather operations to be vectorized";
+  let constructor = "circt::arc::createVectorizePass()";
+  let dependentDialects = ["arc::ArcDialect"];
+  let statistics = [
+    Statistic<"numBroadcasts", "num-broadcasts",
+      "num uniform input vectors">,
+    Statistic<"numVectors", "num-vectors",
+      "num total input vectors">,
+  ];
+}
+
 #endif // CIRCT_DIALECT_ARC_ARCPASSES_TD
