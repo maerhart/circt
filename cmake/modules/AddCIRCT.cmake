@@ -64,3 +64,7 @@ function(add_circt_verification_library name)
   set_property(GLOBAL APPEND PROPERTY CIRCT_VERIFICATION_LIBS ${name})
   add_circt_library(${ARGV} DEPENDS circt-headers)
 endfunction()
+
+function(add_circt_pdll_library name)
+  add_mlir_pdll_library(${ARGV})
+endfunction()

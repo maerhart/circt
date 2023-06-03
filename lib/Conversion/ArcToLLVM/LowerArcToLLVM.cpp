@@ -22,9 +22,13 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/PDL/IR/PDL.h"
+#include "mlir/Dialect/PDLInterp/IR/PDLInterp.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinDialect.h"
+#include "mlir/Parser/Parser.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "arc-lower-to-llvm"
@@ -37,6 +41,8 @@ using namespace hw;
 //===----------------------------------------------------------------------===//
 // Lowering Patterns
 //===----------------------------------------------------------------------===//
+
+#include "ArcToLLVMConversionPDLLPatterns.h.inc"
 
 namespace {
 
@@ -52,98 +58,6 @@ struct DefineOpLowering : public OpConversionPattern<arc::DefineOp> {
         LLVM::LinkageAttr::get(getContext(), LLVM::linkage::Linkage::Internal));
     rewriter.inlineRegionBefore(op.getRegion(), func.getBody(), func.end());
     rewriter.eraseOp(op);
-    return success();
-  }
-};
-
-struct OutputOpLowering : public OpConversionPattern<arc::OutputOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(arc::OutputOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<func::ReturnOp>(op, adaptor.getOutputs());
-    return success();
-  }
-};
-
-struct CallOpLowering : public OpConversionPattern<arc::CallOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(arc::CallOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    SmallVector<Type> newResultTypes;
-    if (failed(
-            typeConverter->convertTypes(op.getResultTypes(), newResultTypes)))
-      return failure();
-    rewriter.replaceOpWithNewOp<func::CallOp>(
-        op, newResultTypes, op.getArcAttr(), adaptor.getInputs());
-    return success();
-  }
-};
-
-struct StateOpLowering : public OpConversionPattern<arc::StateOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(arc::StateOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    SmallVector<Type> newResultTypes;
-    if (failed(
-            typeConverter->convertTypes(op.getResultTypes(), newResultTypes)))
-      return failure();
-    rewriter.replaceOpWithNewOp<func::CallOp>(
-        op, newResultTypes, op.getArcAttr(), adaptor.getInputs());
-    return success();
-  }
-};
-
-struct AllocStorageOpLowering
-    : public OpConversionPattern<arc::AllocStorageOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(arc::AllocStorageOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    auto type = typeConverter->convertType(op.getType());
-    if (!op.getOffset().has_value())
-      return failure();
-    rewriter.replaceOpWithNewOp<LLVM::GEPOp>(op, type, adaptor.getInput(),
-                                             LLVM::GEPArg(*op.getOffset()));
-    return success();
-  }
-};
-
-template <class ConcreteOp>
-struct AllocStateLikeOpLowering : public OpConversionPattern<ConcreteOp> {
-  using OpConversionPattern<ConcreteOp>::OpConversionPattern;
-  using OpConversionPattern<ConcreteOp>::typeConverter;
-  using OpAdaptor = typename ConcreteOp::Adaptor;
-
-  LogicalResult
-  matchAndRewrite(ConcreteOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    // Get a pointer to the correct offset in the storage.
-    auto offsetAttr = op->template getAttrOfType<IntegerAttr>("offset");
-    if (!offsetAttr)
-      return failure();
-    Value ptr = rewriter.create<LLVM::GEPOp>(
-        op->getLoc(), adaptor.getStorage().getType(), adaptor.getStorage(),
-        LLVM::GEPArg(offsetAttr.getValue().getZExtValue()));
-
-    // Cast the raw storage pointer to a pointer of the state's actual type.
-    auto type = typeConverter->convertType(op.getType());
-    if (type != ptr.getType())
-      ptr = rewriter.create<LLVM::BitcastOp>(op->getLoc(), type, ptr);
-
-    rewriter.replaceOp(op, ptr);
-    return success();
-  }
-};
-
-struct StateReadOpLowering : public OpConversionPattern<arc::StateReadOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(arc::StateReadOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, adaptor.getState());
     return success();
   }
 };
@@ -164,45 +78,6 @@ struct StateWriteOpLowering : public OpConversionPattern<arc::StateWriteOp> {
       rewriter.replaceOpWithNewOp<LLVM::StoreOp>(op, adaptor.getValue(),
                                                  adaptor.getState());
     }
-    return success();
-  }
-};
-
-struct AllocMemoryOpLowering : public OpConversionPattern<arc::AllocMemoryOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(arc::AllocMemoryOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    auto offsetAttr = op->getAttrOfType<IntegerAttr>("offset");
-    if (!offsetAttr)
-      return failure();
-    Value ptr = rewriter.create<LLVM::GEPOp>(
-        op.getLoc(), adaptor.getStorage().getType(), adaptor.getStorage(),
-        LLVM::GEPArg(offsetAttr.getValue().getZExtValue()));
-
-    auto type = typeConverter->convertType(op.getType());
-    if (type != ptr.getType())
-      ptr = rewriter.create<LLVM::BitcastOp>(op.getLoc(), type, ptr);
-
-    rewriter.replaceOp(op, ptr);
-    return success();
-  }
-};
-
-struct StorageGetOpLowering : public OpConversionPattern<arc::StorageGetOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(arc::StorageGetOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    Value offset = rewriter.create<LLVM::ConstantOp>(
-        op.getLoc(), rewriter.getI32Type(), op.getOffsetAttr());
-    Value ptr = rewriter.create<LLVM::GEPOp>(op.getLoc(),
-                                             adaptor.getStorage().getType(),
-                                             adaptor.getStorage(), offset);
-    auto type = typeConverter->convertType(op.getType());
-    if (type != ptr.getType())
-      ptr = rewriter.create<LLVM::BitcastOp>(op.getLoc(), type, ptr);
-    rewriter.replaceOp(op, ptr);
     return success();
   }
 };
@@ -279,64 +154,6 @@ struct MemoryWriteOpLowering : public OpConversionPattern<arc::MemoryWriteOp> {
   }
 };
 
-/// A dummy lowering for clock gates to an AND gate.
-struct ClockGateOpLowering : public OpConversionPattern<arc::ClockGateOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(arc::ClockGateOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<comb::AndOp>(op, adaptor.getInput(),
-                                             adaptor.getEnable(), true);
-    return success();
-  }
-};
-
-struct ReturnOpLowering : public OpConversionPattern<func::ReturnOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(func::ReturnOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<func::ReturnOp>(op, adaptor.getOperands());
-    return success();
-  }
-};
-
-struct FuncCallOpLowering : public OpConversionPattern<func::CallOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(func::CallOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    SmallVector<Type> newResultTypes;
-    if (failed(
-            typeConverter->convertTypes(op->getResultTypes(), newResultTypes)))
-      return failure();
-    rewriter.replaceOpWithNewOp<func::CallOp>(
-        op, op.getCalleeAttr(), newResultTypes, adaptor.getOperands());
-    return success();
-  }
-};
-
-struct ZeroCountOpLowering : public OpConversionPattern<arc::ZeroCountOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(arc::ZeroCountOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    // Use poison when input is zero.
-    Value undef = rewriter.create<LLVM::ConstantOp>(op->getLoc(),
-                                                    rewriter.getI1Type(), true);
-
-    if (op.getPredicate() == arc::ZeroCountPredicate::leading) {
-      rewriter.replaceOpWithNewOp<LLVM::CountLeadingZerosOp>(
-          op, adaptor.getInput().getType(), adaptor.getInput(), undef);
-      return success();
-    }
-
-    rewriter.replaceOpWithNewOp<LLVM::CountTrailingZerosOp>(
-        op, adaptor.getInput().getType(), adaptor.getInput(), undef);
-    return success();
-  }
-};
-
 } // namespace
 
 static bool isArcType(Type type) {
@@ -403,28 +220,12 @@ static void populateTypeConversion(TypeConverter &typeConverter) {
 static void populateOpConversion(RewritePatternSet &patterns,
                                  TypeConverter &typeConverter) {
   auto *context = patterns.getContext();
-  // clang-format off
-  patterns.add<
-    AllocMemoryOpLowering,
-    AllocStateLikeOpLowering<arc::AllocStateOp>,
-    AllocStateLikeOpLowering<arc::RootInputOp>,
-    AllocStateLikeOpLowering<arc::RootOutputOp>,
-    AllocStorageOpLowering,
-    CallOpLowering,
-    ClockGateOpLowering,
-    DefineOpLowering,
-    MemoryReadOpLowering,
-    MemoryWriteOpLowering,
-    OutputOpLowering,
-    FuncCallOpLowering,
-    ReturnOpLowering,
-    StateOpLowering,
-    StateReadOpLowering,
-    StateWriteOpLowering,
-    StorageGetOpLowering,
-    ZeroCountOpLowering
-  >(typeConverter, context);
-  // clang-format on
+
+  registerConversionPDLFunctions(patterns);
+  populateGeneratedPDLLPatterns(patterns, PDLConversionConfig(&typeConverter));
+
+  patterns.add<DefineOpLowering, MemoryReadOpLowering, MemoryWriteOpLowering,
+               StateWriteOpLowering>(typeConverter, context);
 
   mlir::populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
       patterns, typeConverter);

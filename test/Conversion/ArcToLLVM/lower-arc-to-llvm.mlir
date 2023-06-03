@@ -33,15 +33,12 @@ func.func @Types(
 // CHECK-LABEL: llvm.func @StorageTypes(%arg0: !llvm.ptr<i8>) -> !llvm.struct<(ptr<i1>, ptr<i8>, ptr<i8>)> {
 func.func @StorageTypes(%arg0: !arc.storage) -> (!arc.state<i1>, !arc.memory<4 x i1, i2>, !arc.storage) {
   %0 = arc.storage.get %arg0[42] : !arc.storage -> !arc.state<i1>
-  // CHECK-NEXT: [[OFFSET:%.+]] = llvm.mlir.constant(42 :
-  // CHECK-NEXT: [[PTR:%.+]] = llvm.getelementptr %arg0[[[OFFSET]]]
+  // CHECK-NEXT: [[PTR:%.+]] = llvm.getelementptr %arg0[42]
   // CHECK-NEXT: llvm.bitcast [[PTR]] : !llvm.ptr<i8> to !llvm.ptr<i1>
   %1 = arc.storage.get %arg0[43] : !arc.storage -> !arc.memory<4 x i1, i2>
-  // CHECK-NEXT: [[OFFSET:%.+]] = llvm.mlir.constant(43 :
-  // CHECK-NEXT: [[PTR:%.+]] = llvm.getelementptr %arg0[[[OFFSET]]]
+  // CHECK-NEXT: [[PTR:%.+]] = llvm.getelementptr %arg0[43]
   %2 = arc.storage.get %arg0[44] : !arc.storage -> !arc.storage
-  // CHECK-NEXT: [[OFFSET:%.+]] = llvm.mlir.constant(44 :
-  // CHECK-NEXT: [[PTR:%.+]] = llvm.getelementptr %arg0[[[OFFSET]]]
+  // CHECK-NEXT: [[PTR:%.+]] = llvm.getelementptr %arg0[44]
   return %0, %1, %2 : !arc.state<i1>, !arc.memory<4 x i1, i2>, !arc.storage
   // CHECK: llvm.return
 }
@@ -189,4 +186,10 @@ func.func @funcCallOp(%arg0: i32) -> (i32, i32) {
 }
 func.func @dummyFuncCallee(%arg0: i32) -> (i32, i32) {
   func.return %arg0, %arg0 : i32, i32
+}
+// CHECK-LABEL: llvm.func @stateOp
+func.func @stateOp(%arg0: i32) -> i32 {
+  // CHECK-NEXT: llvm.call @dummyCallee(%arg0) : (i32) -> i32
+  %0 = arc.state @dummyCallee(%arg0) lat 0 : (i32) -> i32
+  return %0 : i32
 }

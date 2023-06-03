@@ -44,6 +44,14 @@ class FuncOp;
 namespace emitc {
 class EmitCDialect;
 } // namespace emitc
+
+namespace pdl {
+class PDLDialect;
+} // namespace pdl
+
+namespace pdl_interp {
+class PDLInterpDialect;
+} // namespace pdl_interp
 } // namespace mlir
 
 namespace circt {

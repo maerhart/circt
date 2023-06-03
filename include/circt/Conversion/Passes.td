@@ -588,6 +588,8 @@ def LowerArcToLLVM : Pass<"lower-arc-to-llvm", "mlir::ModuleOp"> {
   let constructor = "circt::createLowerArcToLLVMPass()";
   let dependentDialects = [
     "arc::ArcDialect",
+    "mlir::pdl::PDLDialect",
+    "mlir::pdl_interp::PDLInterpDialect",
     "mlir::LLVM::LLVMDialect",
     "mlir::scf::SCFDialect",
     "mlir::func::FuncDialect"

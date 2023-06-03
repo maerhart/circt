@@ -1,0 +1,90 @@
+//===- ArcToLLVMConversion.pdll - ArcToLLVM conversion patterns -----------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#include "circt/Dialect/Arc/Arc.td"
+#include "circt/Dialect/HW/HW.td"
+#include "mlir/Dialect/Func/IR/FuncOps.td"
+#include "mlir/Dialect/LLVMIR/LLVMOps.td"
+#include "mlir/Transforms/DialectConversion.pdll"
+
+//===----------------------------------------------------------------------===//
+// Pass through conversion to just convert types.
+//===----------------------------------------------------------------------===//
+
+Pattern => replace op<func.return>(args: ValueRange)
+  with op<func.return>(convertValues(args));
+
+Pattern =>
+  replace op<func.call>(args: ValueRange) {c = callee: Attr} -> (res: TypeRange)
+  with op<func.call>(convertValues(args)) {c} -> (convertTypes(res));
+
+//===----------------------------------------------------------------------===//
+// Arc to Func lowerings
+//===----------------------------------------------------------------------===//
+
+Pattern => replace op<arc.output>(outputs: ValueRange)
+  with op<func.return>(convertValues(outputs));
+
+Pattern =>
+  replace op<arc.call>(args: ValueRange) {arc = arc: Attr} -> (res: TypeRange)
+  with op<func.call>(convertValues(args)) {callee = arc} -> (convertTypes(res));
+
+// We just have to check that the latency is 0, the op verifier makes sure that
+// no clock, reset, enable is present in that case.
+Pattern => replace op<arc.state>(args: ValueRange)
+    {arc = arc: Attr, latency = attr<"0 : i32">} -> (res: TypeRange)
+  with op<func.call>(convertValues(args)){callee = arc} -> (convertTypes(res));
+
+//===----------------------------------------------------------------------===//
+// Arc to LLVM lowerings
+//===----------------------------------------------------------------------===//
+
+Rewrite storageGEP(value: Value, offset: Attr) -> Value [{
+  return rewriter.create<mlir::LLVM::GEPOp>(value.getLoc(), value.getType(),
+    value, mlir::LLVM::GEPArg(cast<IntegerAttr>(offset).getInt()));
+}];
+
+Rewrite bitcastIfDifferent(value: Value, targetType: Type) -> Value [{
+  if (value.getType() == targetType)
+    return value;
+  return rewriter.create<mlir::LLVM::BitcastOp>(value.getLoc(), targetType,
+    value);
+}];
+
+Pattern => replace op<arc.state_read>(state: Value)
+  with op<llvm.load>(convertValue(state));
+
+// TODO: this is not great since the pattern matches on all ops and then checks
+// the operation name. It's better to have one pattern for each, but there does
+// not seem to by any parameteter polymorphism in PDLL
+Constraint isAllocOp(op: Op) [{
+  return success(isa<StorageGetOp, AllocStorageOp, AllocMemoryOp, AllocStateOp,
+                     RootInputOp, RootOutputOp>(op));
+}];
+
+Pattern LowerAllocOp {
+  let anyInteger: AnyInteger;
+  let attr = offset: Attr<anyInteger>;
+  let allocOp: isAllocOp = op<>(storage: Value) {offset = attr} -> (res: Type);
+  rewrite allocOp with {
+    let gepOp = storageGEP(convertValue(storage), offset);
+    replace allocOp with bitcastIfDifferent(gepOp, convertType(res));
+  };
+}
+
+Pattern =>
+  replace op<arc.zero_count>(input: Value)
+    {predicate = attr<"0 : i32">} -> (res: Type)
+  with op<llvm.intr.ctlz>(convertValue(input), op<hw.constant>()
+    {value = attr<"true">} -> (type<"i1">)) -> (convertType(res));
+
+Pattern =>
+  replace op<arc.zero_count>(input: Value)
+    {predicate = attr<"1 : i32">} -> (res: Type)
+  with op<llvm.intr.cttz>(convertValue(input), op<hw.constant>()
+    {value = attr<"true">} -> (type<"i1">)) -> (convertType(res));
