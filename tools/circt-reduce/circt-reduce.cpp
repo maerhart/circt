@@ -28,6 +28,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/ToolOutputFile.h"
+#include "signal.h"
 
 #define DEBUG_TYPE "circt-reduce"
 #define VERBOSE(X)                                                             \
@@ -148,7 +149,7 @@ static LogicalResult writeOutput(ModuleOp module) {
 /// Execute the main chunk of work of the tool. This function reads the input
 /// module and iteratively applies the reduction strategies until no options
 /// make it smaller.
-static LogicalResult execute(MLIRContext &context) {
+static LogicalResult execute(MLIRContext &context, mlir::OwningOpRef<mlir::ModuleOp> &module) {
   std::string errorMessage;
 
   // Gather the sets of included and excluded reductions.
@@ -156,13 +157,6 @@ static LogicalResult execute(MLIRContext &context) {
                                          includeReductions.end());
   llvm::DenseSet<StringRef> exclusionSet(excludeReductions.begin(),
                                          excludeReductions.end());
-
-  // Parse the input file.
-  VERBOSE(llvm::errs() << "Reading input\n");
-  mlir::OwningOpRef<mlir::ModuleOp> module =
-      parseSourceFile<ModuleOp>(inputFilename, &context);
-  if (!module)
-    return failure();
 
   // Gather a list of reduction patterns that we should try.
   ReducePatternSet patterns;
@@ -402,6 +396,8 @@ static LogicalResult execute(MLIRContext &context) {
   return writeOutput(module.get());
 }
 
+static mlir::OwningOpRef<mlir::ModuleOp> *sigModule;
+
 /// The entry point for the `circt-reduce` tool. Configures and parses the
 /// command line options, registers all dialects with a context, and calls the
 /// `execute` function to do the actual work.
@@ -429,7 +425,24 @@ int main(int argc, char **argv) {
   hw::registerReducePatternDialectInterface(registry);
   mlir::MLIRContext context(registry);
 
+
+  // Parse the input file.
+  VERBOSE(llvm::errs() << "Reading input\n");
+  mlir::OwningOpRef<mlir::ModuleOp> module =
+      parseSourceFile<ModuleOp>(inputFilename, &context);
+  if (!module)
+    exit(true);
+
+  sigModule = &module;
+
+  struct sigaction sigIntHandler;
+  sigIntHandler.sa_handler = +[](int s) { writeOutput(sigModule->get()); exit(1); };
+  sigemptyset(&sigIntHandler.sa_mask);
+  sigIntHandler.sa_flags = 0;
+
+  sigaction(SIGINT, &sigIntHandler, nullptr);
+
   // Do the actual processing and use `exit` to avoid the slow teardown of the
   // context.
-  exit(failed(execute(context)));
+  exit(failed(execute(context, module)));
 }
