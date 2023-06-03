@@ -321,11 +321,11 @@ private:
 } // namespace
 
 static void addCallSiteOperands(
-    MutableArrayRef<CallOpMutableInterface> callSites,
+    ArrayRef<CallOpMutableInterface> callSites,
     ArrayRef<std::variant<Operation *, unsigned>> operandMappings) {
   SmallDenseMap<Operation *, Operation *> clonedOps;
   SmallVector<Value> newOperands;
-  for (auto &callOp : callSites) {
+  for (auto callOp : callSites) {
     OpBuilder builder(callOp);
     newOperands.clear();
     clonedOps.clear();
@@ -718,6 +718,17 @@ void DedupPass::replaceArcWith(DefineOp oldArc, DefineOp newArc) {
     callOp.setCalleeFromCallable(newArcName);
     newUses.push_back(callOp);
   }
+  oldArc->walk([&](CallOpMutableInterface callOp) {
+    if (auto refAttr = callOp.getCallableForCallee().dyn_cast<SymbolRefAttr>()) {
+      if (callSites.count(arcByName[refAttr.getLeafReference()])) {
+        auto &calls = callSites[arcByName[refAttr.getLeafReference()]];
+        for (auto *iter = calls.begin(); iter != calls.end(); ++iter) {
+          if (*iter == callOp)
+            calls.erase(--iter);
+        }
+      }
+    }
+  });
   callSites.erase(oldArc);
   arcByName.erase(oldArc.getSymNameAttr());
   oldArc->erase();
