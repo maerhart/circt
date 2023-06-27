@@ -13,11 +13,14 @@
 #include "circt/Conversion/HWToLLVM.h"
 #include "../PassDetail.h"
 #include "circt/Dialect/HW/HWOps.h"
+#include "circt/Dialect/HW/HWTypes.h"
+#include "circt/Dialect/LLHD/IR/LLHDOps.h"
 #include "circt/Support/LLVM.h"
 #include "circt/Support/Namespace.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -73,6 +76,34 @@ static Value zextByOne(Location loc, ConversionPatternRewriter &rewriter,
   auto zextTy = IntegerType::get(valueTy.getContext(),
                                  valueTy.getIntOrFloatBitWidth() + 1);
   return rewriter.create<LLVM::ZExtOp>(loc, zextTy, value);
+}
+
+static Type getInOutType(MLIRContext *ctxt) {
+  auto voidPtrTy = LLVM::LLVMPointerType::get(ctxt);
+  auto i64Ty = IntegerType::get(ctxt, 64);
+  return LLVM::LLVMStructType::getLiteral(ctxt,
+                                          {voidPtrTy, i64Ty, i64Ty, i64Ty});
+}
+
+/// Return a struct type of arrays containing one entry for each RegOp condition
+/// that require more than one state of the trigger to infer it (i.e. `both`,
+/// `rise` and `fall`).
+static LLVM::LLVMStructType getRegStateTy(LLVM::LLVMDialect *dialect,
+                                          Operation *entity) {
+  SmallVector<Type, 4> types;
+  entity->walk([&](llhd::RegOp op) {
+    size_t count = 0;
+    for (size_t i = 0; i < op.getModes().size(); ++i) {
+      auto mode = op.getRegModeAt(i);
+      if (mode == llhd::RegMode::fall || mode == llhd::RegMode::rise ||
+          mode == llhd::RegMode::both)
+        ++count;
+    }
+    if (count > 0)
+      types.push_back(LLVM::LLVMArrayType::get(
+          IntegerType::get(dialect->getContext(), 1), count));
+  });
+  return LLVM::LLVMStructType::getLiteral(dialect->getContext(), types);
 }
 
 //===----------------------------------------------------------------------===//
@@ -655,6 +686,8 @@ void circt::populateHWToLLVMConversionPatterns(
   patterns.add<ArrayGetOpConversion, ArraySliceOpConversion,
                ArrayConcatOpConversion, StructExplodeOpConversion,
                StructExtractOpConversion, StructInjectOpConversion>(converter);
+
+  patterns.add<HWModuleOpConversion, OutputOpConversion>(converter);
 }
 
 void circt::populateHWToLLVMTypeConversions(LLVMTypeConverter &converter) {
@@ -662,6 +695,10 @@ void circt::populateHWToLLVMTypeConversions(LLVMTypeConverter &converter) {
       [&](hw::ArrayType arr) { return convertArrayType(arr, converter); });
   converter.addConversion(
       [&](hw::StructType tup) { return convertStructType(tup, converter); });
+  converter.addConversion([&](hw::InOutType inout) {
+    return getInOutType(&converter.getContext());
+  });
+  converter.addConversion([&](IntegerType intTy) { return intTy; });
 }
 
 void HWToLLVMLoweringPass::runOnOperation() {

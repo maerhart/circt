@@ -49,9 +49,9 @@ llhd.entity @convert_sig () -> () {
 // CHECK:           %[[VAL_25:.*]] = llvm.load %[[VAL_24]] : !llvm.ptr<array<3 x i5>>
 // CHECK:           llvm.return
 // CHECK:         }
-llhd.entity @convert_prb (%sI1 : !llhd.sig<i1>, %sArr : !llhd.sig<!hw.array<3xi5>>) -> () {
-  %p0 = llhd.prb %sI1 : !llhd.sig<i1>
-  %p1 = llhd.prb %sArr : !llhd.sig<!hw.array<3xi5>>
+llhd.entity @convert_prb (%sI1 : !hw.inout<i1>, %sArr : !hw.inout<!hw.array<3xi5>>) -> () {
+  %p0 = llhd.prb %sI1 : !hw.inout<i1>
+  %p1 = llhd.prb %sArr : !hw.inout<!hw.array<3xi5>>
 }
 
 // CHECK-LABEL:   llvm.func @convert_drv(
@@ -92,13 +92,13 @@ llhd.entity @convert_prb (%sI1 : !llhd.sig<i1>, %sArr : !llhd.sig<!hw.array<3xi5
 // CHECK:           llvm.call @driveSignal(%[[VAL_0]], %[[VAL_6]], %[[VAL_29]], %[[VAL_26]], %[[VAL_30]], %[[VAL_31]], %[[VAL_32]]) : (!llvm.ptr, !llvm.ptr<struct<(ptr, i64, i64, i64)>>, !llvm.ptr, i64, i64, i64, i64) -> ()
 // CHECK:           llvm.return
 // CHECK:         }
-llhd.entity @convert_drv (%sI1 : !llhd.sig<i1>, %sArr : !llhd.sig<!hw.array<3xi5>>) -> () {
+llhd.entity @convert_drv (%sI1 : !hw.inout<i1>, %sArr : !hw.inout<!hw.array<3xi5>>) -> () {
   %cI1 = hw.constant 0 : i1
   %cI5 = hw.constant 0 : i5
   %cArr = hw.array_create %cI5, %cI5, %cI5 : i5
   %t = llhd.constant_time #llhd.time<1ns, 0d, 0e>
-  llhd.drv %sI1, %cI1 after %t : !llhd.sig<i1>
-  llhd.drv %sArr, %cArr after %t : !llhd.sig<!hw.array<3xi5>>
+  llhd.drv %sI1, %cI1 after %t : !hw.inout<i1>
+  llhd.drv %sArr, %cArr after %t : !hw.inout<!hw.array<3xi5>>
 }
 
 // CHECK-LABEL:   llvm.func @convert_drv_enable
@@ -113,10 +113,10 @@ llhd.entity @convert_drv (%sI1 : !llhd.sig<i1>, %sArr : !llhd.sig<!hw.array<3xi5
 // CHECK:         ^bb2:
 // CHECK:           llvm.return
 // CHECK:         }
-llhd.entity @convert_drv_enable (%sI1 : !llhd.sig<i1>) -> () {
-    %cI1 = llhd.prb %sI1 : !llhd.sig<i1>
+llhd.entity @convert_drv_enable (%sI1 : !hw.inout<i1>) -> () {
+    %cI1 = llhd.prb %sI1 : !hw.inout<i1>
     %t = llhd.constant_time #llhd.time<1ns, 0d, 0e>
-    llhd.drv %sI1, %cI1 after %t if %cI1 : !llhd.sig<i1>
+    llhd.drv %sI1, %cI1 after %t if %cI1 : !hw.inout<i1>
 }
 
 // CHECK-LABEL:   llvm.func @convert_reg(
@@ -198,5 +198,5 @@ llhd.entity @convert_reg () -> () {
   %0 = llhd.constant_time #llhd.time<1ns, 0d, 0e>
   %1 = hw.constant 0 : i1
   %2 = llhd.sig "sig" %1: i1
-  llhd.reg %2, (%1, "fall" %1 after %0 : i1), (%1, "rise" %1 after %0 : i1), (%1, "low" %1 after %0 : i1), (%1, "high" %1 after %0 : i1), (%1, "both" %1 after %0 : i1) : !llhd.sig<i1>
+  llhd.reg %2, (%1, "fall" %1 after %0 : i1), (%1, "rise" %1 after %0 : i1), (%1, "low" %1 after %0 : i1), (%1, "high" %1 after %0 : i1), (%1, "both" %1 after %0 : i1) : !hw.inout<i1>
 }

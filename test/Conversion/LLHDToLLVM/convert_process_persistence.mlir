@@ -22,7 +22,7 @@ func.func @dummy_ptr(%0 : !llhd.ptr<i32>) {
 }
 
 // CHECK-LABEL: @dummy_subsig
-func.func @dummy_subsig(%0 : !llhd.sig<i10>) {
+func.func @dummy_subsig(%0 : !hw.inout<i10>) {
   return
 }
 
@@ -253,12 +253,12 @@ llhd.proc @convert_persistent_ptr () -> () {
 // CHECK:         ^bb4:
 // CHECK:           llvm.return
 // CHECK:         }
-llhd.proc @convert_persistent_subsig () -> (%out : !llhd.sig<i32>) {
+llhd.proc @convert_persistent_subsig () -> (%out : !hw.inout<i32>) {
   %zero = hw.constant 0 : i5
-  %0 = llhd.sig.extract %out from %zero : (!llhd.sig<i32>) -> !llhd.sig<i10>
+  %0 = llhd.sig.extract %out from %zero : (!hw.inout<i32>) -> !hw.inout<i10>
   cf.br ^resume
 ^resume:
-  func.call @dummy_subsig(%0) : (!llhd.sig<i10>) -> ()
+  func.call @dummy_subsig(%0) : (!hw.inout<i10>) -> ()
   cf.br ^resume
 }
 

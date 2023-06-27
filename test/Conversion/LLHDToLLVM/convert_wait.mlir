@@ -125,8 +125,8 @@ llhd.proc @convert_resume_timed () -> () {
 // CHECK:         ^bb5:
 // CHECK:           llvm.return
 // CHECK:         }
-llhd.proc @convert_resume_observe_partial (%in0 : !llhd.sig<i1>, %in1 : !llhd.sig<i32>) -> (%out0 : !llhd.sig<i20>) {
-  llhd.wait (%in0, %out0 : !llhd.sig<i1>, !llhd.sig<i20>), ^end
+llhd.proc @convert_resume_observe_partial (%in0 : !hw.inout<i1>, %in1 : !hw.inout<i32>) -> (%out0 : !hw.inout<i20>) {
+  llhd.wait (%in0, %out0 : !hw.inout<i1>, !hw.inout<i20>), ^end
 ^end:
   llhd.halt
 }
@@ -183,9 +183,9 @@ llhd.proc @convert_resume_observe_partial (%in0 : !llhd.sig<i1>, %in1 : !llhd.si
 // CHECK:         ^bb5:
 // CHECK:           llvm.return
 // CHECK:         }
-llhd.proc @convert_resume_timed_observe (%in0 : !llhd.sig<i32>) -> () {
+llhd.proc @convert_resume_timed_observe (%in0 : !hw.inout<i32>) -> () {
   %t = llhd.constant_time #llhd.time<0ns, 0d, 1e>
-  llhd.wait for %t, (%in0 : !llhd.sig<i32>), ^end
+  llhd.wait for %t, (%in0 : !hw.inout<i32>), ^end
 ^end:
   llhd.halt
 }
@@ -248,8 +248,8 @@ llhd.proc @convert_resume_timed_observe (%in0 : !llhd.sig<i32>) -> () {
 // CHECK:         ^bb5:
 // CHECK:           llvm.return
 // CHECK:         }
-llhd.proc @convert_resume_observe_all (%in0 : !llhd.sig<i1>) -> (%out0 : !llhd.sig<i20>) {
-  llhd.wait (%out0, %in0: !llhd.sig<i20>, !llhd.sig<i1>), ^end
+llhd.proc @convert_resume_observe_all (%in0 : !hw.inout<i1>) -> (%out0 : !hw.inout<i20>) {
+  llhd.wait (%out0, %in0: !hw.inout<i20>, !hw.inout<i1>), ^end
 ^end:
   llhd.halt
 }

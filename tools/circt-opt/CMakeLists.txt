@@ -50,7 +50,6 @@ target_link_libraries(circt-opt
   CIRCTHWArith
   CIRCTHWArithToHW
   CIRCTInteropDialect
-  CIRCTHWToLLHD
   CIRCTHWToSystemC
   CIRCTHWTransforms
   CIRCTLoopSchedule

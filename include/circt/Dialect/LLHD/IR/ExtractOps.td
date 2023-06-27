@@ -25,7 +25,7 @@ class SigPtrIndexBitWidthConstraint<string index, string input>
 class SigArrayElementTypeConstraint<string result, string input>
   : TypesMatchWith<"result must be a signal of the array element type",
                    input, result,
-                   "llhd::SigType::get(llhd::getLLHDElementType($_self))">;
+                   "hw::InOutType::get(llhd::getLLHDElementType($_self))">;
 
 class PtrArrayElementTypeConstraint<string result, string input>
   : TypesMatchWith<"result must be a pointer of the array element type",
@@ -59,9 +59,9 @@ def LLHD_SigExtractOp : LLHD_Op<"sig.extract",
     operand. The result length is defined by the result type.
   }];
 
-  let arguments = (ins LLHD_SigType<[HWIntegerType]>:$input,
+  let arguments = (ins InOutTypeOf<[HWIntegerType]>:$input,
                        HWIntegerType:$lowBit);
-  let results = (outs LLHD_SigType<[HWIntegerType]>: $result);
+  let results = (outs InOutTypeOf<[HWIntegerType]>: $result);
 
   let assemblyFormat = [{
     $input `from` $lowBit attr-dict `:` functional-type($input, $result)
@@ -128,13 +128,13 @@ def LLHD_SigArraySliceOp : LLHD_Op<"sig.array_slice",
 
     ```mlir
     %3 = llhd.sig.array_slice %input at %lowIndex :
-      (!llhd.sig<!hw.array<4xi8>>) -> !llhd.sig<!hw.array<2xi8>>
+      (!hw.inout<!hw.array<4xi8>>) -> !hw.inout<!hw.array<2xi8>>
     ```
   }];
 
-  let arguments = (ins LLHD_SigType<[ArrayType]>: $input,
+  let arguments = (ins InOutTypeOf<[ArrayType]>: $input,
                        HWIntegerType: $lowIndex);
-  let results = (outs LLHD_SigType<[ArrayType]>: $result);
+  let results = (outs InOutTypeOf<[ArrayType]>: $result);
 
   let assemblyFormat = [{
     $input `at` $lowIndex attr-dict `:` functional-type($input, $result)
@@ -144,11 +144,11 @@ def LLHD_SigArraySliceOp : LLHD_Op<"sig.array_slice",
     unsigned getResultWidth()  { return getLLHDTypeWidth(getResult().getType()); }
     unsigned getInputWidth() { return getLLHDTypeWidth(getInput().getType()); }
     hw::ArrayType getInputArrayType() {
-      return getInput().getType().cast<llhd::SigType>().getUnderlyingType()
+      return getInput().getType().cast<hw::InOutType>().getElementType()
         .cast<hw::ArrayType>();
     }
     hw::ArrayType getResultArrayType() {
-      return getResult().getType().cast<llhd::SigType>().getUnderlyingType()
+      return getResult().getType().cast<hw::InOutType>().getElementType()
         .cast<hw::ArrayType>();
     }
   }];
@@ -221,20 +221,20 @@ def LLHD_SigArrayGetOp : LLHD_Op<"sig.array_get",
     Example:
 
     ```mlir
-    // Returns a !llhd.sig<i8>
-    %0 = llhd.sig.array_get %arr[%index] : !llhd.sig<!hw.array<4xi8>>
+    // Returns a !hw.inout<i8>
+    %0 = llhd.sig.array_get %arr[%index] : !hw.inout<!hw.array<4xi8>>
     ```
   }];
 
-  let arguments = (ins LLHD_SigType<[ArrayType]>:$input, HWIntegerType:$index);
-  let results = (outs LLHD_SigType<[HWNonInOutType]>: $result);
+  let arguments = (ins InOutTypeOf<[ArrayType]>:$input, HWIntegerType:$index);
+  let results = (outs InOutTypeOf<[HWNonInOutType]>: $result);
 
   let assemblyFormat = "$input `[` $index `]` attr-dict `:` qualified(type($input))";
 
   let extraClassDeclaration = [{
     hw::ArrayType getArrayType() {
-      return getInput().getType().cast<llhd::SigType>()
-      .getUnderlyingType().cast<hw::ArrayType>();
+      return getInput().getType().cast<hw::InOutType>()
+      .getElementType().cast<hw::ArrayType>();
     }
   }];
 }
@@ -286,20 +286,20 @@ def LLHD_SigStructExtractOp : LLHD_Op<"sig.struct_extract", [Pure,
     Example:
 
     ```mlir
-    // Returns a !llhd.sig<i8>
+    // Returns a !hw.inout<i8>
     %0 = llhd.sig.struct_extract %struct["foo"]
-      : !llhd.sig<!hw.struct<foo: i8, bar: i16>>
+      : !hw.inout<!hw.struct<foo: i8, bar: i16>>
     ```
   }];
 
-  let arguments = (ins LLHD_SigType<[StructType]>:$input, StrAttr:$field);
-  let results = (outs LLHD_SigType<[HWNonInOutType]>:$result);
+  let arguments = (ins InOutTypeOf<[StructType]>:$input, StrAttr:$field);
+  let results = (outs InOutTypeOf<[HWNonInOutType]>:$result);
 
   let assemblyFormat = "$input `[` $field `]` attr-dict `:` qualified(type($input))";
 
   let extraClassDeclaration = [{
     hw::StructType getStructType() {
-      return getInput().getType().cast<llhd::SigType>().getUnderlyingType()
+      return getInput().getType().cast<hw::InOutType>().getElementType()
         .cast<hw::StructType>();
     }
   }];

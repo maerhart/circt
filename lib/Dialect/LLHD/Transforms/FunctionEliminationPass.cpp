@@ -30,11 +30,11 @@ void FunctionEliminationPass::runOnOperation() {
 
   WalkResult result = module.walk([](mlir::func::CallOp op) -> WalkResult {
     if (isa<llhd::ProcOp>(op->getParentOp()) ||
-        isa<llhd::EntityOp>(op->getParentOp())) {
+        isa<hw::HWModuleOp>(op->getParentOp())) {
       return emitError(
           op.getLoc(),
           "Not all functions are inlined, there is at least "
-          "one function call left within a llhd.proc or llhd.entity.");
+          "one function call left within a llhd.proc or hw.module.");
     }
     return WalkResult::advance();
   });

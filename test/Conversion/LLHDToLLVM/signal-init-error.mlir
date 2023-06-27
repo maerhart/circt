@@ -1,15 +1,15 @@
 // RUN: circt-opt %s --convert-llhd-to-llvm --verify-diagnostics --split-input-file
 
-llhd.entity @root() -> () {
+hw.module @root() -> () {
   // expected-error @+1 {{failed to legalize operation 'llhd.inst'}}
   llhd.inst "inst" @initUsesProbedValue () -> () : () -> ()
 }
 
-llhd.entity @initUsesProbedValue () -> () {
+llhd.proc @initUsesProbedValue () -> () {
   // expected-error @+1 {{failed to legalize operation 'hw.constant'}}
   %0 = hw.constant 0 : i1
   %1 = llhd.sig "sig" %0 : i1
-  %2 = llhd.prb %1 : !llhd.sig<i1>
+  %2 = llhd.prb %1 : !hw.inout<i1>
   %3 = hw.array_create %2, %2 : i1
   %4 = llhd.sig "sig1" %3 : !hw.array<2xi1>
 }

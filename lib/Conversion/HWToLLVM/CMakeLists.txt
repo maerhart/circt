@@ -9,6 +9,7 @@ add_circt_conversion_library(CIRCTHWToLLVM
 
   LINK_LIBS PUBLIC
   CIRCTHW
+  CIRCTLLHD
   CIRCTSupport
   MLIRLLVMCommonConversion
   MLIRTransforms

@@ -11,32 +11,32 @@ llhd.proc @empty_proc() -> () {
 }
 
 llhd.proc @fail() -> () {
-  // expected-error @+1 {{expects parent op 'llhd.entity'}}
+  // expected-error @+1 {{expects parent op 'hw.module'}}
   llhd.inst "empty" @empty_proc() -> () : () -> ()
   llhd.halt
 }
 
 // -----
 
-llhd.entity @operand_count_mismatch(%arg : !llhd.sig<i32>) -> () {}
+hw.module @operand_count_mismatch(%arg : !hw.inout<i32>) -> () {}
 
-llhd.entity @caller(%arg : !llhd.sig<i32>) -> () {
+hw.module @caller(%arg : !hw.inout<i32>) -> () {
   // expected-error @+1 {{incorrect number of inputs for entity instantiation}}
-  llhd.inst "mismatch" @operand_count_mismatch() -> (%arg) : () -> (!llhd.sig<i32>)
+  llhd.inst "mismatch" @operand_count_mismatch() -> (%arg) : () -> (!hw.inout<i32>)
 }
 
 // -----
 
-llhd.entity @caller() -> () {
+hw.module @caller() -> () {
   // expected-error @+1 {{does not reference a valid proc, entity, or hw.module}}
   llhd.inst "does_not_exist" @does_not_exist() -> () : () -> ()
 }
 
 // -----
 
-llhd.entity @empty() -> () {}
+hw.module @empty() -> () {}
 
-llhd.entity @test_uniqueness() -> () {
+hw.module @test_uniqueness() -> () {
   llhd.inst "inst" @empty() -> () : () -> ()
   // expected-error @+1 {{redefinition of instance named 'inst'!}}
   llhd.inst "inst" @empty() -> () : () -> ()
@@ -46,9 +46,9 @@ llhd.entity @test_uniqueness() -> () {
 
 hw.module @module(%arg0: i2) -> () {}
 
-llhd.entity @moduleTypeMismatch(%arg0: !llhd.sig<i3>) -> () {
+hw.module @moduleTypeMismatch(%arg0: !hw.inout<i3>) -> () {
   // expected-error @+1 {{input type mismatch}}
-  llhd.inst "inst" @module(%arg0) -> () : (!llhd.sig<i3>) -> ()
+  llhd.inst "inst" @module(%arg0) -> () : (!hw.inout<i3>) -> ()
 }
 
 // -----
@@ -58,7 +58,7 @@ hw.module @module() -> (arg0: i2) {
   hw.output %0 : i2
 }
 
-llhd.entity @moduleTypeMismatch() -> (%arg0: !llhd.sig<i3>) {
+hw.module @moduleTypeMismatch() -> (%arg0: !hw.inout<i3>) {
   // expected-error @+1 {{output type mismatch}}
-  llhd.inst "inst" @module() -> (%arg0) : () -> !llhd.sig<i3>
+  llhd.inst "inst" @module() -> (%arg0) : () -> !hw.inout<i3>
 }

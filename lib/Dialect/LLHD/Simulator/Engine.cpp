@@ -31,12 +31,12 @@ Engine::Engine(
 
   buildLayout(module);
 
-  auto rootEntity = module.lookupSymbol<EntityOp>(root);
+  auto rootModule = module.lookupSymbol<hw::HWModuleOp>(root);
 
   // Insert explicit instantiation of the design root.
   OpBuilder insertInst =
-      OpBuilder::atBlockEnd(&rootEntity.getBody().getBlocks().front());
-  insertInst.create<InstOp>(rootEntity.getBlocks().front().back().getLoc(),
+      OpBuilder::atBlockEnd(&rootModule.getBody().getBlocks().front());
+  insertInst.create<InstOp>(rootModule.getBlocks().front().back().getLoc(),
                             std::nullopt, root, root, ArrayRef<Value>(),
                             ArrayRef<Value>());
 
@@ -216,8 +216,8 @@ int Engine::simulate(int n, uint64_t maxTime) {
 
 void Engine::buildLayout(ModuleOp module) {
   // Start from the root entity.
-  auto rootEntity = module.lookupSymbol<EntityOp>(root);
-  assert(rootEntity && "root entity not found!");
+  auto rootModule = module.lookupSymbol<hw::HWModuleOp>(root);
+  assert(rootModule && "root entity not found!");
 
   // Build root instance, the parent and instance names are the same for the
   // root.
@@ -226,7 +226,7 @@ void Engine::buildLayout(ModuleOp module) {
   rootInst.path = root;
 
   // Recursively walk the units starting at root.
-  walkEntity(rootEntity, rootInst);
+  walkEntity(rootModule, rootInst);
 
   // The root is always an instance.
   rootInst.isEntity = true;
@@ -242,8 +242,8 @@ void Engine::buildLayout(ModuleOp module) {
   }
 }
 
-void Engine::walkEntity(EntityOp entity, Instance &child) {
-  entity.walk([&](Operation *op) {
+void Engine::walkEntity(hw::HWModuleOp module, Instance &child) {
+  module.walk([&](Operation *op) {
     assert(op);
 
     // Add a signal to the signal table.
@@ -258,7 +258,7 @@ void Engine::walkEntity(EntityOp entity, Instance &child) {
       // Skip self-recursion.
       if (inst.getCallee() == child.name)
         return;
-      if (auto e =
+      if (auto *e =
               op->getParentOfType<ModuleOp>().lookupSymbol(inst.getCallee())) {
         Instance newChild(child.unit + '.' + inst.getName().str());
         newChild.unit = inst.getCallee().str();
@@ -282,7 +282,7 @@ void Engine::walkEntity(EntityOp entity, Instance &child) {
             newChild.sensitivityList.push_back(detail);
           } else if (auto sigOp = dyn_cast<SigOp>(args[i].getDefiningOp())) {
             // The signal comes from one of the instance's owned signals.
-            auto it = std::find_if(
+            auto *it = std::find_if(
                 child.sensitivityList.begin(), child.sensitivityList.end(),
                 [&](SignalDetail &detail) {
                   return state->signals[detail.globalIndex].getName() ==
@@ -300,7 +300,7 @@ void Engine::walkEntity(EntityOp entity, Instance &child) {
 
         // Recursively walk a new entity, otherwise it is a process and cannot
         // define new signals or instances.
-        if (auto ent = dyn_cast<EntityOp>(e)) {
+        if (auto ent = dyn_cast<hw::HWModuleOp>(e)) {
           newChild.isEntity = true;
           walkEntity(ent, newChild);
         } else {

@@ -68,13 +68,6 @@ def LLHD_TimeType : DialectType<LLHD_Dialect,
 def LLHD_AnyUnderlyingType :
   AnyTypeOf<[HWIntegerType, ArrayType, StructType]>;
 
-// LLHD sig type
-class LLHD_SigType<list<Type> allowedTypes>
-  : ContainerType<AnyTypeOf<allowedTypes>, CPred<"$_self.isa<SigType>()">,
-    "$_self.cast<SigType>().getUnderlyingType()", "LLHD sig type">;
-
-def LLHD_AnySigType : LLHD_SigType<[LLHD_AnyUnderlyingType]>;
-
 // LLHD ptr type
 class LLHD_PtrType<list<Type> allowedTypes>
   : ContainerType<AnyTypeOf<allowedTypes>, CPred<"$_self.isa<PtrType>()">,
@@ -84,7 +77,7 @@ def LLHD_AnyPtrType : LLHD_PtrType<[LLHD_AnyUnderlyingType]>;
 
 // LLHD sig or ptr type
 class LLHD_SigOrPtrType<list<Type> allowedTypes>
-  : AnyTypeOf<[LLHD_SigType<allowedTypes>, LLHD_PtrType<allowedTypes>]>;
+  : AnyTypeOf<[InOutTypeOf<allowedTypes>, LLHD_PtrType<allowedTypes>]>;
 
 def LLHD_AnySigOrPtrType : LLHD_SigOrPtrType<[LLHD_AnyUnderlyingType]>;
 

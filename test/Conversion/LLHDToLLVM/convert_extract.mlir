@@ -34,8 +34,8 @@
 // CHECK:           llvm.store %[[VAL_26]], %[[VAL_28]] : !llvm.ptr<struct<(ptr, i64, i64, i64)>>
 // CHECK:           llvm.return
 // CHECK:         }
-func.func @convertSigExtract (%c : i5, %sI32 : !llhd.sig<i32>) {
-  %0 = llhd.sig.extract %sI32 from %c : (!llhd.sig<i32>) -> !llhd.sig<i10>
+func.func @convertSigExtract (%c : i5, %sI32 : !hw.inout<i32>) {
+  %0 = llhd.sig.extract %sI32 from %c : (!hw.inout<i32>) -> !hw.inout<i10>
 
   return
 }
@@ -70,8 +70,8 @@ func.func @convertSigExtract (%c : i5, %sI32 : !llhd.sig<i32>) {
 // CHECK:           llvm.store %[[VAL_23]], %[[VAL_25]] : !llvm.ptr<struct<(ptr, i64, i64, i64)>>
 // CHECK:           llvm.return
 // CHECK:         }
-func.func @convertSigArraySlice (%c : i2, %sArr : !llhd.sig<!hw.array<4xi4>>) {
-  %1 = llhd.sig.array_slice %sArr at %c : (!llhd.sig<!hw.array<4xi4>>) -> !llhd.sig<!hw.array<2xi4>>
+func.func @convertSigArraySlice (%c : i2, %sArr : !hw.inout<!hw.array<4xi4>>) {
+  %1 = llhd.sig.array_slice %sArr at %c : (!hw.inout<!hw.array<4xi4>>) -> !hw.inout<!hw.array<2xi4>>
 
   return
 }
@@ -105,8 +105,8 @@ func.func @convertSigArraySlice (%c : i2, %sArr : !llhd.sig<!hw.array<4xi4>>) {
 // CHECK:           llvm.store %[[VAL_22]], %[[VAL_24]] : !llvm.ptr<struct<(ptr, i64, i64, i64)>>
 // CHECK:           llvm.return
 // CHECK:         }
-func.func @convertSigStructExtract (%sTup : !llhd.sig<!hw.struct<foo: i1, bar: i2, baz: i3>>) {
-  %1 = llhd.sig.struct_extract %sTup["bar"] : !llhd.sig<!hw.struct<foo: i1, bar: i2, baz: i3>>
+func.func @convertSigStructExtract (%sTup : !hw.inout<!hw.struct<foo: i1, bar: i2, baz: i3>>) {
+  %1 = llhd.sig.struct_extract %sTup["bar"] : !hw.inout<!hw.struct<foo: i1, bar: i2, baz: i3>>
 
   return
 }
@@ -141,8 +141,8 @@ func.func @convertSigStructExtract (%sTup : !llhd.sig<!hw.struct<foo: i1, bar: i
 // CHECK:           llvm.store %[[VAL_23]], %[[VAL_25]] : !llvm.ptr<struct<(ptr, i64, i64, i64)>>
 // CHECK:           llvm.return
 // CHECK:         }
-func.func @convertSigArrayGet(%sArr : !llhd.sig<!hw.array<4xi4>>, %c : i2) {
-  %1 = llhd.sig.array_get %sArr[%c] : !llhd.sig<!hw.array<4xi4>>
+func.func @convertSigArrayGet(%sArr : !hw.inout<!hw.array<4xi4>>, %c : i2) {
+  %1 = llhd.sig.array_get %sArr[%c] : !hw.inout<!hw.array<4xi4>>
 
   return
 }

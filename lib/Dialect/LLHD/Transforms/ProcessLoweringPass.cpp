@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "PassDetails.h"
+#include "circt/Dialect/HW/HWOpInterfaces.h"
 #include "circt/Dialect/LLHD/IR/LLHDOps.h"
 #include "circt/Dialect/LLHD/Transforms/Passes.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
@@ -29,7 +30,7 @@ struct ProcessLoweringPass
 /// Backtrack a signal value and make sure that every part of it is in the
 /// observer list at some point. Assumes that there is no operation that adds
 /// parts to a signal that it does not take as input (e.g. something like
-/// llhd.sig.zext %sig : !llhd.sig<i32> -> !llhd.sig<i64>).
+/// llhd.sig.zext %sig : !hw.inout<i32> -> !hw.inout<i64>).
 static LogicalResult checkSignalsAreObserved(OperandRange obs, Value value) {
   // If the value in the observer list, we don't need to backtrack further.
   if (llvm::is_contained(obs, value))
@@ -40,7 +41,7 @@ static LogicalResult checkSignalsAreObserved(OperandRange obs, Value value) {
     // last point where it could have been observed. As we've already checked
     // that, we can fail here. This includes for example llhd.sig
     if (llvm::none_of(op->getOperands(), [](Value arg) {
-          return arg.getType().isa<llhd::SigType>();
+          return arg.getType().isa<hw::InOutType>();
         }))
       return failure();
 
@@ -49,7 +50,7 @@ static LogicalResult checkSignalsAreObserved(OperandRange obs, Value value) {
     // they are covered by that probe. As soon as we find a signal that is not
     // observed no matter how far we backtrack, we fail.
     return success(llvm::all_of(op->getOperands(), [&](Value arg) {
-      return !arg.getType().isa<llhd::SigType>() ||
+      return !arg.getType().isa<hw::InOutType>() ||
              succeeded(checkSignalsAreObserved(obs, arg));
     }));
   }
@@ -74,7 +75,7 @@ static LogicalResult isProcValidToLower(llhd::ProcOp op) {
     Block &first = op.getBody().front();
     Block &last = op.getBody().back();
 
-    if (last.getArguments().size() != 0)
+    if (!last.getArguments().empty())
       return op.emitOpError(
           "during process-lowering: the second block (containing the "
           "llhd.wait) is not allowed to have arguments");
@@ -125,10 +126,20 @@ void ProcessLoweringPass::runOnOperation() {
     OpBuilder builder(op);
 
     // Replace proc with entity
-    llhd::EntityOp entity =
-        builder.create<llhd::EntityOp>(op.getLoc(), op.getFunctionType(),
-                                       op.getIns(), /*argAttrs=*/ArrayAttr(),
-                                       /*resAttrs=*/ArrayAttr());
+    SmallVector<hw::PortInfo> ports;
+    unsigned portCnt = 0;
+    for (auto procPort : op.getArguments()) {
+      hw::PortInfo port;
+      port.type = procPort.getType();
+      port.loc = procPort.getLoc();
+      port.argNum = procPort.getArgNumber();
+      port.direction = hw::PortDirection::INOUT;
+      port.name =
+          builder.getStringAttr("inout_port_" + std::to_string(portCnt++));
+      ports.push_back(port);
+    }
+    auto entity =
+        builder.create<hw::HWModuleOp>(op.getLoc(), op.getNameAttr(), ports);
     // Set the symbol name of the entity to the same as the process (as the
     // process gets deleted anyways).
     entity.setName(op.getName());

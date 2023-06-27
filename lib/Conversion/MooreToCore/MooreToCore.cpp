@@ -292,7 +292,7 @@ static void populateTypeConversion(TypeConverter &typeConverter) {
   });
   typeConverter.addConversion([&](LValueType type) {
     auto inner = typeConverter.convertType(type.getNestedType());
-    return llhd::SigType::get(inner);
+    return hw::InOutType::get(inner);
   });
 
   // Directly map simple bit vector types to a compact integer type. This needs
