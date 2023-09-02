@@ -745,6 +745,15 @@ LogicalResult LowerStatePass::runOnModule(HWModuleOp moduleOp,
                           << "`\n");
   ModuleLowering lowering(moduleOp, stats);
   lowering.addStorageArg();
+
+  // Collect all clock domain inputs and module outputs.
+  SmallVector<Value> passthroughValues;
+  moduleOp->walk([&](ClockDomainOp clockDomain) {
+    passthroughValues.append(clockDomain.getInputs());
+  });
+  passthroughValues.append(moduleOp.getBodyBlock()->getTerminator()->getOperands());
+
+
   if (failed(lowering.lowerStates()))
     return failure();
   if (failed(lowering.lowerExtModules(symtbl)))

@@ -238,7 +238,7 @@ void AccessAnalysis::visitOperation(Operation *op) {
 
   // Don't propagate inner state accesses through models, clock trees, and
   // passthrough ops.
-  if (!isa<ModelOp, ClockTreeOp, PassThroughOp>(op)) {
+  if (!isa<ModelOp, ClockTreeOp>(op)) {
     for (auto &region : op->getRegions()) {
       for (auto &block : region) {
         const auto *blockAccesses = getOrCreateFor<AccessState>(op, &block);

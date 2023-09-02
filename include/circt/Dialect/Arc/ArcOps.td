@@ -432,26 +432,117 @@ def ClockDomainOp : ArcOp<"clock_domain", [
   let hasCanonicalizeMethod = 1;
 }
 
-def ClockTreeOp : ArcOp<"clock_tree", [NoTerminator, NoRegionArguments]> {
-  let summary = "A clock tree";
-  let arguments = (ins I1:$clock);
+def ClockTreeOp : ArcOp<"clock_tree", [
+  IsolatedFromAbove,
+  FunctionOpInterface,
+  CallableOpInterface,
+  Symbol,
+  NoTerminator,
+  HasParent<"mlir::ModuleOp">
+]> {
+  let summary = "a clock tree";
+  let arguments = (ins
+    SymbolNameAttr:$sym_name,
+    TypeAttrOf<FunctionType>:$function_type,
+    OptionalAttr<DictArrayAttr>:$arg_attrs,
+    OptionalAttr<DictArrayAttr>:$res_attrs
+  );
   let regions = (region SizedRegion<1>:$body);
-  let assemblyFormat = [{
-    $clock attr-dict-with-keyword $body
-  }];
+  let hasCustomAssemblyFormat = 1;
+
+  let hasRegionVerifier = 1;
+
+  let builders = [
+    OpBuilder<(ins "mlir::StringAttr":$sym_name,
+                   "mlir::TypeAttr":$function_type), [{
+      build($_builder, $_state, sym_name, function_type, mlir::ArrayAttr(),
+            mlir::ArrayAttr());
+    }]>,
+    OpBuilder<(ins "mlir::StringRef":$sym_name, 
+                   "mlir::FunctionType":$function_type), [{
+      build($_builder, $_state, sym_name, function_type, mlir::ArrayAttr(),
+            mlir::ArrayAttr());
+    }]>,
+  ];
+
   let extraClassDeclaration = [{
     mlir::Block &getBodyBlock() { return getBody().front(); }
+
+    // Get the clock tree's symbolic name.
+    mlir::StringAttr getNameAttr() {
+      return (*this)->getAttrOfType<mlir::StringAttr>(
+        ::mlir::SymbolTable::getSymbolAttrName());
+    }
+
+    // Get the clock tree's symbolic name.
+    mlir::StringRef getName() {
+      return getNameAttr().getValue();
+    }
+
+    /// Returns the argument types of this function.
+    mlir::ArrayRef<mlir::Type> getArgumentTypes() {
+      return getFunctionType().getInputs();
+    }
+
+    /// Returns the result types of this function.
+    mlir::ArrayRef<mlir::Type> getResultTypes() {
+      return getFunctionType().getResults();
+    }
+
+    /// Verify the type attribute of this function. Returns failure and emits
+    /// an error if the attribute is invalid.
+    mlir::LogicalResult verifyType() {
+      auto type = getFunctionTypeAttr().getValue();
+      if (!type.isa<mlir::FunctionType>())
+        return emitOpError("requires '") << getFunctionTypeAttrName() <<
+                           "' attribute of function type";
+      return mlir::success();
+    }
+
+    //===------------------------------------------------------------------===//
+    // CallableOpInterface
+    //===------------------------------------------------------------------===//
+
+    mlir::Region *getCallableRegion() { return &getBody(); }
+    ArrayRef<mlir::Type> getCallableResults() { return getResultTypes(); }
+    mlir::ArrayAttr getCallableArgAttrs() { return nullptr; }
+    mlir::ArrayAttr getCallableResAttrs() { return nullptr; }
   }];
 }
 
-def PassThroughOp : ArcOp<"passthrough", [NoTerminator, NoRegionArguments]> {
-  let summary = "Clock-less logic that is on the pass-through path";
-  let regions = (region SizedRegion<1>:$body);
+def AdvanceClockOp : ArcOp<"advance_clock", [
+  MemRefsNormalizable,
+  CallOpMutableInterface,
+  DeclareOpInterfaceMethods<SymbolUserOpInterface>
+]> {
+  let summary = "calls a clock tree";
+
+  let arguments = (ins FlatSymbolRefAttr:$clock_tree,
+                       I1:$enable,
+                       Variadic<AnyType>:$inputs);
+
   let assemblyFormat = [{
-    attr-dict-with-keyword $body
+    $clock_tree `(` $inputs `)` `if` $enable attr-dict `:` type($inputs)
   }];
+
   let extraClassDeclaration = [{
-    mlir::Block &getBodyBlock() { return getBody().front(); }
+    operand_range getArgOperands() {
+      return getInputs();
+    }
+    MutableOperandRange getArgOperandsMutable() {
+      return getInputsMutable();
+    }
+
+    mlir::CallInterfaceCallable getCallableForCallee() {
+      return (*this)->getAttrOfType<mlir::SymbolRefAttr>(
+        getClockTreeAttrName());
+    }
+
+    /// Set the callee for this operation.
+    void setCalleeFromCallable(mlir::CallInterfaceCallable callee) {
+      (*this)->setAttr(getClockTreeAttrName(),
+                       callee.get<mlir::SymbolRefAttr>());
+    }
   }];
 }
 

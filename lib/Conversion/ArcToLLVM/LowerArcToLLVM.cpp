@@ -292,6 +292,32 @@ struct ClockGateOpLowering : public OpConversionPattern<arc::ClockGateOp> {
   }
 };
 
+struct ClockTreeOpLowering : public OpConversionPattern<arc::ClockTreeOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(arc::ClockTreeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto func = rewriter.create<mlir::func::FuncOp>(op.getLoc(), op.getName(),
+                                                    op.getFunctionType());
+    rewriter.inlineRegionBefore(op.getRegion(), func.getBody(), func.end());
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+struct AdvanceClockOpLowering : public OpConversionPattern<arc::AdvanceClockOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(arc::AdvanceClockOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<scf::IfOp>(adaptor.getEnable(), [&](OpBuilder &builder, Location loc) {
+      builder.create<func::CallOp>(loc, {}, op.getClockTreeAttr(), adaptor.getInputs());
+      builder.create<scf::YieldOp>(loc);
+    });
+    return success();
+  }
+};
+
 struct ReturnOpLowering : public OpConversionPattern<func::ReturnOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
@@ -371,7 +397,7 @@ static void populateLegality(ConversionTarget &target) {
   target.addIllegalOp<arc::OutputOp>();
   target.addIllegalOp<arc::StateOp>();
   target.addIllegalOp<arc::ClockTreeOp>();
-  target.addIllegalOp<arc::PassThroughOp>();
+  target.addIllegalOp<arc::AdvanceClockOp>();
 
   target.addDynamicallyLegalOp<func::FuncOp>([](func::FuncOp op) {
     auto argsConverted = llvm::none_of(op.getBlocks(), [](auto &block) {
@@ -405,6 +431,7 @@ static void populateOpConversion(RewritePatternSet &patterns,
   auto *context = patterns.getContext();
   // clang-format off
   patterns.add<
+    AdvanceClockOpLowering,
     AllocMemoryOpLowering,
     AllocStateLikeOpLowering<arc::AllocStateOp>,
     AllocStateLikeOpLowering<arc::RootInputOp>,
@@ -412,6 +439,7 @@ static void populateOpConversion(RewritePatternSet &patterns,
     AllocStorageOpLowering,
     CallOpLowering,
     ClockGateOpLowering,
+    ClockTreeOpLowering,
     DefineOpLowering,
     MemoryReadOpLowering,
     MemoryWriteOpLowering,
