@@ -337,3 +337,85 @@ arc.define @outputOpVerifier () -> i32 {
   // expected-note @+1 {{actual type: 'i16'}}
   arc.output %0 : i16
 }
+
+// -----
+
+hw.module @operand_type_mismatch(%in0: i2, %in1: i1, %in2: i1, %in3: i1) -> (out0: i1, out1: i1) {
+  // expected-error @below {{all input list types are required to match}}
+  %0:2 = arc.vectorize (%in0, %in1), (%in2, %in3) : (i2, i1, i1, i1) -> (i1, i1) {
+  ^bb0(%arg0: i1, %arg1: i1):
+    %1 = comb.and %arg0, %arg1 : i1
+    arc.vectorize.return %1 : i1
+  }
+  hw.output %0#0, %0#1 : i1, i1
+}
+
+// -----
+
+hw.module @number_results_does_not_match_way(%in0: i1, %in1: i1, %in2: i1, %in3: i1) -> (out0: i1) {
+  // expected-error @below {{number results must match input vector size}}
+  %0 = arc.vectorize (%in0, %in1), (%in2, %in3) : (i1, i1, i1, i1) -> i1 {
+  ^bb0(%arg0: i1, %arg1: i1):
+    %1 = comb.and %arg0, %arg1 : i1
+    arc.vectorize.return %1 : i1
+  }
+  hw.output %0#0 : i1
+}
+
+// -----
+
+hw.module @result_type_mismatch(%in0: i1, %in1: i1, %in2: i1, %in3: i1) -> (out0: i1, out1: i2) {
+  // expected-error @below {{all result types must match}}
+  %0:2 = arc.vectorize (%in0, %in1), (%in2, %in3) : (i1, i1, i1, i1) -> (i1, i2) {
+  ^bb0(%arg0: i1, %arg1: i1):
+    %1 = comb.and %arg0, %arg1 : i1
+    arc.vectorize.return %1 : i1
+  }
+  hw.output %0#0, %0#1 : i1, i2
+}
+
+// -----
+
+hw.module @vectorized_block_arg_type_mismatch(%in0: i1, %in1: i1, %in2: i1, %in3: i1) -> (out0: i1, out1: i1) {
+  // expected-error @below {{}}
+  %0:2 = arc.vectorize (%in0, %in1), (%in2, %in3) : (i1, i1, i1, i1) -> (i1, i1) {
+  ^bb0(%arg0: i2, %arg1: i1):
+    %0 = comb.extract %arg0 from 0 : (i2) -> i1
+    %1 = comb.and %0, %arg1 : i1
+    arc.vectorize.return %1 : i1
+  }
+  hw.output %0#0, %0#1 : i1, i1
+}
+
+// -----
+
+hw.module @number_vectorized_block_args_mismatch(%in0: i1, %in1: i1, %in2: i1, %in3: i1) -> (out0: i1, out1: i1) {
+  // expected-error @below {{}}
+  %0:2 = arc.vectorize (%in0, %in1), (%in2, %in3) : (i1, i1, i1, i1) -> (i1, i1) {
+  ^bb0(%arg0: i1):
+    arc.vectorize.return %arg0 : i1
+  }
+  hw.output %0#0, %0#1 : i1, i1
+}
+
+// -----
+
+hw.module @only_one_block_allowed(%in0: i1, %in1: i1, %in2: i1, %in3: i1) -> (out0: i1, out1: i1) {
+  // expected-error @below {{region #0 ('body') failed to verify constraint: region with 1 blocks}}
+  %0:2 = arc.vectorize (%in0, %in1), (%in2, %in3) : (i1, i1, i1, i1) -> (i1, i1) {
+  ^bb0(%arg0: i1, %arg1: i1):
+    %1 = comb.and %arg0, %arg1 : i1
+    cf.br ^bb1(%1 : i1)
+  ^bb1(%arg2: i1):
+    arc.vectorize.return %arg2 : i1
+  }
+  hw.output %0#0, %0#1 : i1, i1
+}
+
+// -----
+
+hw.module @only_one_block_allowed(%in0: i1, %in1: i1, %in2: i1, %in3: i1) -> (out0: i1, out1: i1) {
+  // expected-error @below {{region #0 ('body') failed to verify constraint: region with 1 blocks}}
+  %0:2 = arc.vectorize (%in0, %in1), (%in2, %in3) : (i1, i1, i1, i1) -> (i1, i1) {}
+  hw.output %0#0, %0#1 : i1, i1
+}

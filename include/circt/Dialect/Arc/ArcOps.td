@@ -649,4 +649,137 @@ def ZeroCountOp : ArcOp<"zero_count", [Pure, SameOperandsAndResultType]> {
   let assemblyFormat = "$predicate $input attr-dict `:` type($input)";
 }
 
+def VectorizeOp : ArcOp<"vectorize", [
+    IsolatedFromAbove, RecursiveMemoryEffects, RegionKindInterface
+    // SingleBlockImplicitTerminator<"arc::VectorizeReturnOp">
+  ]> {
+  let summary = "isolated subgraph of operations to be vectorized";
+  let description = [{
+    This operation represents a vectorized computation graph. It places a
+    convenient boundary between the subgraph to be vectorized and the outside.
+    This allows us to separate the transformations:
+      * Find an initial set of operations to be vectorized
+      * Optimize this set
+      * Perform the actual vectorization by lowering this operation. This
+        consists of to parts:
+        * Vectorize the `state` operations that are part of the subgraph and
+          their callees. This can be done by either packing them into bigger
+          bit-vectors such that the scalar registers of a CPU can be used more
+          effectively, or by lowering to `vector` types and operations.
+        * Insert the gather and scatter operations necessary to bridge between
+          the vectorized subgraph and the non-vectorized surrounding.
+
+    For each block argument of the nested block, there is a list of operands
+    that represent the elements of the vector. If all of them are the same
+    (broadcast), it may be collapsed such that there is only one element in the
+    operand list.
+    Additionally, it may also be a value of type `vector` or an integer with a
+    bitwidth that is the sum of all elements in the operand list.
+    Only integer types can be vectorized, no arrays or structs are allowed.
+
+    Example:
+    ```mlir
+    %0 = arith.and %in0, %in1 : i1
+    %1 = arith.and %in2, %in2 : i1
+
+    %0:2 = arc.vectorize (%in0, %in1), (%in2, %in2) : (i1, i1, i1, i1) -> (i1, i1) {
+    ^bb0(%arg0: i1, %arg1: i1):
+      %1 = arith.and %arg0, %arg1 : i1
+      arc.output %1 : i1
+    }
+
+    // Outside lowered via scalar registers
+    %0 = comb.concat %in0, %in1 : i1, i1
+    %1 = comb.replicate %in2 : (i1) -> i2
+    %2 = arc.vectorize (%0), (%1) : (i2, i2) -> (i2) {
+    ^bb0(%arg0: i1, %arg1: i1):
+      %1 = arith.and %arg0, %arg1 : i1
+      arc.output %1 : i1
+    }
+    %3 = comb.extract %2 from 1 : (i2) -> i1
+    %4 = comb.extract %2 from 0 : (i2) -> i1
+
+    // Inside lowered via scalar registers
+    %0:2 = arc.vectorize (%in0, %in1), (%in2, %in2) : (i1, i1, i1, i1) -> (i1, i1) {
+    ^bb0(%arg0: i2, %arg1: i2):
+      %1 = arith.and %arg0, %arg1 : i2
+      arc.output %1 : i2
+    }
+
+    // Once both sides are lowered, we can remove the op
+    %0 = comb.concat %in0, %in1 : i1, i1
+    %1 = comb.replicate %in2 : (i1) -> i2
+    %2 = arith.and %0, %1 : i2
+    %3 = comb.extract %2 from 1 : (i2) -> i1
+    %4 = comb.extract %2 from 0 : (i2) -> i1
+
+    // Outside lowered via SIMD
+    %cst = arith.constant dense<0> : vector<2xi1>
+    %0 = vector.insert %in0, %cst[0] : i1 into vector<2xi1>
+    %1 = vector.insert %in1, %0[1] : i1 into vector<2xi1>
+    %2 = vector.broadcast %in2 : i1 to vector<2xi1>
+    %3 = arc.vectorize (%1), (%2) : (vector<2xi1>, vector<2xi1>) -> (vector<2xi1>) {
+    ^bb0(%arg0: i1, %arg1: i1):
+      %1 = arith.and %arg0, %arg1 : i1
+      arc.output %1 : i1
+    }
+    %4 = vector.extract %2[0] : vector<2xi1>
+    %5 = vector.extract %2[1] : vector<2xi1>
+
+    // Inside lowered via SIMD
+    %0:2 = arc.vectorize (%in0, %in1), (%in2, %in3) : (i1, i1, i1, i1) -> (i1, i1) {
+    ^bb0(%arg0: vector<2xi1>, %arg1: vector<2xi1>):
+      %1 = arith.and %arg0, %arg1 : vector<2xi1>
+      arc.output %1 : vector<2xi1>
+    }
+
+    // Once both sides are lowered, we can remove the op
+    %cst = arith.constant dense<0> : vector<2xi1>
+    %0 = vector.insert %in0, %cst[0] : i1 into vector<2xi1>
+    %1 = vector.insert %in1, %0[1] : i1 into vector<2xi1>
+    %2 = vector.broadcast %in2 : i1 to vector<2xi1>
+    %3 = arith.and %1, %2 : vector<2xi1>
+    %4 = vector.extract %3[0] : vector<2xi1>
+    %5 = vector.extract %3[1] : vector<2xi1>
+    ```
+  }];
+
+  let arguments = (ins
+    VariadicOfVariadic<AnyTypeOf<[AnySignlessInteger, VectorOfRankAndType<[1], [AnySignlessInteger]>]>, "inputOperandSegments">:$inputs,
+    // I64Attr:$way,
+    DenseI32ArrayAttr:$inputOperandSegments);
+  let results = (outs Variadic<AnyTypeOf<[AnySignlessInteger, VectorOfRankAndType<[1], [AnySignlessInteger]>]>>:$results);
+  let regions = (region SizedRegion<1>:$body);
+
+  let assemblyFormat = [{
+    $inputs attr-dict `:` functional-type($inputs, $results) $body
+  }];
+
+  let extraClassDeclaration = [{
+    // RegionKindInterface
+    static mlir::RegionKind getRegionKind(unsigned index) {
+      return mlir::RegionKind::Graph;
+    }
+
+    bool isBoundaryVectorized();
+    bool isBodyVectorized();
+  }];
+
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+
+def VectorizeReturnOp : ArcOp<"vectorize.return", [
+  HasParent<"VectorizeOp">, Pure, ReturnLike, Terminator
+]> {
+  let summary = "Arc terminator";
+  let arguments = (ins AnyTypeOf<[AnySignlessInteger, VectorOfRankAndType<[1], [AnySignlessInteger]>]>:$value);
+  let assemblyFormat = [{
+    operands attr-dict `:` qualified(type(operands))
+  }];
+  // let builders = [OpBuilder<(ins), [{
+  //   build($_builder, $_state, std::nullopt);
+  // }]>];
+}
+
 #endif // CIRCT_DIALECT_ARC_ARCOPS_TD
