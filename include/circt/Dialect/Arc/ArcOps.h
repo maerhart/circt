@@ -19,10 +19,9 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include "circt/Dialect/Arc/ArcDialect.h"
+#include "circt/Dialect/Arc/ArcInterfaces.h"
 #include "circt/Dialect/Arc/ArcTypes.h"
 #include "circt/Dialect/Seq/SeqTypes.h"
-
-#include "circt/Dialect/Arc/ArcInterfaces.h.inc"
 
 #define GET_OP_CLASSES
 #include "circt/Dialect/Arc/Arc.h.inc"

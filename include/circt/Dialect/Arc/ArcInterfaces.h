@@ -13,7 +13,9 @@
 #ifndef CIRCT_DIALECT_ARC_ARCINTERFACES_H
 #define CIRCT_DIALECT_ARC_ARCINTERFACES_H
 
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectInterface.h"
+#include "mlir/IR/SymbolTable.h"
 
 // Forward declarations.
 namespace mlir {
@@ -48,5 +50,7 @@ public:
 
 } // namespace arc
 } // namespace circt
+
+#include "circt/Dialect/Arc/ArcInterfaces.h.inc"
 
 #endif // CIRCT_DIALECT_ARC_ARCINTERFACES_H

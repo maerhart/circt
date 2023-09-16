@@ -8,6 +8,7 @@
 
 #include "circt/Dialect/Arc/ArcOps.h"
 #include "circt/Dialect/Arc/ArcPasses.h"
+#include "circt/Dialect/Arc/VectorizationInterfaces.h"
 #include "circt/Dialect/Comb/CombOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -189,6 +190,44 @@ static VectorizeOp lowerBoundary(VectorizeOp op) {
   return lowerBoundaryVector(op);
 }
 
+static FailureOr<VectorizeOp> lowerBody(VectorizeOp op,
+                                        SymbolTableCollection &symbolTable,
+                                        VectorizationKind kind) {
+  Block &block = op.getBody().front();
+  for (BlockArgument arg : block.getArguments()) {
+    if (op.isBoundaryVectorized())
+      arg.setType(op.getInputs()[arg.getArgNumber()].front().getType());
+
+    if (kind == VectorizationKind::Scalar) {
+      unsigned currWidth = cast<IntegerType>(arg.getType()).getWidth();
+      arg.setType(IntegerType::get(op->getContext(),
+                                   currWidth * op.getInputs().front().size()));
+      continue;
+    }
+
+    arg.setType(VectorType::get(ArrayRef<int64_t>({static_cast<int64_t>(
+                                    op.getInputs().front().size())}),
+                                arg.getType()));
+  }
+
+  for (Operation &operation :
+       llvm::make_early_inc_range(op.getBody().front())) {
+    auto vectorizableOp = dyn_cast<VectorizeOpInterface>(operation);
+    if (!vectorizableOp)
+      return operation.emitError("found non-vectorizable operation");
+
+    if (!vectorizableOp.isVectorizable(kind, symbolTable))
+      return operation.emitError("found vectorizable operation that does not "
+                                 "support requested vectorization kind");
+
+    VectorizationBuilder builder(&operation);
+    Operation *res = vectorizableOp.vectorize(kind, symbolTable, builder);
+    operation.getResults().replaceAllUsesWith(res->getResults());
+    vectorizableOp->erase();
+  }
+  return op;
+}
+
 /// Vectorizes the body of the given `arc.vectorize` operation if it is not
 /// already vectorized. If the boundary of the `arc.vectorize` operation is
 /// already vectorized the same vectorization technique (SIMD or scalar) is
@@ -197,11 +236,33 @@ static VectorizeOp lowerBoundary(VectorizeOp op) {
 ///  * uses the `vector` type and dialect for SIMD vectorization
 /// Returns the vectorized version of the op or failure. May invalidate the
 /// passed operation.
-static FailureOr<VectorizeOp> lowerBody(VectorizeOp op) {
+static FailureOr<VectorizeOp> lowerBody(VectorizeOp op,
+                                        SymbolTableCollection &symbolTable) {
   if (op.isBodyVectorized())
     return op;
 
-  return op->emitError("lowering body not yet supported");
+  // If the body is already vectorized, we must use the same vectorization
+  // technique. Otherwise, we would produce invalid IR.
+  if (op.isBodyVectorized()) {
+    if (isa<VectorType>(op.getBody().front().getArgumentTypes().front()))
+      return lowerBody(op, symbolTable, VectorizationKind::SIMD);
+    return lowerBody(op, symbolTable, VectorizationKind::Scalar);
+  }
+
+  // If the vector can fit in an i64 value, use scalar vectorization, otherwise
+  // use SIMD.
+  unsigned numLanes = op.getInputs().size();
+  unsigned maxLaneWidth = 0;
+  for (OperandRange range : op.getInputs())
+    maxLaneWidth =
+        std::max(maxLaneWidth, range.front().getType().getIntOrFloatBitWidth());
+
+  if ((numLanes * maxLaneWidth <= 64) &&
+      op->getResult(0).getType().getIntOrFloatBitWidth() *
+              op->getNumResults() <=
+          64)
+    return lowerBody(op, symbolTable, VectorizationKind::Scalar);
+  return lowerBody(op, symbolTable, VectorizationKind::SIMD);
 }
 
 /// Inlines the `arc.vectorize` operations body once both the boundary and body
@@ -258,17 +319,18 @@ struct LowerVectorizationsPass
   }
 
   void runOnOperation() override {
+    SymbolTableCollection symbolTable;
     WalkResult result = getOperation().walk([&](VectorizeOp op) -> WalkResult {
       switch (mode) {
       case LowerVectorizationsModeEnum::Full:
-        if (auto newOp = lowerBody(lowerBoundary(op));
+        if (auto newOp = lowerBody(lowerBoundary(op), symbolTable);
             succeeded(newOp) && succeeded(inlineBody(*newOp)))
           return WalkResult::advance();
         return WalkResult::interrupt();
       case LowerVectorizationsModeEnum::Boundary:
         return lowerBoundary(op), WalkResult::advance();
       case LowerVectorizationsModeEnum::Body:
-        return static_cast<LogicalResult>(lowerBody(op));
+        return static_cast<LogicalResult>(lowerBody(op, symbolTable));
       case LowerVectorizationsModeEnum::InlineBody:
         return inlineBody(op);
       }

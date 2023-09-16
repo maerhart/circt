@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "circt/InitAllDialects.h"
+#include "circt/InitAllExternModels.h"
 #include "circt/InitAllPasses.h"
 #include "circt/Support/LoweringOptions.h"
 #include "circt/Support/Version.h"
@@ -57,6 +58,8 @@ int main(int argc, char **argv) {
 
   circt::registerAllDialects(registry);
   circt::registerAllPasses();
+
+  circt::registerAllExternModels(registry);
 
   mlir::func::registerInlinerExtension(registry);
 
