@@ -157,6 +157,15 @@ static cl::opt<Until>
                   cl::desc("Stop pipeline after a specified point"),
                   runUntilValues, cl::init(UntilEnd), cl::cat(mainCategory));
 
+static cl::opt<bool> optLevelZero{"O0", cl::desc("Disable optimizations"),
+  cl::init(false), cl::cat(mainCategory)};
+static cl::opt<bool> optLevelOne{"O1", cl::desc("Enable most important optimizations only"),
+  cl::init(false), cl::cat(mainCategory)};
+static cl::opt<bool> optLevelTwo{"O2", cl::desc("Enable most important optimizations only"),
+  cl::init(false), cl::cat(mainCategory)};
+static cl::opt<bool> optLevelThree{"O3", cl::desc("Enable all optimizations"),
+  cl::init(false), cl::cat(mainCategory)};
+
 // Options to control the output format.
 enum OutputFormat { OutputMLIR, OutputLLVM, OutputDisabled };
 static cl::opt<OutputFormat> outputFormat(
@@ -166,6 +175,17 @@ static cl::opt<OutputFormat> outputFormat(
                clEnumValN(OutputDisabled, "disable-output",
                           "Do not output anything")),
     cl::init(OutputLLVM), cl::cat(mainCategory));
+
+
+static bool isO3OrAbove() {
+  return optLevelThree || (!optLevelZero && !optLevelOne && !optLevelTwo);
+}
+static bool isO2OrAbove() {
+  return optLevelTwo || isO3OrAbove();
+}
+static bool isO1OrAbove() {
+  return optLevelOne || isO2OrAbove();
+}
 
 //===----------------------------------------------------------------------===//
 // Main Tool Logic
@@ -193,8 +213,10 @@ static void populatePipeline(PassManager &pm) {
       arc::createAddTapsPass(observePorts, observeWires, observeNamedValues));
   pm.addPass(arc::createStripSVPass());
   pm.addPass(arc::createInferMemoriesPass(observePorts));
-  pm.addPass(createCSEPass());
-  pm.addPass(arc::createArcCanonicalizerPass());
+  if (isO1OrAbove()) {
+    pm.addPass(createCSEPass());
+    pm.addPass(arc::createArcCanonicalizerPass());
+  }
 
   // Restructure the input from a `hw.module` hierarchy to a collection of arcs.
   if (untilReached(UntilArcConversion))
@@ -203,8 +225,10 @@ static void populatePipeline(PassManager &pm) {
   if (shouldDedup)
     pm.addPass(arc::createDedupPass());
   pm.addPass(arc::createInlineModulesPass());
-  pm.addPass(createCSEPass());
-  pm.addPass(arc::createArcCanonicalizerPass());
+  if (isO1OrAbove()) {
+    pm.addPass(createCSEPass());
+    pm.addPass(arc::createArcCanonicalizerPass());
+  }
 
   // Perform arc-level optimizations that are not specific to software
   // simulation.
@@ -213,12 +237,16 @@ static void populatePipeline(PassManager &pm) {
   pm.addPass(arc::createSplitLoopsPass());
   if (shouldDedup)
     pm.addPass(arc::createDedupPass());
-  pm.addPass(createCSEPass());
-  pm.addPass(arc::createArcCanonicalizerPass());
-  if (shouldMakeLUTs)
+  if (isO1OrAbove()) {
+    pm.addPass(createCSEPass());
+    pm.addPass(arc::createArcCanonicalizerPass());
+  }
+  if (shouldMakeLUTs && isO3OrAbove())
     pm.addPass(arc::createMakeTablesPass());
-  pm.addPass(createCSEPass());
-  pm.addPass(arc::createArcCanonicalizerPass());
+  if (isO1OrAbove()) {
+    pm.addPass(createCSEPass());
+    pm.addPass(arc::createArcCanonicalizerPass());
+  }
 
   // TODO: the following is commented out because the backend does not support
   // StateOp resets yet.
@@ -242,8 +270,10 @@ static void populatePipeline(PassManager &pm) {
   if (untilReached(UntilStateLowering))
     return;
   pm.addPass(arc::createLowerStatePass());
-  pm.addPass(createCSEPass());
-  pm.addPass(arc::createArcCanonicalizerPass());
+  if (isO1OrAbove()) {
+    pm.addPass(createCSEPass());
+    pm.addPass(arc::createArcCanonicalizerPass());
+  }
 
   // TODO: LowerClocksToFuncsPass might not properly consider scf.if operations
   // (or nested regions in general) and thus errors out when muxes are also
@@ -258,10 +288,14 @@ static void populatePipeline(PassManager &pm) {
     pm.addPass(createCSEPass());
   }
 
-  pm.addPass(arc::createGroupResetsAndEnablesPass());
+  // if (isO3OrAbove()) {
+  //   pm.addPass(arc::createGroupResetsAndEnablesPass());
+  // }
   pm.addPass(arc::createLegalizeStateUpdatePass());
-  pm.addPass(createCSEPass());
-  pm.addPass(arc::createArcCanonicalizerPass());
+  if (isO1OrAbove()) {
+    pm.addPass(createCSEPass());
+    pm.addPass(arc::createArcCanonicalizerPass());
+  }
 
   // Allocate states.
   if (untilReached(UntilStateAlloc))
@@ -272,16 +306,20 @@ static void populatePipeline(PassManager &pm) {
     pm.addPass(arc::createPrintStateInfoPass(stateFile));
   pm.addPass(arc::createLowerClocksToFuncsPass()); // no CSE between state alloc
                                                    // and clock func lowering
-  pm.addPass(createCSEPass());
-  pm.addPass(arc::createArcCanonicalizerPass());
+  if (isO1OrAbove()) {
+    pm.addPass(createCSEPass());
+    pm.addPass(arc::createArcCanonicalizerPass());
+  }
 
   // Lower the arcs and update functions to LLVM.
   if (untilReached(UntilLLVMLowering))
     return;
   pm.addPass(createConvertCombToArithPass());
   pm.addPass(createLowerArcToLLVMPass());
-  pm.addPass(createCSEPass());
-  pm.addPass(arc::createArcCanonicalizerPass());
+  if (isO1OrAbove()) {
+    pm.addPass(createCSEPass());
+    pm.addPass(arc::createArcCanonicalizerPass());
+  }
 }
 
 static LogicalResult processBuffer(
