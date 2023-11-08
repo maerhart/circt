@@ -8,6 +8,7 @@
 
 #include "circt/Dialect/Arc/ArcOps.h"
 #include "circt/Dialect/Arc/ArcPasses.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/ImplicitLocOpBuilder.h"
@@ -493,36 +494,52 @@ moveMemoryWritesAfterLastRead(Region &region, const DenseSet<Value> &memories,
   SmallVector<MemoryWriteOp> writes;
   region.walk([&](MemoryWriteOp writeOp) { writes.push_back(writeOp); });
 
-  // Move the writes
+  // For each write, determine the last read to the same memory and thus the
+  // operation after which it has to be positioned.
   for (auto writeOp : writes) {
     if (!memories.contains(writeOp.getMemory()))
       return writeOp->emitOpError("uses memory value not directly defined by a "
                                   "arc.alloc_memory operation");
-    for (auto *readOp : readOps[writeOp.getMemory()]) {
-      // (1) If the last read and the write are in the same block, just move the
-      // write after the read.
-      // (2) If the write is directly in the clock tree region and the last read
-      // in some nested region, move the write after the operation with the
-      // nested region. (3) If the write is nested in if-statements (arbitrarily
-      // deep) without return value, move the whole if operation after the last
-      // read or the operation that defines the region if the read is inside a
-      // nested region. (4) Number (3) may move more memory operations with the
-      // write op, thus messing up the order of previously moved memory writes,
-      // we check in a second walk-through if that is the case and just emit an
-      // error for now. We could instead move reads in a parent region, split if
-      // operations such that the memory write has its own, etc. Alternatively,
-      // rewrite this to insert temporaries which is more difficult for memories
-      // than simple states because the memory addresses have to be considered
-      // (we cannot just copy the whole memory each time).
-      Operation *readAncestor, *writeAncestor;
-      if (failed(getAncestorOpsInCommonDominatorBlock(
-              writeOp, &writeAncestor, readOp, &readAncestor, domInfo)))
-        return failure();
-      // FIXME: the 'isBeforeInBlock` + 'moveAfter' compination can be
-      // computationally very expensive.
-      if (writeAncestor->isBeforeInBlock(readAncestor))
-        writeAncestor->moveAfter(readAncestor);
+
+    SmallVector<std::pair<Operation *, Operation *>> lastRead;
+    Operation *currAncestor = writeOp;
+    Operation *currPos = writeOp;
+    while (!isa<mlir::func::FuncOp, ModelOp, DefineOp>(currAncestor)) {
+      for (auto *readOp : readOps[writeOp.getMemory()]) {
+        // (1) If the last read and the write are in the same block, just move
+        // the write after the read. (2) If the write is directly in the clock
+        // tree region and the last read in some nested region, move the write
+        // after the operation with the nested region. (3) If the write is
+        // nested in if-statements (arbitrarily deep) without return value, move
+        // the whole if operation after the last read or the operation that
+        // defines the region if the read is inside a nested region. (4) Number
+        // (3) may move more memory operations with the write op, thus messing
+        // up the order of previously moved memory writes, we check in a second
+        // walk-through if that is the case and just emit an error for now. We
+        // could instead move reads in a parent region, split if operations such
+        // that the memory write has its own, etc. Alternatively, rewrite this
+        // to insert temporaries which is more difficult for memories than
+        // simple states because the memory addresses have to be considered (we
+        // cannot just copy the whole memory each time).
+        Operation *readAncestor, *writeAncestor;
+        if (failed(getAncestorOpsInCommonDominatorBlock(
+                currAncestor, &writeAncestor, readOp, &readAncestor, domInfo)))
+          return failure();
+
+        if (writeAncestor != currAncestor)
+          continue;
+
+        if (currPos->isBeforeInBlock(readAncestor)) {
+          lastRead.push_back({currAncestor, readAncestor});
+          currPos = readAncestor;
+        }
+      }
+      currAncestor = currAncestor->getParentOp();
+      currPos = currAncestor;
     }
+    // Move the writes
+    for (auto [write, read] : lastRead)
+      write->moveAfter(read);
   }
 
   // Double check that all writes happen after all reads to the same memory.
