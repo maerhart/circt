@@ -60,5 +60,32 @@ func.func @types(%arg0: !smt.bool, %arg1: !smt.solver) {
   // CHECK: smt.check_sat [[SOLVER]] {smt.some_attr}
   %res = smt.check_sat %22 {smt.some_attr}
 
+  // CHECK: %{{.*}} = smt.eq %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  %23 = smt.eq %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  // CHECK: %{{.*}} = smt.distinct %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>, !smt.bv<32>
+  %24 = smt.distinct %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>, !smt.bv<32>
+
+  // CHECK: %{{.*}} = smt.eq %arg0, %arg0 {smt.some_attr} : !smt.bool
+  %25 = smt.eq %arg0, %arg0 {smt.some_attr} : !smt.bool
+  // CHECK: %{{.*}} = smt.distinct %arg0, %arg0, %arg0 {smt.some_attr} : !smt.bool, !smt.bool, !smt.bool
+  %26 = smt.distinct %arg0, %arg0, %arg0 {smt.some_attr} : !smt.bool, !smt.bool, !smt.bool
+
+  // CHECK: %{{.*}} = smt.bv.cmp slt %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  %27 = smt.bv.cmp slt %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  // CHECK: %{{.*}} = smt.bv.cmp sle %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  %28 = smt.bv.cmp sle %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  // CHECK: %{{.*}} = smt.bv.cmp sgt %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  %29 = smt.bv.cmp sgt %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  // CHECK: %{{.*}} = smt.bv.cmp sge %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  %30 = smt.bv.cmp sge %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  // CHECK: %{{.*}} = smt.bv.cmp ult %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  %31 = smt.bv.cmp ult %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  // CHECK: %{{.*}} = smt.bv.cmp ule %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  %32 = smt.bv.cmp ule %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  // CHECK: %{{.*}} = smt.bv.cmp ugt %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  %33 = smt.bv.cmp ugt %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  // CHECK: %{{.*}} = smt.bv.cmp uge %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  %34 = smt.bv.cmp uge %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+
   return
 }

@@ -84,6 +84,41 @@ def BVNAndOp : BinaryBVOp<"nand">;
 def BVNOrOp : BinaryBVOp<"nor">;
 def BVXNOrOp : BinaryBVOp<"xnor">;
 
+def PredicateSLT : I64EnumAttrCase<"slt", 0>;
+def PredicateSLE : I64EnumAttrCase<"sle", 1>;
+def PredicateSGT : I64EnumAttrCase<"sgt", 2>;
+def PredicateSGE : I64EnumAttrCase<"sge", 3>;
+def PredicateULT : I64EnumAttrCase<"ult", 4>;
+def PredicateULE : I64EnumAttrCase<"ule", 5>;
+def PredicateUGT : I64EnumAttrCase<"ugt", 6>;
+def PredicateUGE : I64EnumAttrCase<"uge", 7>;
+let cppNamespace = "circt::smt" in
+def Predicate : I64EnumAttr<
+    "Predicate",
+    "smt comparison predicate",
+    [PredicateSLT, PredicateSLE, PredicateSGT, PredicateSGE,
+     PredicateULT, PredicateULE, PredicateUGT, PredicateUGE]>;
+
+def BVCmpOp : SMTBVOp<"cmp", [Pure, SameTypeOperands]> {
+  let arguments = (ins Predicate:$pred, BitVectorType:$lhs, BitVectorType:$rhs);
+  let results = (outs BoolType:$result);
+  let assemblyFormat = [{
+    $pred $lhs `,` $rhs attr-dict `:` qualified(type($lhs))
+  }];
+}
+
+def EqOp : SMTOp<"eq", [Pure, SameTypeOperands]> {
+  let arguments = (ins AnySMTType:$lhs, AnySMTType:$rhs);
+  let results = (outs BoolType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` qualified(type($lhs))";
+}
+
+def DistinctOp : SMTOp<"distinct", [Pure, SameTypeOperands]> {
+  let arguments = (ins Variadic<AnySMTType>:$inputs);
+  let results = (outs BoolType:$result);
+  let assemblyFormat = "$inputs attr-dict `:` qualified(type($inputs))";
+}
+
 def DeclareConstOp : SMTOp<"declare_const", [Pure]> {
   let summary = "declare a constant value";
   let arguments = (ins StrAttr:$declName);
