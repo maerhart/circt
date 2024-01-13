@@ -25,4 +25,9 @@ def BitVectorType : SMTTypeDef<"BitVector"> {
   let assemblyFormat = "`<` $width `>`";
 }
 
+def SolverType : SMTTypeDef<"Solver"> {
+  let mnemonic = "solver";
+  let assemblyFormat = "";
+}
+
 #endif // CIRCT_DIALECT_SMT_SMTTYPES_TD

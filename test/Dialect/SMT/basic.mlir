@@ -1,8 +1,8 @@
 // RUN: circt-opt %s | circt-opt | FileCheck %s
 
 // CHECK-LABEL: func @types
-// CHECK-SAME:  (%{{.*}}: !smt.bool)
-func.func @types(%arg0: !smt.bool) {
+// CHECK-SAME:  (%{{.*}}: !smt.bool, %{{.*}}: !smt.solver)
+func.func @types(%arg0: !smt.bool, %arg1: !smt.solver) {
   // CHECK: %c0_bv32 = smt.bv.constant #smt.bv<0> : !smt.bv<32> {smt.some_attr}
   %c0_bv32 = smt.bv.constant #smt.bv<0> : !smt.bv<32> {smt.some_attr}
 
@@ -47,6 +47,18 @@ func.func @types(%arg0: !smt.bool) {
   %18 = smt.bv.nor %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
   // CHECK: %{{.*}} = smt.bv.xnor %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
   %19 = smt.bv.xnor %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+
+  // CHECK: [[BOOL:%.+]] = smt.declare_const "a" {smt.some_attr} : !smt.bool
+  %20 = smt.declare_const "a" {smt.some_attr} : !smt.bool
+  // CHECK: %{{.*}} = smt.declare_const "b" {smt.some_attr} : !smt.bv<32>
+  %21 = smt.declare_const "b" {smt.some_attr} : !smt.bv<32>
+
+  // CHECK: [[SOLVER:%.+]] = smt.solver_create "solver" {smt.some_attr}
+  %22 = smt.solver_create "solver" {smt.some_attr}
+  // CHECK: smt.assert [[SOLVER]], [[BOOL]] {smt.some_attr}
+  smt.assert %22, %20 {smt.some_attr}
+  // CHECK: smt.check_sat [[SOLVER]] {smt.some_attr}
+  %res = smt.check_sat %22 {smt.some_attr}
 
   return
 }

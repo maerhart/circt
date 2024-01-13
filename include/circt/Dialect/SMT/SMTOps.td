@@ -23,6 +23,8 @@ class SMTOp<string mnemonic, list<Trait> traits = []> :
 class SMTBVOp<string mnemonic, list<Trait> traits = []> :
   SMTOp<"bv." # mnemonic, traits>;
 
+def AnySMTType : AnyTypeOf<[BoolType, BitVectorType]>;
+
 def ConstantOp : SMTBVOp<"constant", [
   Pure,
   ConstantLike,
@@ -81,5 +83,39 @@ def BVXOrOp : BinaryBVOp<"xor">;
 def BVNAndOp : BinaryBVOp<"nand">;
 def BVNOrOp : BinaryBVOp<"nor">;
 def BVXNOrOp : BinaryBVOp<"xnor">;
+
+def DeclareConstOp : SMTOp<"declare_const", [Pure]> {
+  let summary = "declare a constant value";
+  let arguments = (ins StrAttr:$declName);
+  let results = (outs AnyTypeOf<[BoolType, BitVectorType]>:$result);
+  let assemblyFormat = "$declName attr-dict `:` qualified(type($result))";
+}
+
+def SolverCreateOp : SMTOp<"solver_create", [Pure]> {
+  let summary = "create a solver instance";
+  let arguments = (ins StrAttr:$solverName);
+  let results = (outs SolverType:$solver);
+  let assemblyFormat = "$solverName attr-dict";
+}
+
+def AssertOp : SMTOp<"assert", []> {
+  let summary = "assert that a boolean expression is true";
+  let arguments = (ins SolverType:$solver, BoolType:$input);
+  let assemblyFormat = "$solver `,` $input attr-dict";
+}
+
+def CheckSatOp : SMTOp<"check_sat", []> {
+  let summary = "check if the current set of assertions is satisfiable";
+  let description = [{
+    Returns
+      * -1 if not satisfiable
+      * 0  if unknown
+      * 1  if satisfiable     
+  }];
+
+  let arguments = (ins SolverType:$solver);
+  let results = (outs I32:$result);
+  let assemblyFormat = "$solver attr-dict";
+}
 
 #endif // CIRCT_DIALECT_SMT_SMTOPS_TD
