@@ -19,4 +19,10 @@ def BoolType : SMTTypeDef<"Bool"> {
   let assemblyFormat = "";
 }
 
+def BitVectorType : SMTTypeDef<"BitVector"> {
+  let mnemonic = "bv";
+  let parameters = (ins "unsigned":$width);
+  let assemblyFormat = "`<` $width `>`";
+}
+
 #endif // CIRCT_DIALECT_SMT_SMTTYPES_TD
