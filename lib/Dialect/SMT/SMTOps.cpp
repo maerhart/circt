@@ -50,5 +50,46 @@ OpFoldResult ConstantOp::fold(FoldAdaptor adaptor) {
   return getValueAttr();
 }
 
+//===----------------------------------------------------------------------===//
+// ConcatOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult ConcatOp::inferReturnTypes(
+    mlir::MLIRContext *context, std::optional<mlir::Location> location,
+    ::mlir::ValueRange operands, ::mlir::DictionaryAttr attributes,
+    ::mlir::OpaqueProperties properties, ::mlir::RegionRange regions,
+    ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes) {
+  inferredReturnTypes.push_back(BitVectorType::get(
+      context, cast<BitVectorType>(operands[0].getType()).getWidth() +
+                   cast<BitVectorType>(operands[1].getType()).getWidth()));
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ExtractOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult ExtractOp::verify() {
+  if (getStart() + getType().getWidth() >
+      cast<BitVectorType>(getInput().getType()).getWidth())
+    return emitOpError("slice too big");
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// RepeatOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult RepeatOp::inferReturnTypes(
+    mlir::MLIRContext *context, std::optional<mlir::Location> location,
+    ::mlir::ValueRange operands, ::mlir::DictionaryAttr attributes,
+    ::mlir::OpaqueProperties properties, ::mlir::RegionRange regions,
+    ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes) {
+  inferredReturnTypes.push_back(BitVectorType::get(
+      context, cast<BitVectorType>(operands[0].getType()).getWidth() *
+                   cast<IntegerAttr>(attributes.get("count")).getInt()));
+  return success();
+}
+
 #define GET_OP_CLASSES
 #include "circt/Dialect/SMT/SMT.cpp.inc"

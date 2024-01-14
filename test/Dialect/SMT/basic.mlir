@@ -87,5 +87,12 @@ func.func @types(%arg0: !smt.bool, %arg1: !smt.solver) {
   // CHECK: %{{.*}} = smt.bv.cmp uge %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
   %34 = smt.bv.cmp uge %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
 
+  // CHECK: %{{.*}} = smt.bv.concat %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>, !smt.bv<32>
+  %35 = smt.bv.concat %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>, !smt.bv<32>
+  // CHECK: %{{.*}} = smt.bv.extract %c0_bv32 from 8 {smt.some_attr} : (!smt.bv<32>) -> !smt.bv<16>
+  %36 = smt.bv.extract %c0_bv32 from 8 {smt.some_attr} : (!smt.bv<32>) -> !smt.bv<16>
+  // CHECK: %{{.*}} = smt.bv.repeat 2 times %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  %37 = smt.bv.repeat 2 times %c0_bv32 {smt.some_attr} : !smt.bv<32>
+
   return
 }

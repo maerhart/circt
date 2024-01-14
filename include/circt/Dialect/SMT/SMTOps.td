@@ -84,6 +84,35 @@ def BVNAndOp : BinaryBVOp<"nand">;
 def BVNOrOp : BinaryBVOp<"nor">;
 def BVXNOrOp : BinaryBVOp<"xnor">;
 
+def ConcatOp : SMTBVOp<"concat", [
+  Pure,
+  DeclareOpInterfaceMethods<InferTypeOpInterface, ["inferReturnTypes"]>
+]> {
+  let arguments = (ins BitVectorType:$lhs, BitVectorType:$rhs);
+  let results = (outs BitVectorType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` qualified(type(operands))";
+}
+
+def ExtractOp : SMTBVOp<"extract", [Pure]> {
+  let arguments = (ins I32Attr:$start, BitVectorType:$input);
+  let results = (outs BitVectorType:$result);
+  let assemblyFormat = [{
+    $input `from` $start attr-dict `:` functional-type($input, $result)
+  }];
+  let hasVerifier = true;
+}
+
+def RepeatOp : SMTBVOp<"repeat", [
+  Pure,
+  DeclareOpInterfaceMethods<InferTypeOpInterface, ["inferReturnTypes"]>
+]> {
+  let arguments = (ins I32Attr:$count, BitVectorType:$input);
+  let results = (outs BitVectorType:$result);
+  let assemblyFormat = [{
+    $count `times` $input attr-dict `:` qualified(type($input))
+  }];
+}
+
 def PredicateSLT : I64EnumAttrCase<"slt", 0>;
 def PredicateSLE : I64EnumAttrCase<"sle", 1>;
 def PredicateSGT : I64EnumAttrCase<"sgt", 2>;
