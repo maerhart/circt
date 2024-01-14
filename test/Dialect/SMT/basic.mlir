@@ -94,5 +94,19 @@ func.func @types(%arg0: !smt.bool, %arg1: !smt.solver) {
   // CHECK: %{{.*}} = smt.bv.repeat 2 times %c0_bv32 {smt.some_attr} : !smt.bv<32>
   %37 = smt.bv.repeat 2 times %c0_bv32 {smt.some_attr} : !smt.bv<32>
 
+  // CHECK: %{{.*}} = smt.ite %arg0, %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+  %38 = smt.ite %arg0, %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>
+
+  // CEHCK: %{{.*}} = smt.not %arg0 {smt.some_attr}
+  %39 = smt.not %arg0 {smt.some_attr}
+  // CHECK: %{{.*}} = smt.and %arg0, %arg0, %arg0 {smt.some_attr}
+  %40 = smt.and %arg0, %arg0, %arg0 {smt.some_attr}
+  // CHECK: %{{.*}} = smt.or %arg0, %arg0, %arg0 {smt.some_attr}
+  %41 = smt.or %arg0, %arg0, %arg0 {smt.some_attr}
+  // CHECK: %{{.*}} = smt.xor %arg0, %arg0 {smt.some_attr}
+  %42 = smt.xor %arg0, %arg0 {smt.some_attr}
+  // CHECK: %{{.*}} = smt.implies %arg0, %arg0 {smt.some_attr}
+  %43 = smt.implies %arg0, %arg0 {smt.some_attr}
+
   return
 }

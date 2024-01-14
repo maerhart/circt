@@ -182,4 +182,40 @@ def CheckSatOp : SMTOp<"check_sat", []> {
   let assemblyFormat = "$solver attr-dict";
 }
 
+def IteOp : SMTOp<"ite", [
+  Pure,
+  AllTypesMatch<["thenVal", "elseVal", "result"]>
+]> {
+  let summary = "if-then-else";
+  let arguments = (ins BoolType:$cond, AnySMTType:$thenVal, AnySMTType:$elseVal);
+  let results = (outs AnySMTType:$result);
+  let assemblyFormat = [{
+    $cond `,` $thenVal `,` $elseVal attr-dict `:` qualified(type($thenVal))
+  }];
+}
+
+class UnaryBoolOp<string mnemonic> : SMTOp<mnemonic, [Pure]> {
+  let arguments = (ins BoolType:$input);
+  let results = (outs BoolType:$result);
+  let assemblyFormat = "$input attr-dict";
+}
+
+class BinaryBoolOp<string mnemonic> : SMTOp<mnemonic, [Pure]> {
+  let arguments = (ins BoolType:$lhs, BoolType:$rhs);
+  let results = (outs BoolType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+}
+
+class VariadicBoolOp<string mnemonic> : SMTOp<mnemonic, [Pure]> {
+  let arguments = (ins Variadic<BoolType>:$inputs);
+  let results = (outs BoolType:$result);
+  let assemblyFormat = "$inputs attr-dict";
+}
+
+def NotOp : UnaryBoolOp<"not">;
+def AndOp : VariadicBoolOp<"and">;
+def OrOp : VariadicBoolOp<"or">;
+def XOrOp : BinaryBoolOp<"xor">;
+def ImpliesOp : BinaryBoolOp<"implies">;
+
 #endif // CIRCT_DIALECT_SMT_SMTOPS_TD
