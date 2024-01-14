@@ -27,6 +27,7 @@ add_subdirectory(SCFToCalyx)
 add_subdirectory(SeqToSV)
 add_subdirectory(SimToSV)
 add_subdirectory(CFToHandshake)
+add_subdirectory(SMTToZ3LLVM)
 add_subdirectory(VerifToSV)
 add_subdirectory(CalyxNative)
 
