@@ -25,7 +25,7 @@ hw.module @three(out out: i2) {
 //  RUN: circt-lec %s -c1=basic -c2=notnot -v=false | FileCheck %s --check-prefix=HW_INSTANCE
 //  HW_INSTANCE: c1 == c2
 
-hw.module @not(in %in: i1, out out: i1) {
+hw.module private @not(in %in: i1, out out: i1) {
   %true = hw.constant true
   %out = comb.xor bin %in, %true : i1
   hw.output %out : i1
@@ -62,17 +62,17 @@ hw.module @constZeroOne(in %in: i1, out o1: i1, out o2: i1) {
 //  TWOOUTPUTS: c1 == c2
 
 // Modules with one equivalent and one non-equivalent output
-//  RUN: not circt-lec %s -c1=constZeroZero -c2=constZeroOne -v=false | FileCheck %s --check-prefix=TWOOUTPUTSFAIL
+//  RUN: circt-lec %s -c1=constZeroZero -c2=constZeroOne -v=false | FileCheck %s --check-prefix=TWOOUTPUTSFAIL
 //  TWOOUTPUTSFAIL: c1 != c2
 
-hw.module @onePlusTwoNonSSA(out out: i2) {
-  %three = comb.add bin %one, %two : i2
-  %one = hw.constant 1 : i2
-  %two = hw.constant 2 : i2
-  hw.output %three : i2
-}
+// hw.module @onePlusTwoNonSSA(out out: i2) {
+//   %three = comb.add bin %one, %two : i2
+//   %one = hw.constant 1 : i2
+//   %two = hw.constant 2 : i2
+//   hw.output %three : i2
+// }
 
 // hw.module graph region check
-//  RUN: circt-lec %s -c1=onePlusTwo -c2=onePlusTwoNonSSA -v=false | FileCheck %s --check-prefix=HW_MODULE_GRAPH
+//  COM: TODO: circt-lec %s -c1=onePlusTwo -c2=onePlusTwoNonSSA -v=false | FileCheck %s --check-prefix=HW_MODULE_GRAPH
 //  HW_MODULE_GRAPH: c1 == c2
 

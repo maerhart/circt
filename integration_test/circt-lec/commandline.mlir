@@ -4,7 +4,7 @@
 // RUN: split-file %s %t
 
 // Passing two input files
-//  RUN: circt-lec %t/first.mlir %t/second.mlir -v=false | FileCheck %s
+//  RUN: circt-lec %t/first.mlir %t/second.mlir -c1=basic -c2=basic -v=false | FileCheck %s
 //  CHECK: c1 == c2
 
 //--- first.mlir

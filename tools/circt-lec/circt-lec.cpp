@@ -12,18 +12,36 @@
 ///
 //===----------------------------------------------------------------------===//
 
+#include "circt/Conversion/SMTToZ3LLVM.h"
+#include "circt/Dialect/Arc/ArcPasses.h"
 #include "circt/InitAllDialects.h"
 #include "circt/LogicalEquivalence/LogicExporter.h"
 #include "circt/LogicalEquivalence/Solver.h"
 #include "circt/LogicalEquivalence/Utility.h"
 #include "circt/Support/Version.h"
+#include "circt/Tools/circt-lec/Passes.h"
+#include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
+#include "mlir/ExecutionEngine/ExecutionEngine.h"
+#include "mlir/ExecutionEngine/OptUtils.h"
+#include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/OwningOpRef.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Parser/Parser.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Export.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/ToolOutputFile.h"
 
 namespace cl = llvm::cl;
 
@@ -37,12 +55,12 @@ using namespace circt;
 static cl::OptionCategory mainCategory("circt-lec Options");
 
 static cl::opt<std::string> moduleName1(
-    "c1",
+    "c1", cl::Required,
     cl::desc("Specify a named module for the first circuit of the comparison"),
     cl::value_desc("module name"), cl::cat(mainCategory));
 
 static cl::opt<std::string> moduleName2(
-    "c2",
+    "c2", cl::Required,
     cl::desc("Specify a named module for the second circuit of the comparison"),
     cl::value_desc("module name"), cl::cat(mainCategory));
 
@@ -52,6 +70,21 @@ static cl::opt<std::string> fileName1(cl::Positional, cl::Required,
 
 static cl::opt<std::string> fileName2(cl::Positional, cl::desc("[input file]"),
                                       cl::cat(mainCategory));
+
+static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
+                                           cl::value_desc("filename"),
+                                           cl::init("-"),
+                                           cl::cat(mainCategory));
+
+enum OutputFormat { OutputMLIR, OutputLLVM, OutputObj, OutputResult };
+static cl::opt<OutputFormat> outputFormat(
+    cl::desc("Specify output format"),
+    cl::values(clEnumValN(OutputMLIR, "emit-mlir", "Emit LLVM MLIR dialect"),
+               clEnumValN(OutputLLVM, "emit-llvm", "Emit LLVM"),
+               clEnumValN(OutputObj, "emit-obj", "Emit object file"),
+               clEnumValN(OutputResult, "run",
+                          "Perform LEC and output result")),
+    cl::init(OutputResult), cl::cat(mainCategory));
 
 static cl::opt<bool>
     verbose("v", cl::init(false),
@@ -90,38 +123,113 @@ static LogicalResult executeLEC(MLIRContext &context) {
     file2 = parseSourceFile<ModuleOp>(fileName2, &context);
     if (!file2)
       return failure();
-  } else if (verbose)
+  } else if (verbose) {
     lec::outs() << "Second input file not specified\n";
+  }
 
-  // Initiliaze the constraints solver and the circuits to be compared.
-  Solver s(&context, statisticsOpt);
-  Solver::Circuit *c1 = s.addCircuit(moduleName1);
-  Solver::Circuit *c2 = s.addCircuit(moduleName2);
+  // If two files are specified, copy the contents of the builtin.module of the
+  // second file into the builtin.module of the first file.
+  if (!fileName2.empty()) {
+    IRRewriter rewriter(&context);
+    rewriter.setInsertionPointToEnd(file1.get().getBody());
+    rewriter.inlineBlockBefore(file2.get().getBody(), file1.get().getBody(),
+                               file1.get().getBody()->end());
+  }
 
-  // Initialize a logic exporter for the first circuit then run it on the
-  // top-level module of the first input file.
-  if (verbose)
-    lec::outs() << "Analyzing the first circuit\n";
-  auto exporter = std::make_unique<LogicExporter>(moduleName1, c1);
-  ModuleOp m = file1.get();
-  if (failed(exporter->run(m)))
+  // Create the output directory or output file depending on our mode.
+  std::optional<std::unique_ptr<llvm::ToolOutputFile>> outputFile;
+  std::string errorMessage;
+  // Create an output file.
+  outputFile.emplace(openOutputFile(outputFilename, &errorMessage));
+  if (!outputFile.value()) {
+    llvm::errs() << errorMessage << "\n";
+    return failure();
+  }
+
+  PassManager pm(&context);
+  pm.addPass(arc::createInlineModulesPass());
+  LowerToLECOptions lowerToLECOptions;
+  lowerToLECOptions.firstModule = moduleName1;
+  lowerToLECOptions.secondModule = moduleName2;
+  pm.addPass(createLowerToLEC(lowerToLECOptions));
+  pm.addPass(createLowerSMTToZ3LLVMPass());
+  if (outputFormat == OutputLLVM)
+    pm.addPass(LLVM::createDIScopeForLLVMFuncOpPass());
+  if (failed(pm.run(file1.get())))
     return failure();
 
-  // Repeat the same procedure for the second circuit.
-  if (verbose)
-    lec::outs() << "Analyzing the second circuit\n";
-  auto exporter2 = std::make_unique<LogicExporter>(moduleName2, c2);
-  // In case a second input file was not specified, the first input file will
-  // be used instead.
-  ModuleOp m2 = fileName2.empty() ? m : file2.get();
-  if (failed(exporter2->run(m2)))
-    return failure();
+  if (outputFormat == OutputMLIR) {
+    OpPrintingFlags printingFlags;
+    file1->print(outputFile.value()->os(), printingFlags);
+    return success();
+  }
 
-  // The logical constraints have been exported to their respective circuit
-  // representations and can now be solved for equivalence.
-  if (verbose)
-    lec::outs() << "Solving constraints\n";
-  return s.solve();
+  if (outputFormat == OutputLLVM) {
+    llvm::LLVMContext llvmContext;
+    auto llvmModule = mlir::translateModuleToLLVMIR(file1.get(), llvmContext);
+    if (!llvmModule)
+      return failure();
+    llvmModule->print(outputFile.value()->os(), nullptr);
+    return success();
+  }
+
+  auto transformer = mlir::makeOptimizingTransformer(
+      /*optLevel*/ 2, /*sizeLevel=*/0, /*targetMachine=*/nullptr);
+
+  auto handleErr = [](llvm::Error error) -> LogicalResult {
+    int exitCode = EXIT_SUCCESS;
+    llvm::handleAllErrors(std::move(error),
+                          [&exitCode](const llvm::ErrorInfoBase &info) {
+                            llvm::errs() << "Error: ";
+                            info.log(llvm::errs());
+                            llvm::errs() << '\n';
+                            exitCode = EXIT_FAILURE;
+                          });
+    return failure();
+  };
+
+  auto mainFunction = dyn_cast_or_null<LLVM::LLVMFuncOp>(
+      SymbolTable::lookupSymbolIn(file1.get(), "entry"));
+  if (!mainFunction || mainFunction.empty())
+    return handleErr(llvm::make_error<llvm::StringError>(
+        "entry point not found", llvm::inconvertibleErrorCode()));
+
+  std::optional<llvm::CodeGenOptLevel> jitCodeGenOptLevel =
+      static_cast<llvm::CodeGenOptLevel>(2);
+  SmallVector<StringRef, 4> sharedLibs;
+  sharedLibs.push_back("/usr/lib/x86_64-linux-gnu/libz3.so");
+
+  mlir::ExecutionEngineOptions engineOptions;
+  engineOptions.llvmModuleBuilder = nullptr;
+  engineOptions.transformer = transformer;
+  engineOptions.jitCodeGenOptLevel = jitCodeGenOptLevel;
+  engineOptions.sharedLibPaths = sharedLibs;
+  engineOptions.enableObjectDump = true;
+
+  llvm::InitializeNativeTarget();
+  llvm::InitializeNativeTargetAsmPrinter();
+
+  auto expectedEngine =
+      mlir::ExecutionEngine::create(file1.get(), engineOptions);
+  if (!expectedEngine)
+    return handleErr(expectedEngine.takeError());
+
+  auto engine = std::move(*expectedEngine);
+
+  auto expectedFPtr = engine->lookupPacked("entry");
+  if (!expectedFPtr)
+    return handleErr(expectedFPtr.takeError());
+
+  if (outputFormat == OutputObj) {
+    engine->dumpToObjectFile(outputFilename);
+    return success();
+  }
+
+  void *empty = nullptr;
+  void (*fptr)(void **) = *expectedFPtr;
+  (*fptr)(&empty);
+
+  return success();
 }
 
 /// The entry point for the `circt-lec` tool:
@@ -148,7 +256,12 @@ int main(int argc, char **argv) {
 
   // Register the supported CIRCT dialects and create a context to work with.
   DialectRegistry registry;
-  registry.insert<circt::comb::CombDialect, circt::hw::HWDialect>();
+  registry.insert<circt::comb::CombDialect, circt::hw::HWDialect,
+                  circt::smt::SMTDialect, mlir::func::FuncDialect,
+                  mlir::LLVM::LLVMDialect, mlir::BuiltinDialect>();
+  mlir::func::registerInlinerExtension(registry);
+  mlir::registerBuiltinDialectTranslation(registry);
+  mlir::registerLLVMDialectTranslation(registry);
   MLIRContext context(registry);
 
   // Setup of diagnostic handling.

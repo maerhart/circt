@@ -2,7 +2,7 @@
 // REQUIRES: circt-lec
 
 // builtin.module implementation
-//  RUN: circt-lec %s -v=false | FileCheck %s --check-prefix=BUILTIN_MODULE
+//  RUN: circt-lec %s -c1=basic -c2=basic -v=false | FileCheck %s --check-prefix=BUILTIN_MODULE
 //  BUILTIN_MODULE: c1 == c2
 
 hw.module @basic(in %in: i1, out out: i1) {

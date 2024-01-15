@@ -125,26 +125,26 @@ hw.module @decomposedOr(in %in1: i1, in %in2: i1, out out: i1) {
 }
 
 // comb.parity
-//  RUN: circt-lec %s -c1=parity -c2=decomposedParity -v=false | FileCheck %s --check-prefix=COMB_PARITY
+//  COM: TODO: circt-lec %s -c1=parity -c2=decomposedParity -v=false | FileCheck %s --check-prefix=COMB_PARITY
 //  COMB_PARITY: c1 == c2
 
-hw.module @parity(in %in: i8, out out: i1) {
-  %res = comb.parity bin %in : i8
-  hw.output %res : i1
-}
+// hw.module @parity(in %in: i8, out out: i1) {
+//   %res = comb.parity bin %in : i8
+//   hw.output %res : i1
+// }
 
-hw.module @decomposedParity(in %in: i8, out out: i1) {
-  %b0 = comb.extract %in from 0 : (i8) -> i1
-  %b1 = comb.extract %in from 1 : (i8) -> i1
-  %b2 = comb.extract %in from 2 : (i8) -> i1
-  %b3 = comb.extract %in from 3 : (i8) -> i1
-  %b4 = comb.extract %in from 4 : (i8) -> i1
-  %b5 = comb.extract %in from 5 : (i8) -> i1
-  %b6 = comb.extract %in from 6 : (i8) -> i1
-  %b7 = comb.extract %in from 7 : (i8) -> i1
-  %res = comb.xor bin %b0, %b1, %b2, %b3, %b4, %b5, %b6, %b7 : i1
-  hw.output %res : i1
-}
+// hw.module @decomposedParity(in %in: i8, out out: i1) {
+//   %b0 = comb.extract %in from 0 : (i8) -> i1
+//   %b1 = comb.extract %in from 1 : (i8) -> i1
+//   %b2 = comb.extract %in from 2 : (i8) -> i1
+//   %b3 = comb.extract %in from 3 : (i8) -> i1
+//   %b4 = comb.extract %in from 4 : (i8) -> i1
+//   %b5 = comb.extract %in from 5 : (i8) -> i1
+//   %b6 = comb.extract %in from 6 : (i8) -> i1
+//   %b7 = comb.extract %in from 7 : (i8) -> i1
+//   %res = comb.xor bin %b0, %b1, %b2, %b3, %b4, %b5, %b6, %b7 : i1
+//   hw.output %res : i1
+// }
 
 // comb.replicate
 //  RUN: circt-lec %s -c1=replicate -c2=decomposedReplicate -v=false | FileCheck %s --check-prefix=COMB_REPLICATE

@@ -7,6 +7,19 @@ if(CIRCT_LEC_ENABLED)
   target_link_libraries(circt-lec
     PRIVATE
     CIRCTLogicalEquivalence
+    CIRCTArcTransforms
+    CIRCTLECTransforms
+    CIRCTSMTToZ3LLVM
+    MLIRIR
+    MLIRFuncDialect
+    MLIRLLVMIRTransforms
+    MLIRLLVMToLLVMIRTranslation
+    MLIRTargetLLVMIRExport
+    MLIRExecutionEngine
+    MLIRExecutionEngineUtils
+    MLIRFuncInlinerExtension
+    MLIRBuiltinToLLVMIRTranslation
+    MLIRLLVMToLLVMIRTranslation
     ${Z3_LIBRARIES}
   )
 
