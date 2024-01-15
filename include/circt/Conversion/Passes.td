@@ -661,6 +661,16 @@ def ConvertCombToArith : Pass<"convert-comb-to-arith", "mlir::ModuleOp"> {
 }
 
 //===----------------------------------------------------------------------===//
+// ConvertCombToSMT
+//===----------------------------------------------------------------------===//
+
+def ConvertCombToSMT : Pass<"convert-comb-to-smt", "mlir::ModuleOp"> {
+  let summary = "Convert combinational ops and constants to SMT ops";
+  let constructor = "circt::createConvertCombToSMTPass()";
+  let dependentDialects = ["smt::SMTDialect"];
+}
+
+//===----------------------------------------------------------------------===//
 // ConvertArcToLLVM
 //===----------------------------------------------------------------------===//
 

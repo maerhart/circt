@@ -1,11 +1,7 @@
 // These tests will be only enabled if circt-lec is built.
 // REQUIRES: circt-lec
 
-hw.module @basic(in %in: i1, out out: i1) {
-  hw.output %in : i1
-}
-
-hw.module @not(in %in: i1, out out: i1) {
+hw.module private @not(in %in: i1, out out: i1) {
   %true = hw.constant true
   %out = comb.xor bin %in, %true : i1
   hw.output %out : i1
@@ -20,7 +16,7 @@ hw.module @adder(in %in1: i2, in %in2: i2, out out: i2) {
   hw.output %sum : i2
 }
 
-hw.module @halfAdder(in %in1: i1, in %in2: i1, out carry: i1, out sum: i1) {
+hw.module private @halfAdder(in %in1: i1, in %in2: i1, out carry: i1, out sum: i1) {
   %sum = comb.xor bin %in1, %in2 : i1
   %carry = comb.and bin %in1, %in2 : i1
   hw.output %carry, %sum: i1, i1
@@ -207,14 +203,14 @@ hw.module @subtractor(in %in1: i8, in %in2: i8, out out: i8) {
   hw.output %diff : i8
 }
 
-hw.module @halfSubtractor(in %in1: i1, in %in2: i1, out borrow: i1, out diff: i1) {
+hw.module private @halfSubtractor(in %in1: i1, in %in2: i1, out borrow: i1, out diff: i1) {
   %diff = comb.xor bin %in1, %in2 : i1
   %not_in1 = hw.instance "n_in1" @not(in: %in1: i1) -> (out: i1)
   %borrow = comb.and bin %not_in1, %in2 : i1
   hw.output %borrow, %diff: i1, i1
 }
 
-hw.module @fullSubtractor(in %in1: i1, in %in2: i1, in %b_in: i1, out borrow: i1, out diff: i1) {
+hw.module private @fullSubtractor(in %in1: i1, in %in2: i1, in %b_in: i1, out borrow: i1, out diff: i1) {
   %b1, %d1 = hw.instance "s1" @halfSubtractor(in1: %in1: i1, in2: %in2: i1) -> (borrow: i1, diff: i1)
   %b2, %d_out = hw.instance "s2" @halfSubtractor(in1: %d1: i1, in2: %b_in: i1) -> (borrow: i1, diff: i1)
   %b_out = comb.or bin %b1, %b2 : i1

@@ -22,6 +22,7 @@ target_link_libraries(circt-opt
   CIRCTCalyxToFSM
   CIRCTCalyxTransforms
   CIRCTComb
+  CIRCTCombToSMT
   CIRCTCombTransforms
   CIRCTConvertToArcs
   CIRCTDC
