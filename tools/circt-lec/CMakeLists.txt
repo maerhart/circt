@@ -6,7 +6,6 @@ if(CIRCT_LEC_ENABLED)
 
   target_link_libraries(circt-lec
     PRIVATE
-    CIRCTLogicalEquivalence
     CIRCTArcTransforms
     CIRCTLECTransforms
     CIRCTSMTToZ3LLVM

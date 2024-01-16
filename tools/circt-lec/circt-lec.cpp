@@ -15,9 +15,6 @@
 #include "circt/Conversion/SMTToZ3LLVM.h"
 #include "circt/Dialect/Arc/ArcPasses.h"
 #include "circt/InitAllDialects.h"
-#include "circt/LogicalEquivalence/LogicExporter.h"
-#include "circt/LogicalEquivalence/Solver.h"
-#include "circt/LogicalEquivalence/Utility.h"
 #include "circt/Support/Version.h"
 #include "circt/Tools/circt-lec/Passes.h"
 #include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
@@ -110,21 +107,15 @@ static cl::opt<bool, true> statistics(
 /// compared and solved for equivalence.
 static LogicalResult executeLEC(MLIRContext &context) {
   // Parse the provided input files.
-  if (verbose)
-    lec::outs() << "Parsing input file\n";
   OwningOpRef<ModuleOp> file1 = parseSourceFile<ModuleOp>(fileName1, &context);
   if (!file1)
     return failure();
 
   OwningOpRef<ModuleOp> file2;
   if (!fileName2.empty()) {
-    if (verbose)
-      lec::outs() << "Parsing second input file\n";
     file2 = parseSourceFile<ModuleOp>(fileName2, &context);
     if (!file2)
       return failure();
-  } else if (verbose) {
-    lec::outs() << "Second input file not specified\n";
   }
 
   // If two files are specified, copy the contents of the builtin.module of the
@@ -272,7 +263,5 @@ int main(int argc, char **argv) {
 
   // Perform the logical equivalence checking; using `exit` to avoid the slow
   // teardown of the MLIR context.
-  if (verbose)
-    lec::outs() << "Starting execution\n";
   exit(failed(executeLEC(context)));
 }
