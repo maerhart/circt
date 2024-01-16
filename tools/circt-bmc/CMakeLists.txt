@@ -5,13 +5,18 @@ add_llvm_tool(circt-bmc
 target_link_libraries(circt-bmc
   PRIVATE
   CIRCTArcTransforms
-  CIRCTLECTransforms
+  CIRCTBMCTransforms
   CIRCTSMTToZ3LLVM
+  CIRCTVerif
   MLIRIR
   MLIRFuncDialect
+  MLIRSCFDialect
+  MLIRControlFlowDialect
   MLIRLLVMIRTransforms
   MLIRLLVMToLLVMIRTranslation
   MLIRTargetLLVMIRExport
+  MLIRSCFToControlFlow
+  MLIRControlFlowToLLVM
   MLIRExecutionEngine
   MLIRExecutionEngineUtils
   MLIRFuncInlinerExtension

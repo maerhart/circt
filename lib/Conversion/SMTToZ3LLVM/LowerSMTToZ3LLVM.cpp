@@ -10,12 +10,18 @@
 #include "circt/Conversion/SMTToZ3LLVM.h"
 #include "circt/Dialect/SMT/SMTOps.h"
 #include "circt/Support/Namespace.h"
+#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
+#include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
+#include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/ImplicitLocOpBuilder.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -394,7 +400,10 @@ void LowerSMTToZ3LLVMPass::runOnOperation() {
 
   RewritePatternSet patterns(&getContext());
   populateFuncToLLVMConversionPatterns(converter, patterns);
-  populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, converter);
+  // populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, converter);
+  // populateSCFToControlFlowConversionPatterns(patterns);
+  mlir::cf::populateControlFlowToLLVMConversionPatterns(converter, patterns);
+  arith::populateArithToLLVMConversionPatterns(converter, patterns);
 
 #define ADD_OTO_PATTERN(OPTYPE, FUNCNAME)                                      \
   struct OPTYPE##Name {                                                        \

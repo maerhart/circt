@@ -692,7 +692,10 @@ def LowerArcToLLVM : Pass<"lower-arc-to-llvm", "mlir::ModuleOp"> {
 
 def LowerSMTToZ3LLVM : Pass<"lower-smt-to-z3-llvm", "mlir::ModuleOp"> {
   let constructor = "circt::createLowerSMTToZ3LLVMPass()";
-  let dependentDialects = ["mlir::LLVM::LLVMDialect"];
+  let dependentDialects = [
+    "mlir::LLVM::LLVMDialect", "mlir::scf::SCFDialect", 
+    "mlir::cf::ControlFlowDialect", "mlir::arith::ArithDialect"
+  ];
 }
 
 //===----------------------------------------------------------------------===//

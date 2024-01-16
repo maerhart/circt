@@ -15,7 +15,13 @@
 #include "circt/Dialect/Verif/VerifDialect.h"
 #include "circt/InitAllDialects.h"
 #include "circt/Support/Version.h"
+#include "circt/Tools/circt-bmc/Passes.h"
+#include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
+#include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
+#include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/ExecutionEngine/ExecutionEngine.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -25,7 +31,10 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/ToolUtilities.h"
+#include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
+#include "mlir/Transforms/Passes.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/SourceMgr.h"
@@ -89,7 +98,9 @@ static LogicalResult checkProperty(ModuleOp input, MLIRContext &context,
   pm.addPass(arc::createInlineModulesPass());
   LowerToBMCOptions lowerToBMCOptions;
   lowerToBMCOptions.topModule = moduleName;
+  lowerToBMCOptions.bound = bound;
   pm.addPass(createLowerToBMC(lowerToBMCOptions));
+  pm.addPass(mlir::createConvertSCFToCFPass());
   pm.addPass(createLowerSMTToZ3LLVMPass());
   if (outputFormat == OutputLLVM)
     pm.addPass(LLVM::createDIScopeForLLVMFuncOpPass());
@@ -241,7 +252,13 @@ int main(int argc, char **argv) {
   // Register the supported CIRCT dialects and create a context to work with.
   DialectRegistry registry;
   registry.insert<circt::comb::CombDialect, circt::hw::HWDialect,
-                  circt::seq::SeqDialect, circt::verif::VerifDialect>();
+                  circt::smt::SMTDialect, circt::seq::SeqDialect,
+                  circt::verif::VerifDialect, mlir::scf::SCFDialect,
+                  mlir::cf::ControlFlowDialect, mlir::LLVM::LLVMDialect>();
+
+  mlir::func::registerInlinerExtension(registry);
+  mlir::registerBuiltinDialectTranslation(registry);
+  mlir::registerLLVMDialectTranslation(registry);
   MLIRContext context(registry);
 
   // Set up the input file.

@@ -1,5 +1,4 @@
 // These tests will be only enabled if circt-mc is built.
-// REQUIRES: circt-mc
 
 //  RUN: circt-bmc %s -b 10 --module ClkProp | FileCheck %s --check-prefix=CLKPROP
 //  CLKPROP: Success!
