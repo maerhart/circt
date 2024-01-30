@@ -19,6 +19,11 @@ def BoolType : SMTTypeDef<"Bool"> {
   let assemblyFormat = "";
 }
 
+def IntType : SMTTypeDef<"Integer"> {
+  let mnemonic = "int";
+  let assemblyFormat = "";
+}
+
 def BitVectorType : SMTTypeDef<"BitVector"> {
   let mnemonic = "bv";
   let parameters = (ins "unsigned":$width);
@@ -28,6 +33,12 @@ def BitVectorType : SMTTypeDef<"BitVector"> {
 def SolverType : SMTTypeDef<"Solver"> {
   let mnemonic = "solver";
   let assemblyFormat = "";
+}
+
+def ArrayType : SMTTypeDef<"Array"> {
+  let mnemonic = "array";
+  let parameters = (ins "mlir::Type":$domainType, "mlir::Type":$rangeType);
+  let assemblyFormat = "`<` `[` $domainType `->` $rangeType `]` `>`";
 }
 
 #endif // CIRCT_DIALECT_SMT_SMTTYPES_TD

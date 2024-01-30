@@ -23,7 +23,10 @@ class SMTOp<string mnemonic, list<Trait> traits = []> :
 class SMTBVOp<string mnemonic, list<Trait> traits = []> :
   SMTOp<"bv." # mnemonic, traits>;
 
-def AnySMTType : AnyTypeOf<[BoolType, BitVectorType]>;
+class SMTArrayOp<string mnemonic, list<Trait> traits = []> :
+  SMTOp<"array." # mnemonic, traits>;
+
+def AnySMTType : AnyTypeOf<[BoolType, IntType, BitVectorType, ArrayType]>;
 
 def ConstantOp : SMTBVOp<"constant", [
   Pure,
@@ -217,5 +220,60 @@ def AndOp : VariadicBoolOp<"and">;
 def OrOp : VariadicBoolOp<"or">;
 def XOrOp : BinaryBoolOp<"xor">;
 def ImpliesOp : BinaryBoolOp<"implies">;
+
+def ArrayStoreOp : SMTArrayOp<"store", [
+  Pure,
+  TypesMatchWith<"summary", "array", "index", "cast<ArrayType>($_self).getDomainType()">,
+  TypesMatchWith<"summary", "array", "value", "cast<ArrayType>($_self).getRangeType()">,
+  AllTypesMatch<["array", "result"]>,
+]> {
+  let summary = "";
+
+  let arguments = (ins ArrayType:$array, AnySMTType:$index, AnySMTType:$value);
+  let results = (outs ArrayType:$result);
+
+  let assemblyFormat = [{
+    $array `[` $index `]` `,` $value attr-dict `:` qualified(type($array))
+  }];
+}
+
+def ArraySelectOp : SMTArrayOp<"select", [
+  Pure,
+  TypesMatchWith<"summary", "array", "index", "cast<ArrayType>($_self).getDomainType()">,
+  TypesMatchWith<"summary", "array", "result", "cast<ArrayType>($_self).getRangeType()">,
+]> {
+  let summary = "";
+
+  let arguments = (ins ArrayType:$array, AnySMTType:$index);
+  let results = (outs AnySMTType:$result);
+
+  let assemblyFormat = [{
+    $array `[` $index `]` attr-dict `:` qualified(type($array))
+  }];
+}
+
+def ArrayBroadcastOp : SMTArrayOp<"broadcast", [
+  Pure,
+  TypesMatchWith<"summary", "result", "value", "cast<ArrayType>($_self).getRangeType()">,
+]> {
+  let summary = "lowers to mk_const_array";
+
+  let arguments = (ins AnySMTType:$value);
+  let results = (outs ArrayType:$result);
+
+  let assemblyFormat = "$value attr-dict `:` qualified(type($result))";
+}
+
+def ArrayDefaultOp : SMTArrayOp<"default", [
+  Pure,
+  TypesMatchWith<"summary", "array", "result", "cast<ArrayType>($_self).getRangeType()">,
+]> {
+  let summary = "";
+
+  let arguments = (ins ArrayType:$array);
+  let results = (outs AnySMTType:$result);
+
+  let assemblyFormat = "$array attr-dict `:` qualified(type($array))";
+}
 
 #endif // CIRCT_DIALECT_SMT_SMTOPS_TD
