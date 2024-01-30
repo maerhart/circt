@@ -152,6 +152,20 @@ func.func @test() {
   // CHECK-NEXT: llvm.call @Z3_solver_check([[CTX]], [[SOLVER]]) : (!llvm.ptr, !llvm.ptr) -> i32
   smt.check_sat %s
 
+  // CHECK-NEXT: [[FOUR:%.+]] = llvm.mlir.constant(4 : i32) : i32
+  // CHECK-NEXT: [[BV_SORT:%.+]] = llvm.call @Z3_mk_bv_sort([[CTX]], [[FOUR]]) : (!llvm.ptr, i32) -> !llvm.ptr
+  // CHECK-NEXT: [[ARR:%.+]] = llvm.call @Z3_mk_const_array([[CTX]], [[BV_SORT]], [[C0]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %40 = smt.array.broadcast %c0_bv32 : !smt.array<[!smt.bv<4> -> !smt.bv<4>]>
+
+  // CHECK-NEXT: llvm.call @Z3_mk_select([[CTX]], [[ARR]], [[C0]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %41 = smt.array.select %40[%c0_bv32] : !smt.array<[!smt.bv<4> -> !smt.bv<4>]>
+
+  // CHECK-NEXT: llvm.call @Z3_mk_store([[CTX]], [[ARR]], [[C0]], [[C0]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %42 = smt.array.store %40[%c0_bv32], %c0_bv32 : !smt.array<[!smt.bv<4> -> !smt.bv<4>]>
+
+  // CHECK-NEXT: llvm.call @Z3_mk_array_default([[CTX]], [[ARR]]) : (!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %43 = smt.array.default %40 : !smt.array<[!smt.bv<4> -> !smt.bv<4>]>
+
   // CHECK-NEXT: llvm.return
   return
 }
@@ -205,3 +219,7 @@ llvm.mlir.global internal @ctx() {alignment = 8 : i64} : !llvm.ptr {
 // CHECK-DAG: llvm.func @Z3_mk_solver(!llvm.ptr) -> !llvm.ptr
 // CHECK-DAG: llvm.func @Z3_solver_assert(!llvm.ptr, !llvm.ptr, !llvm.ptr)
 // CHECK-DAG: llvm.func @Z3_solver_check(!llvm.ptr, !llvm.ptr) -> i32
+// CHECK-DAG: llvm.func @Z3_mk_const_array(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_select(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_store(!llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_array_default(!llvm.ptr, !llvm.ptr) -> !llvm.ptr

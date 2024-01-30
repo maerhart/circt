@@ -362,6 +362,79 @@ struct ExtractOpLowering : public SMTLoweringPattern<ExtractOp> {
   }
 };
 
+struct ArraySelectOpLowering : public SMTLoweringPattern<smt::ArraySelectOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+  LogicalResult
+  matchAndRewrite(smt::ArraySelectOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOp(
+        op, buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_select",
+                               {buildZ3ContextPtr(rewriter, op.getLoc()),
+                                adaptor.getArray(), adaptor.getIndex()}));
+    return success();
+  }
+};
+
+struct ArrayStoreOpLowering : public SMTLoweringPattern<smt::ArrayStoreOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+  LogicalResult
+  matchAndRewrite(smt::ArrayStoreOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOp(
+        op, buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_store",
+                               {buildZ3ContextPtr(rewriter, op.getLoc()),
+                                adaptor.getArray(), adaptor.getIndex(),
+                                adaptor.getValue()}));
+    return success();
+  }
+};
+
+struct ArrayBroadcastOpLowering
+    : public SMTLoweringPattern<smt::ArrayBroadcastOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+  LogicalResult
+  matchAndRewrite(smt::ArrayBroadcastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto ctx = buildZ3ContextPtr(rewriter, op.getLoc());
+    auto domainSort =
+        TypeSwitch<Type, Value>(
+            cast<smt::ArrayType>(op.getResult().getType()).getDomainType())
+            .Case<smt::IntegerType>([&](auto ty) {
+              return buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_int_sort",
+                                        {ctx});
+            })
+            .Case<smt::BitVectorType>([&](auto ty) {
+              Value bitwidth = rewriter.create<LLVM::ConstantOp>(
+                  op.getLoc(), rewriter.getI32Type(), ty.getWidth());
+              return buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_bv_sort",
+                                        {ctx, bitwidth});
+            })
+            .Case<smt::BoolType>([&](auto ty) {
+              return buildAPICallGetPtr(rewriter, op.getLoc(),
+                                        "Z3_mk_bool_sort", {ctx});
+            })
+            .Default([](auto ty) { return Value(); });
+
+    rewriter.replaceOp(
+        op, buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_const_array",
+                               {ctx, domainSort, adaptor.getValue()}));
+    return success();
+  }
+};
+
+struct ArrayDefaultOpLowering : public SMTLoweringPattern<smt::ArrayDefaultOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+  LogicalResult
+  matchAndRewrite(smt::ArrayDefaultOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOp(
+        op, buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_array_default",
+                               {buildZ3ContextPtr(rewriter, op.getLoc()),
+                                adaptor.getArray()}));
+    return success();
+  }
+};
+
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -395,6 +468,12 @@ void LowerSMTToZ3LLVMPass::runOnOperation() {
     return LLVM::LLVMPointerType::get(type.getContext());
   });
   converter.addConversion([&](SolverType type) {
+    return LLVM::LLVMPointerType::get(type.getContext());
+  });
+  converter.addConversion([&](ArrayType type) {
+    return LLVM::LLVMPointerType::get(type.getContext());
+  });
+  converter.addConversion([&](smt::IntegerType type) {
     return LLVM::LLVMPointerType::get(type.getContext());
   });
 
@@ -455,8 +534,10 @@ void LowerSMTToZ3LLVMPass::runOnOperation() {
 
   patterns.add<ConstantOpLowering, DeclareConstOpLowering, BVCmpOpLowering,
                AssertOpLowering, CheckSatOpLowering, SolverCreateOpLowering,
-               RepeatOpLowering, ExtractOpLowering>(converter, &getContext(),
-                                                    funcMap, ctxCache);
+               RepeatOpLowering, ExtractOpLowering, ArraySelectOpLowering,
+               ArrayStoreOpLowering, ArrayBroadcastOpLowering,
+               ArrayDefaultOpLowering>(converter, &getContext(), funcMap,
+                                       ctxCache);
 
   if (failed(applyFullConversion(getOperation(), target, std::move(patterns))))
     signalPassFailure();
