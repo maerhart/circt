@@ -26,6 +26,9 @@ class SMTBVOp<string mnemonic, list<Trait> traits = []> :
 class SMTArrayOp<string mnemonic, list<Trait> traits = []> :
   SMTOp<"array." # mnemonic, traits>;
 
+class SMTIntOp<string mnemonic, list<Trait> traits = []> :
+  SMTOp<"int." # mnemonic, traits>;
+
 def AnySMTType : AnyTypeOf<[BoolType, IntType, BitVectorType, ArrayType]>;
 
 def BoolConstantOp : SMTOp<"constant", [
@@ -39,6 +42,20 @@ def BoolConstantOp : SMTOp<"constant", [
   let results = (outs BoolType:$result);
   let assemblyFormat = "$value attr-dict";
 
+  let hasFolder = true;
+}
+
+def IntConstantOp : SMTIntOp<"constant", [
+  Pure,
+  ConstantLike,
+  DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
+]> {
+  let summary = "Produce a constant int";
+
+  let arguments = (ins APIntAttr:$value);
+  let results = (outs IntType:$result);
+
+  let hasCustomAssemblyFormat = true;
   let hasFolder = true;
 }
 
@@ -153,6 +170,42 @@ def BVCmpOp : SMTBVOp<"cmp", [Pure, SameTypeOperands]> {
   }];
 }
 
+class VariadicIntOp<string mnemonic> : SMTIntOp<mnemonic, [Pure]> {
+  let arguments = (ins Variadic<IntType>:$inputs);
+  let results = (outs IntType:$result);
+  let assemblyFormat = "$inputs attr-dict";
+}
+
+class BinaryIntOp<string mnemonic> : SMTIntOp<mnemonic, [Pure]> {
+  let arguments = (ins IntType:$lhs, IntType:$rhs);
+  let results = (outs IntType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+}
+
+def IntAddOp : VariadicIntOp<"add">;
+def IntMulOp : VariadicIntOp<"mul">;
+def IntSubOp : VariadicIntOp<"sub">;
+def IntDivOp : BinaryIntOp<"div">;
+def IntModOp : BinaryIntOp<"mod">;
+def IntRemOp : BinaryIntOp<"rem">;
+def IntPowOp : BinaryIntOp<"pow">;
+
+def IntPredicateLT : I64EnumAttrCase<"lt", 0>;
+def IntPredicateLE : I64EnumAttrCase<"le", 1>;
+def IntPredicateGT : I64EnumAttrCase<"gt", 2>;
+def IntPredicateGE : I64EnumAttrCase<"ge", 3>;
+let cppNamespace = "circt::smt" in
+def IntPredicate : I64EnumAttr<
+    "IntPredicate",
+    "smt comparison predicate for integers",
+    [IntPredicateLT, IntPredicateLE, IntPredicateGT, IntPredicateGE]>;
+
+def IntCmpOp : SMTIntOp<"cmp", [Pure]> {
+  let arguments = (ins IntPredicate:$pred, IntType:$lhs, IntType:$rhs);
+  let results = (outs BoolType:$result);
+  let assemblyFormat = "$pred $lhs `,` $rhs attr-dict";
+}
+
 def EqOp : SMTOp<"eq", [Pure, SameTypeOperands]> {
   let arguments = (ins AnySMTType:$lhs, AnySMTType:$rhs);
   let results = (outs BoolType:$result);
@@ -168,7 +221,7 @@ def DistinctOp : SMTOp<"distinct", [Pure, SameTypeOperands]> {
 def DeclareConstOp : SMTOp<"declare_const", [Pure]> {
   let summary = "declare a constant value";
   let arguments = (ins StrAttr:$declName);
-  let results = (outs AnyTypeOf<[BoolType, BitVectorType]>:$result);
+  let results = (outs AnySMTType:$result);
   let assemblyFormat = "$declName attr-dict `:` qualified(type($result))";
 }
 
