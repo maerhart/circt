@@ -128,6 +128,12 @@ protected:
           return buildAPICallGetPtr(builder, loc, "Z3_mk_bool_sort",
                                     {smtContext});
         })
+        .Case([&](smt::ArrayType ty) {
+          return buildAPICallGetPtr(builder, loc,
+                                    "Z3_mk_array_sort",
+                                    {smtContext, buildSort(builder, loc, smtContext, ty.getDomainType()),
+                                      buildSort(builder, loc, smtContext, ty.getRangeType())});
+        })
         .Default([](auto ty) { return Value(); });
   }
 
@@ -316,10 +322,19 @@ struct AssertOpLowering : public SMTLoweringPattern<AssertOp> {
   LogicalResult
   matchAndRewrite(AssertOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    auto ctx = buildZ3ContextPtr(rewriter, op.getLoc());
 
     buildAPICallGetVoid(rewriter, op.getLoc(), "Z3_solver_assert",
-                        {buildZ3ContextPtr(rewriter, op.getLoc()),
-                         adaptor.getSolver(), adaptor.getInput()});
+                        {ctx, adaptor.getSolver(), adaptor.getInput()});
+
+    // auto stringPtr = buildAPICallGetPtr(rewriter, op.getLoc(),
+    // "Z3_ast_to_string", {ctx, adaptor.getInput()}); auto formatString =
+    // buildStringRef(rewriter, op.getLoc(), "AST:\n%s\n");
+    // buildAPICall(rewriter, op.getLoc(), "printf",
+    // LLVM::LLVMFunctionType::get(rewriter.getI32Type(),
+    // LLVM::LLVMPointerType::get(getContext()), true), {formatString,
+    // stringPtr});
+
     rewriter.eraseOp(op);
     return success();
   }
@@ -330,15 +345,61 @@ struct CheckSatOpLowering : public SMTLoweringPattern<CheckSatOp> {
   LogicalResult
   matchAndRewrite(CheckSatOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    Value ctx = buildZ3ContextPtr(rewriter, op.getLoc());
 
-    Value checkResult = *buildAPICall(
-        rewriter, op.getLoc(), "Z3_solver_check",
-        LLVM::LLVMFunctionType::get(
-            rewriter.getI32Type(),
-            {LLVM::LLVMPointerType::get(rewriter.getContext()),
-             LLVM::LLVMPointerType::get(rewriter.getContext())}),
-        {buildZ3ContextPtr(rewriter, op.getLoc()), adaptor.getSolver()});
+    Value checkResult =
+        *buildAPICall(rewriter, op.getLoc(), "Z3_solver_check",
+                      LLVM::LLVMFunctionType::get(
+                          rewriter.getI32Type(),
+                          {LLVM::LLVMPointerType::get(rewriter.getContext()),
+                           LLVM::LLVMPointerType::get(rewriter.getContext())}),
+                      {ctx, adaptor.getSolver()});
+
     rewriter.replaceOp(op, checkResult);
+
+    // auto solverStringPtr = buildAPICallGetPtr(rewriter, op.getLoc(),
+    // "Z3_solver_to_string", {ctx, adaptor.getSolver()}); auto
+    // solverFormatString = buildStringRef(rewriter, op.getLoc(),
+    // "Solver:\n%s\n"); buildAPICall(rewriter, op.getLoc(), "printf",
+    // LLVM::LLVMFunctionType::get(rewriter.getI32Type(),
+    // LLVM::LLVMPointerType::get(getContext()), true), {solverFormatString,
+    // solverStringPtr});
+
+    // auto constNegOne = rewriter.create<LLVM::ConstantOp>(op.getLoc(),
+    // rewriter.getI32Type(), -1); // == FALSE
+    auto constOne = rewriter.create<LLVM::ConstantOp>(op.getLoc(),
+                                                      rewriter.getI32Type(), 1);
+    // auto isFalse = rewriter.create<LLVM::ICmpOp>(op.getLoc(),
+    // LLVM::ICmpPredicate::eq, checkResult, constNegOne); auto ifProofOp =
+    // rewriter.create<scf::IfOp>(op.getLoc(), isFalse);
+    // rewriter.setInsertionPointToStart(ifProofOp.thenBlock());
+    // auto proof = buildAPICallGetPtr(rewriter, op.getLoc(),
+    // "Z3_solver_get_proof", {ctx, adaptor.getSolver()}); auto stringPtr =
+    // buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_ast_to_string", {ctx,
+    // proof}); auto formatString = buildStringRef(rewriter, op.getLoc(),
+    // "Proof:\n%s\n"); buildAPICall(rewriter, op.getLoc(), "printf",
+    // LLVM::LLVMFunctionType::get(rewriter.getI32Type(),
+    // LLVM::LLVMPointerType::get(getContext()), true), {formatString,
+    // stringPtr});
+
+    // rewriter.setInsertionPoint(ifProofOp);
+    auto isTrue = rewriter.create<LLVM::ICmpOp>(
+        op.getLoc(), LLVM::ICmpPredicate::eq, checkResult, constOne);
+    auto ifModelOp = rewriter.create<scf::IfOp>(op.getLoc(), isTrue);
+    rewriter.setInsertionPointToStart(ifModelOp.thenBlock());
+    auto model =
+        buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_solver_get_model",
+                           {ctx, adaptor.getSolver()});
+    auto modelStringPtr = buildAPICallGetPtr(
+        rewriter, op.getLoc(), "Z3_model_to_string", {ctx, model});
+    auto modelFormatString =
+        buildStringRef(rewriter, op.getLoc(), "Model:\n%s\n");
+    buildAPICall(rewriter, op.getLoc(), "printf",
+                 LLVM::LLVMFunctionType::get(
+                     rewriter.getI32Type(),
+                     LLVM::LLVMPointerType::get(getContext()), true),
+                 {modelFormatString, modelStringPtr});
+
     return success();
   }
 };
@@ -797,11 +858,14 @@ void LowerSMTToZ3LLVMPass::runOnOperation() {
   cache.addDefinitions(getOperation());
   globals.add(cache);
   DenseMap<StringRef, LLVM::LLVMFuncOp> funcMap;
+  getOperation()->walk(
+      [&](LLVM::LLVMFuncOp op) { funcMap[op.getSymName()] = op; });
   DenseMap<Block *, Value> ctxCache;
   DenseMap<StringRef, LLVM::GlobalOp> stringCache;
 
   LLVMConversionTarget target(getContext());
   target.addLegalOp<mlir::ModuleOp>();
+  target.addLegalOp<scf::YieldOp>();
 
   // Setup the arc dialect type conversion.
   LLVMTypeConverter converter(&getContext());
@@ -826,8 +890,8 @@ void LowerSMTToZ3LLVMPass::runOnOperation() {
 
   RewritePatternSet patterns(&getContext());
   populateFuncToLLVMConversionPatterns(converter, patterns);
-  // populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, converter);
-  // populateSCFToControlFlowConversionPatterns(patterns);
+  populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, converter);
+  populateSCFToControlFlowConversionPatterns(patterns);
   mlir::cf::populateControlFlowToLLVMConversionPatterns(converter, patterns);
   arith::populateArithToLLVMConversionPatterns(converter, patterns);
 

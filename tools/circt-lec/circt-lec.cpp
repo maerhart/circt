@@ -12,14 +12,17 @@
 ///
 //===----------------------------------------------------------------------===//
 
+#include "circt/Conversion/HandshakeToSMT.h"
 #include "circt/Conversion/SMTToZ3LLVM.h"
 #include "circt/Dialect/Arc/ArcPasses.h"
 #include "circt/InitAllDialects.h"
 #include "circt/Support/Version.h"
 #include "circt/Tools/circt-lec/Passes.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
 #include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/ExecutionEngine/ExecutionEngine.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/IR/BuiltinDialect.h"
@@ -33,6 +36,7 @@
 #include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
+#include "mlir/Transforms/Passes.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/PrettyStackTrace.h"
@@ -142,8 +146,13 @@ static LogicalResult executeLEC(MLIRContext &context) {
   LowerToLECOptions lowerToLECOptions;
   lowerToLECOptions.firstModule = moduleName1;
   lowerToLECOptions.secondModule = moduleName2;
+  pm.addPass(createHandshakeToSMTPass());
+  pm.addPass(createCanonicalizerPass());
   pm.addPass(createLowerToLEC(lowerToLECOptions));
   pm.addPass(createLowerSMTToZ3LLVMPass());
+  pm.addPass(createCSEPass());
+  pm.addPass(createCanonicalizerPass());
+
   if (outputFormat == OutputLLVM)
     pm.addPass(LLVM::createDIScopeForLLVMFuncOpPass());
   if (failed(pm.run(file1.get())))
@@ -248,8 +257,10 @@ int main(int argc, char **argv) {
   // Register the supported CIRCT dialects and create a context to work with.
   DialectRegistry registry;
   registry.insert<circt::comb::CombDialect, circt::hw::HWDialect,
-                  circt::smt::SMTDialect, mlir::func::FuncDialect,
-                  mlir::LLVM::LLVMDialect, mlir::BuiltinDialect>();
+                  handshake::HandshakeDialect, circt::smt::SMTDialect,
+                  mlir::func::FuncDialect, mlir::scf::SCFDialect,
+                  mlir::cf::ControlFlowDialect, mlir::LLVM::LLVMDialect,
+                  mlir::BuiltinDialect>();
   mlir::func::registerInlinerExtension(registry);
   mlir::registerBuiltinDialectTranslation(registry);
   mlir::registerLLVMDialectTranslation(registry);

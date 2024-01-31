@@ -483,6 +483,23 @@ def HandshakeToHW : Pass<"lower-handshake-to-hw", "mlir::ModuleOp"> {
 }
 
 //===----------------------------------------------------------------------===//
+// HandshakeToSMT
+//===----------------------------------------------------------------------===//
+
+def HandshakeToSMT : Pass<"lower-handshake-to-smt", "mlir::ModuleOp"> {
+  let summary = "Convert Handshake to SMT expressions";
+  let description = [{
+    Convert handshake operations to SMT expressions to prove latency insensitive
+    properties of the circuit it represents.
+  }];
+  let constructor = "circt::createHandshakeToSMTPass()";
+  let dependentDialects = [
+    "smt::SMTDialect", "mlir::arith::ArithDialect",
+    "mlir::func::FuncDialect", "mlir::scf::SCFDialect"
+  ];
+}
+
+//===----------------------------------------------------------------------===//
 // Moore to Comb/HW/LLHD
 //===----------------------------------------------------------------------===//
 

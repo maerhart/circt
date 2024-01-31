@@ -92,10 +92,12 @@ struct LowerToLECPass : public circt::impl::LowerToLECBase<LowerToLECPass> {
 
 static bool hasOnlySMTTypes(FunctionType type) {
   for (Type type : type.getInputs())
-    if (!isa<smt::BitVectorType, smt::BoolType>(type))
+    if (!isa<smt::BitVectorType, smt::BoolType, smt::IntegerType,
+             smt::ArrayType, smt::SolverType>(type))
       return false;
   for (Type type : type.getResults())
-    if (!isa<smt::BitVectorType, smt::BoolType>(type))
+    if (!isa<smt::BitVectorType, smt::BoolType, smt::IntegerType,
+             smt::ArrayType, smt::SolverType>(type))
       return false;
   return true;
 }
@@ -141,10 +143,14 @@ void LowerToLECPass::runOnOperation() {
   Location loc = getOperation()->getLoc();
   builder.setInsertionPointToEnd(getOperation().getBody());
   auto ptrTy = LLVM::LLVMPointerType::get(builder.getContext());
+  auto voidTy = LLVM::LLVMVoidType::get(builder.getContext());
 
   // config functions
   auto mkConfigFunc = builder.create<LLVM::LLVMFuncOp>(
       loc, "Z3_mk_config", LLVM::LLVMFunctionType::get(ptrTy, {}));
+  auto setParamValueFunc = builder.create<LLVM::LLVMFuncOp>(
+      loc, "Z3_set_param_value",
+      LLVM::LLVMFunctionType::get(voidTy, {ptrTy, ptrTy, ptrTy}));
   auto delConfigFunc = builder.create<LLVM::LLVMFuncOp>(
       loc, "Z3_del_config",
       LLVM::LLVMFunctionType::get(LLVM::LLVMVoidType::get(&getContext()),
@@ -155,11 +161,17 @@ void LowerToLECPass::runOnOperation() {
       loc, "Z3_mk_context", LLVM::LLVMFunctionType::get(ptrTy, ptrTy));
 
   // printf
-  auto printfFunc = builder.create<LLVM::LLVMFuncOp>(
-      loc, "printf",
-      LLVM::LLVMFunctionType::get(builder.getI32Type(),
-                                  LLVM::LLVMPointerType::get(&getContext()),
-                                  true));
+  LLVM::LLVMFuncOp printfFunc;
+  getOperation()->walk([&](LLVM::LLVMFuncOp op) {
+    if (op.getSymName() == "printf")
+      printfFunc = op;
+  });
+  if (!printfFunc)
+    printfFunc = builder.create<LLVM::LLVMFuncOp>(
+        loc, "printf",
+        LLVM::LLVMFunctionType::get(builder.getI32Type(),
+                                    LLVM::LLVMPointerType::get(&getContext()),
+                                    true));
 
   // create global context
   auto ctxGlobal = builder.create<LLVM::GlobalOp>(
@@ -180,6 +192,18 @@ void LowerToLECPass::runOnOperation() {
   builder.setInsertionPointToStart(block);
   Value config = builder.create<LLVM::CallOp>(loc, mkConfigFunc, ValueRange{})
                      ->getResult(0);
+  auto trueString = buildStringRef(builder, loc, "true");
+  builder.create<LLVM::CallOp>(
+      loc, setParamValueFunc,
+      ValueRange{config, buildStringRef(builder, loc, "proof"), trueString});
+  builder.create<LLVM::CallOp>(
+      loc, setParamValueFunc,
+      ValueRange{config, buildStringRef(builder, loc, "well_sorted_check"),
+                 trueString});
+  builder.create<LLVM::CallOp>(
+      loc, setParamValueFunc,
+      ValueRange{config, buildStringRef(builder, loc, "model_validate"),
+                 trueString});
   Value ctx =
       builder.create<LLVM::CallOp>(loc, mkCtxFunc, config)->getResult(0);
   Value addrOfCtxGlobal = builder.create<LLVM::AddressOfOp>(loc, ctxGlobal);
@@ -215,8 +239,11 @@ void LowerToLECPass::runOnOperation() {
     return signalPassFailure(); // nothing to verify, trivially holds
   }
 
+  Value solver = builder.create<smt::SolverCreateOp>(loc, "solver");
   SmallVector<Value> inputDecls;
-  for (auto [i, type] : llvm::enumerate(moduleA.getFunctionType().getInputs()))
+  inputDecls.push_back(solver);
+  for (auto [i, type] : llvm::enumerate(
+           ArrayRef<Type>(moduleA.getFunctionType().getInputs()).drop_front()))
     inputDecls.push_back(builder.create<smt::DeclareConstOp>(
         loc, type, "arg" + std::to_string(i)));
 
@@ -233,18 +260,24 @@ void LowerToLECPass::runOnOperation() {
       toAssert = dist;
   }
 
-  Value solver = builder.create<smt::SolverCreateOp>(loc, "solver");
   builder.create<smt::AssertOp>(loc, solver, toAssert);
   Value res = builder.create<smt::CheckSatOp>(loc, solver);
 
   Value eqFormatString = buildStringRef(builder, loc, "c1 == c2\n");
   Value neqFormatString = buildStringRef(builder, loc, "c1 != c2\n");
+  Value unknownFormatString = buildStringRef(builder, loc, "c1 ?= c2\n");
   Value constNeg1 =
       builder.create<LLVM::ConstantOp>(loc, builder.getI32Type(), -1);
+  Value constZero =
+      builder.create<LLVM::ConstantOp>(loc, builder.getI32Type(), 0);
   Value isEquivalent = builder.create<LLVM::ICmpOp>(
       loc, LLVM::ICmpPredicate::eq, res, constNeg1);
+  Value isUnknown = builder.create<LLVM::ICmpOp>(loc, LLVM::ICmpPredicate::eq,
+                                                 res, constZero);
   Value formatString = builder.create<LLVM::SelectOp>(
       loc, isEquivalent, eqFormatString, neqFormatString);
+  formatString = builder.create<LLVM::SelectOp>(
+      loc, isUnknown, unknownFormatString, formatString);
   builder.create<LLVM::CallOp>(loc, printfFunc, ValueRange{formatString});
 
   builder.create<LLVM::ReturnOp>(loc, ValueRange{});
@@ -255,6 +288,6 @@ void LowerToLECPass::runOnOperation() {
   Block *entryBlock = mainFunc.addEntryBlock();
   builder.setInsertionPointToStart(entryBlock);
   builder.create<LLVM::CallOp>(loc, entryFunc, ValueRange{});
-  Value constZero = builder.create<LLVM::ConstantOp>(loc, i32Ty, 0);
+  constZero = builder.create<LLVM::ConstantOp>(loc, i32Ty, 0);
   builder.create<LLVM::ReturnOp>(loc, constZero);
 }

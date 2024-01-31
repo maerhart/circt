@@ -9,8 +9,11 @@ if(CIRCT_LEC_ENABLED)
     CIRCTArcTransforms
     CIRCTLECTransforms
     CIRCTSMTToZ3LLVM
+    CIRCTHandshakeToSMT
     MLIRIR
     MLIRFuncDialect
+    MLIRSCFDialect
+    MLIRControlFlowDialect
     MLIRLLVMIRTransforms
     MLIRLLVMToLLVMIRTranslation
     MLIRTargetLLVMIRExport
