@@ -51,6 +51,23 @@ OpFoldResult ConstantOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// BoolConstantOp
+//===----------------------------------------------------------------------===//
+
+void BoolConstantOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  SmallVector<char, 32> specialNameBuffer;
+  llvm::raw_svector_ostream specialName(specialNameBuffer);
+  specialName << (getValue() ? "true" : "false");
+  setNameFn(getResult(), specialName.str());
+}
+
+OpFoldResult BoolConstantOp::fold(FoldAdaptor adaptor) {
+  assert(adaptor.getOperands().empty() && "constant has no operands");
+  return getValueAttr();
+}
+
+//===----------------------------------------------------------------------===//
 // ConcatOp
 //===----------------------------------------------------------------------===//
 

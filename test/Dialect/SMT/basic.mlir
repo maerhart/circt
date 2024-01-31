@@ -6,6 +6,11 @@ func.func @types(%arg0: !smt.bool, %arg1: !smt.solver) {
   // CHECK: %c0_bv32 = smt.bv.constant #smt.bv<0> : !smt.bv<32> {smt.some_attr}
   %c0_bv32 = smt.bv.constant #smt.bv<0> : !smt.bv<32> {smt.some_attr}
 
+  // CHECK: smt.constant true {smt.some_attr}
+  %true = smt.constant true {smt.some_attr}
+  // CHECK: smt.constant false {smt.some_attr}
+  %false = smt.constant false {smt.some_attr}
+
   // CHECK: %{{.*}} = smt.bv.neg %c0_bv32 {smt.some_attr} : !smt.bv<32>
   %0 = smt.bv.neg %c0_bv32 {smt.some_attr} : !smt.bv<32>
   // CHECK: %{{.*}} = smt.bv.add %c0_bv32, %c0_bv32 {smt.some_attr} : !smt.bv<32>

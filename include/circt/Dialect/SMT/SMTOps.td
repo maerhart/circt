@@ -28,6 +28,20 @@ class SMTArrayOp<string mnemonic, list<Trait> traits = []> :
 
 def AnySMTType : AnyTypeOf<[BoolType, IntType, BitVectorType, ArrayType]>;
 
+def BoolConstantOp : SMTOp<"constant", [
+  Pure,
+  ConstantLike,
+  DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
+]> {
+  let summary = "Produce a constant boolean";
+
+  let arguments = (ins BoolAttr:$value);
+  let results = (outs BoolType:$result);
+  let assemblyFormat = "$value attr-dict";
+
+  let hasFolder = true;
+}
+
 def ConstantOp : SMTBVOp<"constant", [
   Pure,
   ConstantLike,

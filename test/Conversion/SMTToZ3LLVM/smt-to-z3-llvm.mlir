@@ -21,6 +21,11 @@ func.func @test() {
   // CHECK-NEXT: [[C0:%.+]] = llvm.call @Z3_mk_bv_numeral([[CTX]], [[FOUR]], [[STORAGE]]) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
   %c0_bv32 = smt.bv.constant #smt.bv<0> : !smt.bv<4>
 
+  // CHECK-NEXT: llvm.call @Z3_mk_true([[CTX]]) : (!llvm.ptr) -> !llvm.ptr
+  %true = smt.constant true
+  // CHECK-NEXT: llvm.call @Z3_mk_false([[CTX]]) : (!llvm.ptr) -> !llvm.ptr
+  %false = smt.constant false
+
   // CHECK-NEXT: llvm.call @Z3_mk_bvneg([[CTX]], [[C0]]) : (!llvm.ptr, !llvm.ptr) -> !llvm.ptr
   %0 = smt.bv.neg %c0_bv32 : !smt.bv<4>
   // CHECK-NEXT: llvm.call @Z3_mk_bvadd([[CTX]], [[C0]], [[C0]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
@@ -178,6 +183,8 @@ llvm.mlir.global internal @ctx() {alignment = 8 : i64} : !llvm.ptr {
 // CHECK-DAG: llvm.mlir.global private constant @a("a\00") {addr_space = 0 : i32}
 
 // CHECK-DAG: llvm.func @Z3_mk_bv_numeral(!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_true(!llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_false(!llvm.ptr) -> !llvm.ptr
 // CHECK-DAG: llvm.func @Z3_mk_bvneg(!llvm.ptr, !llvm.ptr) -> !llvm.ptr
 // CHECK-DAG: llvm.func @Z3_mk_bvadd(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
 // CHECK-DAG: llvm.func @Z3_mk_bvsub(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr

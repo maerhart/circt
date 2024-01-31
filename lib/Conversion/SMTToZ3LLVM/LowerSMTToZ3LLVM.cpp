@@ -435,6 +435,25 @@ struct ArrayDefaultOpLowering : public SMTLoweringPattern<smt::ArrayDefaultOp> {
   }
 };
 
+struct BoolConstantOpLowering : public SMTLoweringPattern<smt::BoolConstantOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+  LogicalResult
+  matchAndRewrite(smt::BoolConstantOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (adaptor.getValue()) {
+      rewriter.replaceOp(
+          op, buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_true",
+                                 {buildZ3ContextPtr(rewriter, op.getLoc())}));
+      return success();
+    }
+
+    rewriter.replaceOp(
+        op, buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_false",
+                               {buildZ3ContextPtr(rewriter, op.getLoc())}));
+    return success();
+  }
+};
+
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -536,8 +555,8 @@ void LowerSMTToZ3LLVMPass::runOnOperation() {
                AssertOpLowering, CheckSatOpLowering, SolverCreateOpLowering,
                RepeatOpLowering, ExtractOpLowering, ArraySelectOpLowering,
                ArrayStoreOpLowering, ArrayBroadcastOpLowering,
-               ArrayDefaultOpLowering>(converter, &getContext(), funcMap,
-                                       ctxCache);
+               ArrayDefaultOpLowering, BoolConstantOpLowering>(
+      converter, &getContext(), funcMap, ctxCache);
 
   if (failed(applyFullConversion(getOperation(), target, std::move(patterns))))
     signalPassFailure();
