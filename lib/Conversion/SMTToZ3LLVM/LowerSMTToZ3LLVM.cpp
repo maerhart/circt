@@ -454,6 +454,71 @@ struct BoolConstantOpLowering : public SMTLoweringPattern<smt::BoolConstantOp> {
   }
 };
 
+struct IntConstantOpLowering : public SMTLoweringPattern<smt::IntConstantOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+  LogicalResult
+  matchAndRewrite(smt::IntConstantOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Value ctx = buildZ3ContextPtr(rewriter, op.getLoc());
+
+    SmallVector<char> numeralString;
+    adaptor.getValue().toStringSigned(numeralString);
+
+    bool isNegative = false;
+    if (numeralString[0] == '-') {
+      numeralString =
+          SmallVector<char>(ArrayRef<char>(numeralString).drop_front());
+      isNegative = true;
+    }
+
+    std::string numeralStr;
+    for (auto c : numeralString)
+      numeralStr.push_back(c);
+
+    Value numeral = buildStringRef(rewriter, op.getLoc(), numeralStr);
+
+    Value type =
+        buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_int_sort", {ctx});
+
+    Value intNumeral = buildAPICallGetPtr(
+        rewriter, op.getLoc(), "Z3_mk_numeral", {ctx, numeral, type});
+
+    if (isNegative)
+      intNumeral = buildAPICallGetPtr(rewriter, op.getLoc(),
+                                      "Z3_mk_unary_minus", {ctx, intNumeral});
+    rewriter.replaceOp(op, intNumeral);
+    return success();
+  }
+};
+
+struct IntCmpOpLowering : public SMTLoweringPattern<IntCmpOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+  LogicalResult
+  matchAndRewrite(IntCmpOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+
+    auto getFuncName = [](IntPredicate pred) -> StringRef {
+      switch (pred) {
+      case IntPredicate::lt:
+        return "Z3_mk_lt";
+      case IntPredicate::le:
+        return "Z3_mk_le";
+      case IntPredicate::gt:
+        return "Z3_mk_gt";
+      case IntPredicate::ge:
+        return "Z3_mk_ge";
+      }
+    };
+    StringRef funcName = getFuncName(op.getPred());
+
+    rewriter.replaceOp(
+        op, buildAPICallGetPtr(rewriter, op.getLoc(), funcName,
+                               {buildZ3ContextPtr(rewriter, op.getLoc()),
+                                adaptor.getLhs(), adaptor.getRhs()}));
+    return success();
+  }
+};
+
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -551,11 +616,21 @@ void LowerSMTToZ3LLVMPass::runOnOperation() {
   ADD_VARIADIC_PATTERN(AndOp, "Z3_mk_and");
   ADD_VARIADIC_PATTERN(OrOp, "Z3_mk_or");
 
+  ADD_VARIADIC_PATTERN(IntAddOp, "Z3_mk_add");
+  ADD_VARIADIC_PATTERN(IntMulOp, "Z3_mk_mul");
+  ADD_VARIADIC_PATTERN(IntSubOp, "Z3_mk_sub");
+
+  ADD_OTO_PATTERN(IntDivOp, "Z3_mk_div");
+  ADD_OTO_PATTERN(IntModOp, "Z3_mk_mod");
+  ADD_OTO_PATTERN(IntRemOp, "Z3_mk_rem");
+  ADD_OTO_PATTERN(IntPowOp, "Z3_mk_power");
+
   patterns.add<ConstantOpLowering, DeclareConstOpLowering, BVCmpOpLowering,
                AssertOpLowering, CheckSatOpLowering, SolverCreateOpLowering,
                RepeatOpLowering, ExtractOpLowering, ArraySelectOpLowering,
                ArrayStoreOpLowering, ArrayBroadcastOpLowering,
-               ArrayDefaultOpLowering, BoolConstantOpLowering>(
+               ArrayDefaultOpLowering, BoolConstantOpLowering,
+               IntConstantOpLowering, IntCmpOpLowering>(
       converter, &getContext(), funcMap, ctxCache);
 
   if (failed(applyFullConversion(getOperation(), target, std::move(patterns))))

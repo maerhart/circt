@@ -171,6 +171,50 @@ func.func @test() {
   // CHECK-NEXT: llvm.call @Z3_mk_array_default([[CTX]], [[ARR]]) : (!llvm.ptr, !llvm.ptr) -> !llvm.ptr
   %43 = smt.array.default %40 : !smt.array<[!smt.bv<4> -> !smt.bv<4>]>
 
+  // CHECK-NEXT: [[STR123:%.+]] = llvm.mlir.addressof @"123" : !llvm.ptr
+  // CHECK-NEXT: [[INT_SORT:%.+]] = llvm.call @Z3_mk_int_sort([[CTX]]) : (!llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: [[NUMERAL:%.+]] = llvm.call @Z3_mk_numeral([[CTX]], [[STR123]], [[INT_SORT]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: [[C123:%.+]] = llvm.call @Z3_mk_unary_minus([[CTX]], [[NUMERAL]]) : (!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %44 = smt.int.constant -123
+
+  // CHECK: [[THREE:%.+]] = llvm.mlir.constant(3 : i32) : i32
+  // CHECK: [[ALLOCA:%.+]] = llvm.alloca
+  // CHECK: llvm.call @Z3_mk_add([[CTX]], [[THREE]], [[ALLOCA]]) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+  %45 = smt.int.add %44, %44, %44
+
+  // CHECK: [[THREE:%.+]] = llvm.mlir.constant(3 : i32) : i32
+  // CHECK: [[ALLOCA:%.+]] = llvm.alloca
+  // CHECK: llvm.call @Z3_mk_mul([[CTX]], [[THREE]], [[ALLOCA]]) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+  %46 = smt.int.mul %44, %44, %44
+
+  // CHECK: [[THREE:%.+]] = llvm.mlir.constant(3 : i32) : i32
+  // CHECK: [[ALLOCA:%.+]] = llvm.alloca
+  // CHECK: llvm.call @Z3_mk_sub([[CTX]], [[THREE]], [[ALLOCA]]) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+  %47 = smt.int.sub %44, %44, %44
+
+  // CHECK-NEXT: llvm.call @Z3_mk_div([[CTX]], [[C123]], [[C123]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %48 = smt.int.div %44, %44
+  // CHECK-NEXT: llvm.call @Z3_mk_mod([[CTX]], [[C123]], [[C123]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %49 = smt.int.mod %44, %44
+  // CHECK-NEXT: llvm.call @Z3_mk_rem([[CTX]], [[C123]], [[C123]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %50 = smt.int.rem %44, %44
+  // CHECK-NEXT: llvm.call @Z3_mk_power([[CTX]], [[C123]], [[C123]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %51 = smt.int.pow %44, %44
+
+  // CHECK-NEXT: llvm.call @Z3_mk_le([[CTX]], [[C123]], [[C123]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %52 = smt.int.cmp le %44, %44
+  // CHECK-NEXT: llvm.call @Z3_mk_lt([[CTX]], [[C123]], [[C123]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %53 = smt.int.cmp lt %44, %44
+  // CHECK-NEXT: llvm.call @Z3_mk_ge([[CTX]], [[C123]], [[C123]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %54 = smt.int.cmp ge %44, %44
+  // CHECK-NEXT: llvm.call @Z3_mk_gt([[CTX]], [[C123]], [[C123]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %55 = smt.int.cmp gt %44, %44
+
+  // CHECK-NEXT: [[STR0:%.+]] = llvm.mlir.addressof @"0" : !llvm.ptr
+  // CHECK-NEXT: [[INT_SORT:%.+]] = llvm.call @Z3_mk_int_sort([[CTX]]) : (!llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: llvm.call @Z3_mk_numeral([[CTX]], [[STR0]], [[INT_SORT]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %56 = smt.int.constant 0
+
   // CHECK-NEXT: llvm.return
   return
 }
@@ -181,6 +225,8 @@ llvm.mlir.global internal @ctx() {alignment = 8 : i64} : !llvm.ptr {
   llvm.return %0 : !llvm.ptr
 }
 // CHECK-DAG: llvm.mlir.global private constant @a("a\00") {addr_space = 0 : i32}
+// CHECK-DAG: llvm.mlir.global private constant @"0"("0\00") {addr_space = 0 : i32}
+// CHECK-DAG: llvm.mlir.global private constant @"123"("123\00") {addr_space = 0 : i32}
 
 // CHECK-DAG: llvm.func @Z3_mk_bv_numeral(!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
 // CHECK-DAG: llvm.func @Z3_mk_true(!llvm.ptr) -> !llvm.ptr
@@ -230,3 +276,17 @@ llvm.mlir.global internal @ctx() {alignment = 8 : i64} : !llvm.ptr {
 // CHECK-DAG: llvm.func @Z3_mk_select(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
 // CHECK-DAG: llvm.func @Z3_mk_store(!llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
 // CHECK-DAG: llvm.func @Z3_mk_array_default(!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_int_sort(!llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_numeral(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_unary_minus(!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_add(!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_mul(!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_sub(!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_div(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_mod(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_rem(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_power(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_le(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_lt(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_ge(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_gt(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
