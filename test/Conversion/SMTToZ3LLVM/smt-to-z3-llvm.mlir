@@ -215,6 +215,91 @@ func.func @test() {
   // CHECK-NEXT: llvm.call @Z3_mk_numeral([[CTX]], [[STR0]], [[INT_SORT]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
   %56 = smt.int.constant 0
 
+  // CHECK-NEXT: [[TRUE:%.+]] = llvm.call @Z3_mk_true([[CTX]]) : (!llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: [[NUM_PATTERNS:%.+]] = llvm.mlir.constant(1 : i32) : i32
+  // CHECK-NEXT: llvm.mlir.constant(1 : i32) : i32
+  // CHECK-NEXT: [[STORAGE:%.+]] = llvm.alloca
+  // CHECK-NEXT: [[A0:%.+]] = llvm.mlir.undef : !llvm.array<1 x ptr>
+  // CHECK-NEXT: [[A1:%.+]] = llvm.insertvalue [[TRUE]], [[A0]][0] : !llvm.array<1 x ptr>
+  // CHECK-NEXT: llvm.store [[A1]], [[STORAGE]] : !llvm.array<1 x ptr>, !llvm.ptr
+  // CHECK-NEXT: llvm.call @Z3_mk_pattern([[CTX]], [[NUM_PATTERNS]], [[STORAGE]]) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+  %57 = smt.pattern_create {
+    %58 = smt.constant true
+    smt.yield %58 : !smt.bool
+  }
+
+  // CHECK-NEXT: [[WEIGHT:%.+]] = llvm.mlir.constant(42 : i32) : i32
+  // CHECK-NEXT: [[NUM_PATTERNS:%.+]] = llvm.mlir.constant(1 : i32) : i32
+  // CHECK-NEXT: llvm.mlir.constant(1 : i32) : i32
+  // CHECK-NEXT: [[PATTERN_STORAGE:%.+]] = llvm.alloca
+  // CHECK-NEXT: [[PA0:%.+]] = llvm.mlir.undef : !llvm.array<1 x ptr>
+  // CHECK-NEXT: [[PA1:%.+]] = llvm.insertvalue {{.*}}, [[PA0]][0] : !llvm.array<1 x ptr>
+  // CHECK-NEXT: llvm.store [[PA1]], [[PATTERN_STORAGE]] : !llvm.array<1 x ptr>, !llvm.ptr
+  // CHECK-NEXT: [[NUM_BOUND_VARS:%.+]] = llvm.mlir.constant(2 : i32) : i32
+  // CHECK-NEXT: [[SORT_STORAGE:%.+]] = llvm.alloca
+  // CHECK-NEXT: [[NAME_STORAGE:%.+]] = llvm.alloca
+  // CHECK-NEXT: [[SA0:%.+]] = llvm.mlir.undef : !llvm.array<2 x ptr>
+  // CHECK-NEXT: [[NA0:%.+]] = llvm.mlir.undef : !llvm.array<2 x ptr>
+  // CHECK-NEXT: [[INT_SORT:%.+]] = llvm.call @Z3_mk_int_sort([[CTX]]) : (!llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: [[A_IDX:%.+]] = llvm.mlir.constant(2 : i32) : i32
+  // CHECK-NEXT: [[A:%.+]] = llvm.call @Z3_mk_bound([[CTX]], [[A_IDX]], [[INT_SORT]]) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: [[SA1:%.+]] = llvm.insertvalue [[INT_SORT]], [[SA0]][0] : !llvm.array<2 x ptr>
+  // CHECK-NEXT: [[A_ADDR:%.+]] = llvm.mlir.addressof @a : !llvm.ptr
+  // CHECK-NEXT: [[A_SYM:%.+]] = llvm.call @Z3_mk_string_symbol([[CTX]], [[A_ADDR]]) : (!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: [[NA1:%.+]] = llvm.insertvalue [[A_SYM]], [[NA0]][0] : !llvm.array<2 x ptr>
+  // CHECK-NEXT: [[INT_SORT:%.+]] = llvm.call @Z3_mk_int_sort([[CTX]]) : (!llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: [[B_IDX:%.+]] = llvm.mlir.constant(1 : i32) : i32
+  // CHECK-NEXT: [[B:%.+]] = llvm.call @Z3_mk_bound([[CTX]], [[B_IDX]], [[INT_SORT]]) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: [[SA2:%.+]] = llvm.insertvalue [[INT_SORT]], [[SA1]][1] : !llvm.array<2 x ptr>
+  // CHECK-NEXT: [[B_ADDR:%.+]] = llvm.mlir.addressof @b : !llvm.ptr
+  // CHECK-NEXT: [[B_SYM:%.+]] = llvm.call @Z3_mk_string_symbol([[CTX]], [[B_ADDR]]) : (!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: [[NA2:%.+]] = llvm.insertvalue [[B_SYM]], [[NA1]][1] : !llvm.array<2 x ptr>
+  // CHECK-NEXT: llvm.store [[SA2]], [[SORT_STORAGE]] : !llvm.array<2 x ptr>, !llvm.ptr
+  // CHECK-NEXT: llvm.store [[NA2]], [[NAME_STORAGE]] : !llvm.array<2 x ptr>, !llvm.ptr
+  // CHECK-NEXT: [[BODY:%.+]] = llvm.call @Z3_mk_eq([[CTX]], [[A]], [[B]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: llvm.call @Z3_mk_forall([[CTX]], [[WEIGHT]], [[NUM_PATTERNS]], [[PATTERN_STORAGE]], [[NUM_BOUND_VARS]], [[SORT_STORAGE]], [[NAME_STORAGE]], [[BODY]]) : (!llvm.ptr, i32, i32, !llvm.ptr, i32, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %58 = smt.forall ["a", "b"] patterns(%57) weight 42 {
+  ^bb0(%arg2: !smt.int, %arg3: !smt.int):
+    %59 = smt.eq %arg2, %arg3 : !smt.int
+    smt.yield %59 : !smt.bool
+  }
+
+  // CHECK-NEXT: [[WEIGHT:%.+]] = llvm.mlir.constant(42 : i32) : i32
+  // CHECK-NEXT: [[NUM_PATTERNS:%.+]] = llvm.mlir.constant(1 : i32) : i32
+  // CHECK-NEXT: llvm.mlir.constant(1 : i32) : i32
+  // CHECK-NEXT: [[PATTERN_STORAGE:%.+]] = llvm.alloca
+  // CHECK-NEXT: [[PA0:%.+]] = llvm.mlir.undef : !llvm.array<1 x ptr>
+  // CHECK-NEXT: [[PA1:%.+]] = llvm.insertvalue {{.*}}, [[PA0]][0] : !llvm.array<1 x ptr>
+  // CHECK-NEXT: llvm.store [[PA1]], [[PATTERN_STORAGE]] : !llvm.array<1 x ptr>, !llvm.ptr
+  // CHECK-NEXT: [[NUM_BOUND_VARS:%.+]] = llvm.mlir.constant(2 : i32) : i32
+  // CHECK-NEXT: [[SORT_STORAGE:%.+]] = llvm.alloca
+  // CHECK-NEXT: [[NAME_STORAGE:%.+]] = llvm.alloca
+  // CHECK-NEXT: [[SA0:%.+]] = llvm.mlir.undef : !llvm.array<2 x ptr>
+  // CHECK-NEXT: [[NA0:%.+]] = llvm.mlir.undef : !llvm.array<2 x ptr>
+  // CHECK-NEXT: [[INT_SORT:%.+]] = llvm.call @Z3_mk_int_sort([[CTX]]) : (!llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: [[A_IDX:%.+]] = llvm.mlir.constant(2 : i32) : i32
+  // CHECK-NEXT: [[A:%.+]] = llvm.call @Z3_mk_bound([[CTX]], [[A_IDX]], [[INT_SORT]]) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: [[SA1:%.+]] = llvm.insertvalue [[INT_SORT]], [[SA0]][0] : !llvm.array<2 x ptr>
+  // CHECK-NEXT: [[A_ADDR:%.+]] = llvm.mlir.addressof @a : !llvm.ptr
+  // CHECK-NEXT: [[A_SYM:%.+]] = llvm.call @Z3_mk_string_symbol([[CTX]], [[A_ADDR]]) : (!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: [[NA1:%.+]] = llvm.insertvalue [[A_SYM]], [[NA0]][0] : !llvm.array<2 x ptr>
+  // CHECK-NEXT: [[INT_SORT:%.+]] = llvm.call @Z3_mk_int_sort([[CTX]]) : (!llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: [[B_IDX:%.+]] = llvm.mlir.constant(1 : i32) : i32
+  // CHECK-NEXT: [[B:%.+]] = llvm.call @Z3_mk_bound([[CTX]], [[B_IDX]], [[INT_SORT]]) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: [[SA2:%.+]] = llvm.insertvalue [[INT_SORT]], [[SA1]][1] : !llvm.array<2 x ptr>
+  // CHECK-NEXT: [[B_ADDR:%.+]] = llvm.mlir.addressof @b : !llvm.ptr
+  // CHECK-NEXT: [[B_SYM:%.+]] = llvm.call @Z3_mk_string_symbol([[CTX]], [[B_ADDR]]) : (!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: [[NA2:%.+]] = llvm.insertvalue [[B_SYM]], [[NA1]][1] : !llvm.array<2 x ptr>
+  // CHECK-NEXT: llvm.store [[SA2]], [[SORT_STORAGE]] : !llvm.array<2 x ptr>, !llvm.ptr
+  // CHECK-NEXT: llvm.store [[NA2]], [[NAME_STORAGE]] : !llvm.array<2 x ptr>, !llvm.ptr
+  // CHECK-NEXT: [[BODY:%.+]] = llvm.call @Z3_mk_eq([[CTX]], [[A]], [[B]]) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  // CHECK-NEXT: llvm.call @Z3_mk_exists([[CTX]], [[WEIGHT]], [[NUM_PATTERNS]], [[PATTERN_STORAGE]], [[NUM_BOUND_VARS]], [[SORT_STORAGE]], [[NAME_STORAGE]], [[BODY]]) : (!llvm.ptr, i32, i32, !llvm.ptr, i32, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %59 = smt.exists ["a", "b"] patterns(%57) weight 42 {
+  ^bb0(%arg2: !smt.int, %arg3: !smt.int):
+    %60 = smt.eq %arg2, %arg3 : !smt.int
+    smt.yield %60 : !smt.bool
+  }
+
   // CHECK-NEXT: llvm.return
   return
 }
@@ -227,6 +312,7 @@ llvm.mlir.global internal @ctx() {alignment = 8 : i64} : !llvm.ptr {
 // CHECK-DAG: llvm.mlir.global private constant @a("a\00") {addr_space = 0 : i32}
 // CHECK-DAG: llvm.mlir.global private constant @"0"("0\00") {addr_space = 0 : i32}
 // CHECK-DAG: llvm.mlir.global private constant @"123"("123\00") {addr_space = 0 : i32}
+// CHECK-DAG: llvm.mlir.global private constant @b("b\00") {addr_space = 0 : i32}
 
 // CHECK-DAG: llvm.func @Z3_mk_bv_numeral(!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
 // CHECK-DAG: llvm.func @Z3_mk_true(!llvm.ptr) -> !llvm.ptr
@@ -290,3 +376,7 @@ llvm.mlir.global internal @ctx() {alignment = 8 : i64} : !llvm.ptr {
 // CHECK-DAG: llvm.func @Z3_mk_lt(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
 // CHECK-DAG: llvm.func @Z3_mk_ge(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
 // CHECK-DAG: llvm.func @Z3_mk_gt(!llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_pattern(!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_bound(!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_forall(!llvm.ptr, i32, i32, !llvm.ptr, i32, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_exists(!llvm.ptr, i32, i32, !llvm.ptr, i32, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr

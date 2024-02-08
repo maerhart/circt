@@ -147,5 +147,49 @@ LogicalResult RepeatOp::inferReturnTypes(
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// PatternCreateOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult PatternCreateOp::verifyRegions() {
+  if (getBody().getNumArguments() != 0)
+    return emitOpError("must have zero block arguments");
+  if (getBody().front().getTerminator()->getNumOperands() == 0)
+    return emitOpError("must yield at least one expression");
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ForallOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult ForallOp::verifyRegions() {
+  if (getBody().getNumArguments() != getBoundVarNames().size())
+    return emitOpError(
+        "number of bound variable names must match number of block arguments");
+  if (getBody().front().getTerminator()->getNumOperands() != 1)
+    return emitOpError("must have exactly one yielded value");
+  if (!isa<BoolType>(
+          getBody().front().getTerminator()->getOperand(0).getType()))
+    return emitOpError("yielded value must be of '!smt.bool' type");
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ExistsOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult ExistsOp::verifyRegions() {
+  if (getBody().getNumArguments() != getBoundVarNames().size())
+    return emitOpError(
+        "number of bound variable names must match number of block arguments");
+  if (getBody().front().getTerminator()->getNumOperands() != 1)
+    return emitOpError("must have exactly one yielded value");
+  if (!isa<BoolType>(
+          getBody().front().getTerminator()->getOperand(0).getType()))
+    return emitOpError("yielded value must be of '!smt.bool' type");
+  return success();
+}
+
 #define GET_OP_CLASSES
 #include "circt/Dialect/SMT/SMT.cpp.inc"

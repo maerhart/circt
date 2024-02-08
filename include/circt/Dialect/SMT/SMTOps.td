@@ -16,6 +16,7 @@ include "mlir/IR/EnumAttr.td"
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/ControlFlowInterfaces.td"
 
 class SMTOp<string mnemonic, list<Trait> traits = []> :
   Op<SMTDialect, mnemonic, traits>;
@@ -342,5 +343,50 @@ def ArrayDefaultOp : SMTArrayOp<"default", [
 
   let assemblyFormat = "$array attr-dict `:` qualified(type($array))";
 }
+
+def YieldOp : SMTOp<"yield", [
+  Pure,
+  Terminator,
+  ReturnLike,
+  ParentOneOf<["smt::PatternCreateOp", "smt::ForallOp", "smt::ExistsOp"]>,
+]> {
+  let arguments = (ins Variadic<AnySMTType>:$values);
+  let assemblyFormat = "($values^ `:` qualified(type($values)))? attr-dict";
+  let builders = [OpBuilder<(ins), [{
+    build($_builder, $_state, std::nullopt);
+  }]>];
+}
+
+def PatternCreateOp : SMTOp<"pattern_create", [
+  Pure,
+  IsolatedFromAbove,
+  SingleBlockImplicitTerminator<"smt::YieldOp">,
+]> {
+  let regions = (region SizedRegion<1>:$body);
+  let results = (outs PatternType:$result);
+
+  let assemblyFormat = "attr-dict-with-keyword $body";
+  let hasRegionVerifier = true;
+}
+
+class QuantifierOp<string mnemonic> : SMTOp<mnemonic, [
+  Pure,
+  SingleBlockImplicitTerminator<"smt::YieldOp">,
+]> {
+  let arguments = (ins Variadic<PatternType>:$patterns,
+                       I32Attr:$weight,
+                       StrArrayAttr:$boundVarNames);
+  let regions = (region SizedRegion<1>:$body);
+  let results = (outs BoolType:$result);
+
+  let assemblyFormat = [{
+    $boundVarNames `patterns` `(` $patterns `)` `weight` $weight
+    attr-dict-with-keyword $body
+  }];
+  let hasRegionVerifier = true;
+}
+
+def ForallOp : QuantifierOp<"forall">;
+def ExistsOp : QuantifierOp<"exists">;
 
 #endif // CIRCT_DIALECT_SMT_SMTOPS_TD

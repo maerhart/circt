@@ -15,6 +15,7 @@
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
+#include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
@@ -45,9 +46,10 @@ class SMTLoweringPattern : public OpConversionPattern<OpTy> {
 public:
   SMTLoweringPattern(const TypeConverter &typeConverter, MLIRContext *context,
                      DenseMap<StringRef, LLVM::LLVMFuncOp> &funcMap,
-                     DenseMap<Block *, Value> &ctxCache)
+                     DenseMap<Block *, Value> &ctxCache,
+                     DenseMap<StringRef, LLVM::GlobalOp> &stringCache)
       : OpConversionPattern<OpTy>(typeConverter, context), funcMap(funcMap),
-        ctxCache(ctxCache) {}
+        ctxCache(ctxCache), stringCache(stringCache) {}
 
 protected:
   Value buildAPICallGetPtr(OpBuilder &builder, Location loc, StringRef name,
@@ -92,15 +94,41 @@ protected:
 
   Value buildStringRef(OpBuilder &builder, Location loc, StringRef str) const {
     auto ip = builder.saveInsertionPoint();
-    builder.setInsertionPointToEnd(
-        builder.getBlock()->getParent()->getParentOfType<ModuleOp>().getBody());
-    auto arrayTy =
-        LLVM::LLVMArrayType::get(builder.getI8Type(), str.size() + 1);
-    auto globalStr = builder.create<LLVM::GlobalOp>(
-        loc, arrayTy, true, LLVM::linkage::Linkage::Private, str,
-        StringAttr::get(builder.getContext(), Twine(str).concat(Twine('\00'))));
-    builder.restoreInsertionPoint(ip);
-    return builder.create<LLVM::AddressOfOp>(loc, globalStr);
+    auto &global = stringCache[str];
+    if (!global) {
+      builder.setInsertionPointToEnd(builder.getBlock()
+                                         ->getParent()
+                                         ->getParentOfType<ModuleOp>()
+                                         .getBody());
+      auto arrayTy =
+          LLVM::LLVMArrayType::get(builder.getI8Type(), str.size() + 1);
+      global = builder.create<LLVM::GlobalOp>(
+          loc, arrayTy, true, LLVM::linkage::Linkage::Private, str,
+          StringAttr::get(builder.getContext(),
+                          Twine(str).concat(Twine('\00'))));
+      builder.restoreInsertionPoint(ip);
+    }
+    return builder.create<LLVM::AddressOfOp>(loc, global);
+  }
+
+  Value buildSort(OpBuilder &builder, Location loc, Value smtContext,
+                  Type type) const {
+    return TypeSwitch<Type, Value>(type)
+        .Case([&](smt::IntegerType ty) {
+          return buildAPICallGetPtr(builder, loc, "Z3_mk_int_sort",
+                                    {smtContext});
+        })
+        .Case([&](smt::BitVectorType ty) {
+          Value bitwidth = builder.create<LLVM::ConstantOp>(
+              loc, builder.getI32Type(), ty.getWidth());
+          return buildAPICallGetPtr(builder, loc, "Z3_mk_bv_sort",
+                                    {smtContext, bitwidth});
+        })
+        .Case([&](smt::BoolType ty) {
+          return buildAPICallGetPtr(builder, loc, "Z3_mk_bool_sort",
+                                    {smtContext});
+        })
+        .Default([](auto ty) { return Value(); });
   }
 
 private:
@@ -124,6 +152,7 @@ private:
 private:
   DenseMap<StringRef, LLVM::LLVMFuncOp> &funcMap;
   DenseMap<Block *, Value> &ctxCache;
+  DenseMap<StringRef, LLVM::GlobalOp> &stringCache;
 };
 
 struct DeclareConstOpLowering : public SMTLoweringPattern<DeclareConstOp> {
@@ -132,20 +161,7 @@ struct DeclareConstOpLowering : public SMTLoweringPattern<DeclareConstOp> {
   matchAndRewrite(DeclareConstOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Value ctx = buildZ3ContextPtr(rewriter, op.getLoc());
-    Value sort = TypeSwitch<Type, Value>(op.getType())
-                     .Case<BitVectorType>([&](auto ty) {
-                       return buildAPICallGetPtr(
-                           rewriter, op.getLoc(), "Z3_mk_bv_sort",
-                           {ctx, rewriter.create<LLVM::ConstantOp>(
-                                     op.getLoc(), rewriter.getI32Type(),
-                                     ty.getWidth())});
-                     })
-                     .Case<BoolType>([&](auto ty) {
-                       return buildAPICallGetPtr(rewriter, op.getLoc(),
-                                                 "Z3_mk_bool_sort", ctx);
-                     })
-                     .Default([](auto ty) { return Value(); });
-
+    Value sort = buildSort(rewriter, op.getLoc(), ctx, op.getType());
     if (!sort)
       return failure(); // TODO: error message
 
@@ -396,24 +412,11 @@ struct ArrayBroadcastOpLowering
   matchAndRewrite(smt::ArrayBroadcastOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto ctx = buildZ3ContextPtr(rewriter, op.getLoc());
-    auto domainSort =
-        TypeSwitch<Type, Value>(
-            cast<smt::ArrayType>(op.getResult().getType()).getDomainType())
-            .Case<smt::IntegerType>([&](auto ty) {
-              return buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_int_sort",
-                                        {ctx});
-            })
-            .Case<smt::BitVectorType>([&](auto ty) {
-              Value bitwidth = rewriter.create<LLVM::ConstantOp>(
-                  op.getLoc(), rewriter.getI32Type(), ty.getWidth());
-              return buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_bv_sort",
-                                        {ctx, bitwidth});
-            })
-            .Case<smt::BoolType>([&](auto ty) {
-              return buildAPICallGetPtr(rewriter, op.getLoc(),
-                                        "Z3_mk_bool_sort", {ctx});
-            })
-            .Default([](auto ty) { return Value(); });
+    auto domainSort = buildSort(
+        rewriter, op.getLoc(), ctx,
+        cast<smt::ArrayType>(op.getResult().getType()).getDomainType());
+    if (!domainSort)
+      return failure();
 
     rewriter.replaceOp(
         op, buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_const_array",
@@ -519,6 +522,262 @@ struct IntCmpOpLowering : public SMTLoweringPattern<IntCmpOp> {
   }
 };
 
+struct PatternCreateOpLowering : public SMTLoweringPattern<PatternCreateOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+  LogicalResult
+  matchAndRewrite(PatternCreateOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    auto yieldOp = cast<smt::YieldOp>(op.getBody().front().getTerminator());
+    Value ctx = buildZ3ContextPtr(rewriter, op.getLoc());
+    unsigned numPatterns = yieldOp.getValues().size();
+
+    rewriter.setInsertionPoint(yieldOp);
+
+    Value numPatternsVal = rewriter.create<LLVM::ConstantOp>(
+        loc, rewriter.getI32Type(), numPatterns);
+
+    Value constOne = rewriter.create<LLVM::ConstantOp>(
+        op.getLoc(), rewriter.getI32Type(), 1);
+    Type ptrTy = LLVM::LLVMPointerType::get(rewriter.getContext());
+    Type arrTy = LLVM::LLVMArrayType::get(ptrTy, numPatterns);
+    Value patterns =
+        rewriter.create<LLVM::AllocaOp>(op.getLoc(), ptrTy, arrTy, constOne);
+    Value array = rewriter.create<LLVM::UndefOp>(op.getLoc(), arrTy);
+
+    for (auto [i, operand] : llvm::enumerate(yieldOp.getValues())) {
+      Value convOperand = typeConverter->materializeTargetConversion(
+          rewriter, loc, typeConverter->convertType(operand.getType()),
+          operand);
+      array = rewriter.create<LLVM::InsertValueOp>(
+          loc, array, convOperand, ArrayRef<int64_t>{(int64_t)i});
+    }
+
+    rewriter.create<LLVM::StoreOp>(op.getLoc(), array, patterns);
+
+    Value patternExp =
+        buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_pattern",
+                           {ctx, numPatternsVal, patterns});
+
+    rewriter.eraseOp(yieldOp);
+    rewriter.inlineBlockBefore(&op.getBody().front(), op);
+    rewriter.setInsertionPoint(op);
+    rewriter.replaceOp(op, patternExp);
+    return success();
+  }
+};
+
+struct ForallOpLowering : public SMTLoweringPattern<ForallOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+  LogicalResult
+  matchAndRewrite(ForallOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    Value ctx = buildZ3ContextPtr(rewriter, op.getLoc());
+
+    // Patterns
+    unsigned numPatterns = adaptor.getPatterns().size();
+    Value weight = rewriter.create<LLVM::ConstantOp>(loc, rewriter.getI32Type(),
+                                                     adaptor.getWeight());
+    Value numPatternsVal = rewriter.create<LLVM::ConstantOp>(
+        loc, rewriter.getI32Type(), numPatterns);
+
+    Value constOne = rewriter.create<LLVM::ConstantOp>(
+        op.getLoc(), rewriter.getI32Type(), 1);
+    Type ptrTy = LLVM::LLVMPointerType::get(rewriter.getContext());
+    Type patternArrTy = LLVM::LLVMArrayType::get(ptrTy, numPatterns);
+    Value patterns = rewriter.create<LLVM::AllocaOp>(op.getLoc(), ptrTy,
+                                                     patternArrTy, constOne);
+    Value array = rewriter.create<LLVM::UndefOp>(op.getLoc(), patternArrTy);
+
+    for (auto [i, operand] : llvm::enumerate(adaptor.getPatterns()))
+      array = rewriter.create<LLVM::InsertValueOp>(
+          op.getLoc(), array, operand, ArrayRef<int64_t>{(int64_t)i});
+
+    rewriter.create<LLVM::StoreOp>(op.getLoc(), array, patterns);
+
+    // Bound variables
+    unsigned numDecls = adaptor.getBoundVarNames().size();
+    Value numDeclsVal =
+        rewriter.create<LLVM::ConstantOp>(loc, rewriter.getI32Type(), numDecls);
+
+    Type declArrTy = LLVM::LLVMArrayType::get(ptrTy, numDecls);
+    Value sorts = rewriter.create<LLVM::AllocaOp>(op.getLoc(), ptrTy, declArrTy,
+                                                  constOne);
+    Value declNames = rewriter.create<LLVM::AllocaOp>(op.getLoc(), ptrTy,
+                                                      declArrTy, constOne);
+    Value sortsArray = rewriter.create<LLVM::UndefOp>(op.getLoc(), declArrTy);
+    Value declNameArray =
+        rewriter.create<LLVM::UndefOp>(op.getLoc(), declArrTy);
+    unsigned numArgs = op.getBody().front().getNumArguments();
+
+    for (auto [i, arg, name] : llvm::enumerate(op.getBody().getArguments(),
+                                               adaptor.getBoundVarNames())) {
+      Type type = arg.getType();
+      Value sort = buildSort(rewriter, loc, ctx, type);
+      for (auto &use : arg.getUses()) {
+        Operation *parent = use.getOwner();
+        unsigned idx = 0;
+        while (parent != op) {
+          if (isa<ForallOp, ExistsOp>(parent)) {
+            idx += parent->getRegion(0).getNumArguments();
+          }
+          parent = use.getOwner()->getParentOp();
+        }
+        // NOTE: de-Bruijn indices start at 1 (not 0)
+        idx += numArgs - i;
+        Value deBruijnIndex =
+            rewriter.create<LLVM::ConstantOp>(loc, rewriter.getI32Type(), idx);
+        Value boundVar = buildAPICallGetPtr(
+            rewriter, op.getLoc(), "Z3_mk_bound", {ctx, deBruijnIndex, sort});
+        rewriter.replaceUsesWithIf(
+            use.get(), boundVar,
+            [&](OpOperand &operand) { return operand == use; });
+      }
+
+      if (!sort)
+        return failure();
+      sortsArray = rewriter.create<LLVM::InsertValueOp>(
+          op.getLoc(), sortsArray, sort, ArrayRef<int64_t>{(int64_t)i});
+      Value boundVarName =
+          buildStringRef(rewriter, loc, cast<StringAttr>(name).getValue());
+      Value sym = buildAPICallGetPtr(
+          rewriter, op.getLoc(), "Z3_mk_string_symbol", {ctx, boundVarName});
+      declNameArray = rewriter.create<LLVM::InsertValueOp>(
+          op.getLoc(), declNameArray, sym, ArrayRef<int64_t>{(int64_t)i});
+    }
+    op.getBody().front().eraseArguments(0,
+                                        op.getBody().front().getNumArguments());
+
+    rewriter.create<LLVM::StoreOp>(op.getLoc(), sortsArray, sorts);
+    rewriter.create<LLVM::StoreOp>(op.getLoc(), declNameArray, declNames);
+
+    // Body Expression
+    auto yieldOp = cast<smt::YieldOp>(op.getBody().front().getTerminator());
+    Value bodyExp = yieldOp.getValues()[0];
+    rewriter.setInsertionPointAfterValue(bodyExp);
+    bodyExp = typeConverter->materializeTargetConversion(
+        rewriter, loc, typeConverter->convertType(bodyExp.getType()), bodyExp);
+    rewriter.eraseOp(yieldOp);
+    rewriter.inlineBlockBefore(&op.getBody().front(), op);
+
+    rewriter.setInsertionPoint(op);
+    Value forallExp =
+        buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_forall",
+                           {ctx, weight, numPatternsVal, patterns, numDeclsVal,
+                            sorts, declNames, bodyExp});
+
+    rewriter.replaceOp(op, forallExp);
+    return success();
+  }
+};
+
+// NOTE: just a copy-paste of the ForallOpLowering
+struct ExistsOpLowering : public SMTLoweringPattern<ExistsOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+  LogicalResult
+  matchAndRewrite(ExistsOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    Value ctx = buildZ3ContextPtr(rewriter, op.getLoc());
+
+    // Patterns
+    unsigned numPatterns = adaptor.getPatterns().size();
+    Value weight = rewriter.create<LLVM::ConstantOp>(loc, rewriter.getI32Type(),
+                                                     adaptor.getWeight());
+    Value numPatternsVal = rewriter.create<LLVM::ConstantOp>(
+        loc, rewriter.getI32Type(), numPatterns);
+
+    Value constOne = rewriter.create<LLVM::ConstantOp>(
+        op.getLoc(), rewriter.getI32Type(), 1);
+    Type ptrTy = LLVM::LLVMPointerType::get(rewriter.getContext());
+    Type patternArrTy = LLVM::LLVMArrayType::get(ptrTy, numPatterns);
+    Value patterns = rewriter.create<LLVM::AllocaOp>(op.getLoc(), ptrTy,
+                                                     patternArrTy, constOne);
+    Value array = rewriter.create<LLVM::UndefOp>(op.getLoc(), patternArrTy);
+
+    for (auto [i, operand] : llvm::enumerate(adaptor.getPatterns()))
+      array = rewriter.create<LLVM::InsertValueOp>(
+          op.getLoc(), array, operand, ArrayRef<int64_t>{(int64_t)i});
+
+    rewriter.create<LLVM::StoreOp>(op.getLoc(), array, patterns);
+
+    // Bound variables
+    unsigned numDecls = adaptor.getBoundVarNames().size();
+    Value numDeclsVal =
+        rewriter.create<LLVM::ConstantOp>(loc, rewriter.getI32Type(), numDecls);
+
+    Type declArrTy = LLVM::LLVMArrayType::get(ptrTy, numDecls);
+    Value sorts = rewriter.create<LLVM::AllocaOp>(op.getLoc(), ptrTy, declArrTy,
+                                                  constOne);
+    Value declNames = rewriter.create<LLVM::AllocaOp>(op.getLoc(), ptrTy,
+                                                      declArrTy, constOne);
+    Value sortsArray = rewriter.create<LLVM::UndefOp>(op.getLoc(), declArrTy);
+    Value declNameArray =
+        rewriter.create<LLVM::UndefOp>(op.getLoc(), declArrTy);
+    unsigned numArgs = op.getBody().front().getNumArguments();
+
+    for (auto [i, arg, name] : llvm::enumerate(op.getBody().getArguments(),
+                                               adaptor.getBoundVarNames())) {
+      Type type = arg.getType();
+      Value sort = buildSort(rewriter, loc, ctx, type);
+      for (auto &use : arg.getUses()) {
+        Operation *parent = use.getOwner();
+        unsigned idx = 0;
+        while (parent != op) {
+          if (isa<ForallOp, ExistsOp>(parent)) {
+            idx += parent->getRegion(0).getNumArguments();
+          }
+          parent = use.getOwner()->getParentOp();
+        }
+        // NOTE: de-Bruijn indices start at 1 (not 0)
+        idx += numArgs - i;
+        Value deBruijnIndex =
+            rewriter.create<LLVM::ConstantOp>(loc, rewriter.getI32Type(), idx);
+        Value boundVar = buildAPICallGetPtr(
+            rewriter, op.getLoc(), "Z3_mk_bound", {ctx, deBruijnIndex, sort});
+        rewriter.replaceUsesWithIf(
+            use.get(), boundVar,
+            [&](OpOperand &operand) { return operand == use; });
+      }
+
+      if (!sort)
+        return failure();
+      sortsArray = rewriter.create<LLVM::InsertValueOp>(
+          op.getLoc(), sortsArray, sort, ArrayRef<int64_t>{(int64_t)i});
+      Value boundVarName =
+          buildStringRef(rewriter, loc, cast<StringAttr>(name).getValue());
+      Value sym = buildAPICallGetPtr(
+          rewriter, op.getLoc(), "Z3_mk_string_symbol", {ctx, boundVarName});
+      declNameArray = rewriter.create<LLVM::InsertValueOp>(
+          op.getLoc(), declNameArray, sym, ArrayRef<int64_t>{(int64_t)i});
+    }
+    op.getBody().front().eraseArguments(0,
+                                        op.getBody().front().getNumArguments());
+
+    rewriter.create<LLVM::StoreOp>(op.getLoc(), sortsArray, sorts);
+    rewriter.create<LLVM::StoreOp>(op.getLoc(), declNameArray, declNames);
+
+    // Body Expression
+    auto yieldOp = cast<smt::YieldOp>(op.getBody().front().getTerminator());
+    Value bodyExp = yieldOp.getValues()[0];
+    rewriter.setInsertionPointAfterValue(bodyExp);
+    bodyExp = typeConverter->materializeTargetConversion(
+        rewriter, loc, typeConverter->convertType(bodyExp.getType()), bodyExp);
+    rewriter.eraseOp(yieldOp);
+    rewriter.inlineBlockBefore(&op.getBody().front(), op);
+
+    rewriter.setInsertionPoint(op);
+    Value forallExp =
+        buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_exists",
+                           {ctx, weight, numPatternsVal, patterns, numDeclsVal,
+                            sorts, declNames, bodyExp});
+
+    rewriter.replaceOp(op, forallExp);
+    return success();
+  }
+};
+
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -539,6 +798,7 @@ void LowerSMTToZ3LLVMPass::runOnOperation() {
   globals.add(cache);
   DenseMap<StringRef, LLVM::LLVMFuncOp> funcMap;
   DenseMap<Block *, Value> ctxCache;
+  DenseMap<StringRef, LLVM::GlobalOp> stringCache;
 
   LLVMConversionTarget target(getContext());
   target.addLegalOp<mlir::ModuleOp>();
@@ -560,6 +820,9 @@ void LowerSMTToZ3LLVMPass::runOnOperation() {
   converter.addConversion([&](smt::IntegerType type) {
     return LLVM::LLVMPointerType::get(type.getContext());
   });
+  converter.addConversion([&](smt::PatternType type) {
+    return LLVM::LLVMPointerType::get(type.getContext());
+  });
 
   RewritePatternSet patterns(&getContext());
   populateFuncToLLVMConversionPatterns(converter, patterns);
@@ -573,14 +836,14 @@ void LowerSMTToZ3LLVMPass::runOnOperation() {
     static StringRef get() { return FUNCNAME; }                                \
   };                                                                           \
   patterns.add<OneToOneSMTPattern<OPTYPE, OPTYPE##Name>>(                      \
-      converter, &getContext(), funcMap, ctxCache);
+      converter, &getContext(), funcMap, ctxCache, stringCache);
 
 #define ADD_VARIADIC_PATTERN(OPTYPE, FUNCNAME)                                 \
   struct OPTYPE##Name {                                                        \
     static StringRef get() { return FUNCNAME; }                                \
   };                                                                           \
   patterns.add<VariadicSMTPattern<OPTYPE, OPTYPE##Name>>(                      \
-      converter, &getContext(), funcMap, ctxCache);
+      converter, &getContext(), funcMap, ctxCache, stringCache);
 
   ADD_OTO_PATTERN(NegOp, "Z3_mk_bvneg");
   ADD_OTO_PATTERN(AddOp, "Z3_mk_bvadd");
@@ -630,11 +893,20 @@ void LowerSMTToZ3LLVMPass::runOnOperation() {
                RepeatOpLowering, ExtractOpLowering, ArraySelectOpLowering,
                ArrayStoreOpLowering, ArrayBroadcastOpLowering,
                ArrayDefaultOpLowering, BoolConstantOpLowering,
-               IntConstantOpLowering, IntCmpOpLowering>(
-      converter, &getContext(), funcMap, ctxCache);
+               IntConstantOpLowering, IntCmpOpLowering, PatternCreateOpLowering,
+               ForallOpLowering, ExistsOpLowering>(
+      converter, &getContext(), funcMap, ctxCache, stringCache);
 
   if (failed(applyFullConversion(getOperation(), target, std::move(patterns))))
-    signalPassFailure();
+    return signalPassFailure();
+
+  RewritePatternSet cleanupPatterns(&getContext());
+  target.addIllegalOp<UnrealizedConversionCastOp>();
+  populateReconcileUnrealizedCastsPatterns(cleanupPatterns);
+
+  if (failed(applyFullConversion(getOperation(), target,
+                                 std::move(cleanupPatterns))))
+    return signalPassFailure();
 }
 
 std::unique_ptr<OperationPass<ModuleOp>> circt::createLowerSMTToZ3LLVMPass() {

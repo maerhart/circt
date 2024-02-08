@@ -13,6 +13,7 @@ add_circt_conversion_library(CIRCTSMTToZ3LLVM
   MLIRSCFToControlFlow
   MLIRArithToLLVM
   MLIRControlFlowToLLVM
+  MLIRReconcileUnrealizedCasts
   MLIRFuncToLLVM
   MLIRTransforms
 )

@@ -24,6 +24,11 @@ def IntType : SMTTypeDef<"Integer"> {
   let assemblyFormat = "";
 }
 
+def PatternType : SMTTypeDef<"Pattern"> {
+  let mnemonic = "pattern";
+  let assemblyFormat = "";
+}
+
 def BitVectorType : SMTTypeDef<"BitVector"> {
   let mnemonic = "bv";
   let parameters = (ins "unsigned":$width);
