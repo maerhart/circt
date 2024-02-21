@@ -383,6 +383,17 @@ class QuantifierOp<string mnemonic> : SMTOp<mnemonic, [
     $boundVarNames `patterns` `(` $patterns `)` `weight` $weight
     attr-dict-with-keyword $body
   }];
+
+  let builders = [
+    OpBuilder<(ins
+      "TypeRange":$boundVarTypes,
+      "ArrayRef<StringRef>":$boundVarNames,
+      "function_ref<Value(OpBuilder &, Location, ValueRange)>":$bodyBuilder,
+      CArg<"uint32_t", "0">:$weight,
+      CArg<"ValueRange", "std::nullopt">:$patterns)>
+  ];
+
+  let skipDefaultBuilders = true;
   let hasRegionVerifier = true;
 }
 

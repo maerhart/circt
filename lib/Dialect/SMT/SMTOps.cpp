@@ -175,6 +175,25 @@ LogicalResult ForallOp::verifyRegions() {
   return success();
 }
 
+void ForallOp::build(OpBuilder &odsBuilder, OperationState &odsState,
+  TypeRange boundVarTypes, ArrayRef<StringRef> boundVarNames, function_ref<Value(OpBuilder &, Location, ValueRange)> bodyBuilder, uint32_t weight, ValueRange patterns) {
+  odsState.addTypes(BoolType::get(odsBuilder.getContext()));
+  odsState.addOperands(patterns);
+  odsState.addAttribute(getWeightAttrName(odsState.name), odsBuilder.getI32IntegerAttr(weight));
+  SmallVector<Attribute> boundVarNamesList;
+  for (StringRef str : boundVarNames)
+    boundVarNamesList.emplace_back(odsBuilder.getStringAttr(str));
+  odsState.addAttribute(getBoundVarNamesAttrName(odsState.name), odsBuilder.getArrayAttr(boundVarNamesList));
+  Region *region = odsState.addRegion();
+  Block &block = region->emplaceBlock();
+  auto ipSave = odsBuilder.saveInsertionPoint();
+  odsBuilder.setInsertionPointToStart(&block);
+  block.addArguments(boundVarTypes, SmallVector<Location>(boundVarTypes.size(), odsState.location));
+  Value returnVal = bodyBuilder(odsBuilder, odsState.location, block.getArguments());
+  odsBuilder.create<smt::YieldOp>(odsState.location, returnVal);
+  odsBuilder.restoreInsertionPoint(ipSave);
+}
+
 //===----------------------------------------------------------------------===//
 // ExistsOp
 //===----------------------------------------------------------------------===//
@@ -189,6 +208,25 @@ LogicalResult ExistsOp::verifyRegions() {
           getBody().front().getTerminator()->getOperand(0).getType()))
     return emitOpError("yielded value must be of '!smt.bool' type");
   return success();
+}
+
+void ExistsOp::build(OpBuilder &odsBuilder, OperationState &odsState,
+  TypeRange boundVarTypes, ArrayRef<StringRef> boundVarNames, function_ref<Value(OpBuilder &, Location, ValueRange)> bodyBuilder, uint32_t weight, ValueRange patterns) {
+  odsState.addTypes(BoolType::get(odsBuilder.getContext()));
+  odsState.addOperands(patterns);
+  odsState.addAttribute(getWeightAttrName(odsState.name), odsBuilder.getI32IntegerAttr(weight));
+  SmallVector<Attribute> boundVarNamesList;
+  for (StringRef str : boundVarNames)
+    boundVarNamesList.emplace_back(odsBuilder.getStringAttr(str));
+  odsState.addAttribute(getBoundVarNamesAttrName(odsState.name), odsBuilder.getArrayAttr(boundVarNamesList));
+  Region *region = odsState.addRegion();
+  Block &block = region->emplaceBlock();
+  auto ipSave = odsBuilder.saveInsertionPoint();
+  odsBuilder.setInsertionPointToStart(&block);
+  block.addArguments(boundVarTypes, SmallVector<Location>(boundVarTypes.size(), odsState.location));
+  Value returnVal = bodyBuilder(odsBuilder, odsState.location, block.getArguments());
+  odsBuilder.create<smt::YieldOp>(odsState.location, returnVal);
+  odsBuilder.restoreInsertionPoint(ipSave);
 }
 
 #define GET_OP_CLASSES
