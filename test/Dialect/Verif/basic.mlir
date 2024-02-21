@@ -57,3 +57,16 @@ hw.module @HasBeenReset(in %clock: i1, in %reset: i1) {
   %hbr0 = verif.has_been_reset %clock, async %reset
   %hbr1 = verif.has_been_reset %clock, sync %reset
 }
+
+
+verif.bmc bound 10 attributes {verif.some_attr} {
+^bb0(%cycle: i64, %clk: !seq.clock, %arg0: i32):
+  verif.yield
+} circuit {
+^bb0(%clk: !seq.clock, %arg0: i32, %state0: i32):
+  %c-1_i32 = hw.constant -1 : i32
+  %0 = comb.add %arg0, %state0 : i32
+  // %state0 is the result of a seq.compreg taking %0 as input
+  %2 = comb.xor %state0, %c-1_i32 : i32
+  verif.yield %2, %0 : i32, i32
+}

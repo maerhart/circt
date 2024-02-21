@@ -109,4 +109,21 @@ def HasBeenResetOp : VerifOp<"has_been_reset", [Pure]> {
   let hasFolder = true;
 }
 
+def YieldOp : VerifOp<"yield", [Terminator]> {
+  let arguments = (ins Variadic<AnyType>:$inputs);
+  let assemblyFormat = "($inputs^ `:` type($inputs))? attr-dict";
+}
+
+def BMCOp : VerifOp<"bmc", []> {
+  let summary = "Perform a bounded model check";
+
+  let arguments = (ins I64Attr:$bound);
+  let regions = (region SizedRegion<1>:$assumptions, SizedRegion<1>:$circuit);
+  let results = (outs I1:$result);
+
+  let assemblyFormat = [{
+    `bound` $bound attr-dict-with-keyword $assumptions `circuit` $circuit
+  }];
+}
+
 #endif // CIRCT_DIALECT_VERIF_VERIFOPS_TD
