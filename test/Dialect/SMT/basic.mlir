@@ -113,5 +113,10 @@ func.func @types(%arg0: !smt.bool, %arg1: !smt.solver) {
   // CHECK: %{{.*}} = smt.implies %arg0, %arg0 {smt.some_attr}
   %43 = smt.implies %arg0, %arg0 {smt.some_attr}
 
+  // CHECK: [[FUNC:%.+]] = smt.declare_func "func1" fresh {smt.some_attr} : !smt.func<(!smt.bool, !smt.bool) -> !smt.bool>
+  %44 = smt.declare_func "func1" fresh {smt.some_attr} : !smt.func<(!smt.bool, !smt.bool) -> !smt.bool>
+  // CHECK: smt.apply_func [[FUNC]](%arg0, %arg0) {smt.some_attr} : !smt.func<(!smt.bool, !smt.bool) -> !smt.bool>
+  %45 = smt.apply_func %44(%arg0, %arg0) {smt.some_attr} : !smt.func<(!smt.bool, !smt.bool) -> !smt.bool>
+
   return
 }

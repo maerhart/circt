@@ -226,6 +226,28 @@ def DeclareConstOp : SMTOp<"declare_const", [Pure]> {
   let assemblyFormat = "$declName attr-dict `:` qualified(type($result))";
 }
 
+def DeclareFuncOp : SMTOp<"declare_func", [Pure]> {
+  let summary = "declare a function";
+  let arguments = (ins StrAttr:$declName, UnitAttr:$fresh);
+  let results = (outs SMTFunctionType:$result);
+  let assemblyFormat = [{
+    $declName (`fresh` $fresh^)? attr-dict `:` qualified(type($result))
+  }];
+}
+
+def ApplyFuncOp : SMTOp<"apply_func", [
+  Pure,
+  TypesMatchWith<"summary", "func", "result", "cast<SMTFunctionType>($_self).getRangeType()">,
+  RangedTypesMatchWith<"summary", "func", "args", "cast<SMTFunctionType>($_self).getDomainTypes()">
+]> {
+  let summary = "apply a function";
+  let arguments = (ins SMTFunctionType:$func, Variadic<AnySMTType>:$args);
+  let results = (outs AnySMTType:$result);
+  let assemblyFormat = [{
+    $func `(` $args `)` attr-dict `:` qualified(type($func))
+  }];
+}
+
 def SolverCreateOp : SMTOp<"solver_create", [Pure]> {
   let summary = "create a solver instance";
   let arguments = (ins StrAttr:$solverName);

@@ -46,4 +46,16 @@ def ArrayType : SMTTypeDef<"Array"> {
   let assemblyFormat = "`<` `[` $domainType `->` $rangeType `]` `>`";
 }
 
+def SMTFunctionType : SMTTypeDef<"SMTFunction"> {
+  let mnemonic = "func";
+  let parameters = (ins ArrayRefParameter<"mlir::Type", "domain types">:$domainTypes, "mlir::Type":$rangeType);
+  let assemblyFormat = "`<` `(` $domainTypes `)` `->` $rangeType `>`";
+
+  let builders = [
+    TypeBuilderWithInferredContext<(ins "llvm::ArrayRef<mlir::Type>":$domainTypes, "mlir::Type":$rangeType), [{
+      return $_get(rangeType.getContext(), domainTypes, rangeType);
+    }]>
+  ];
+}
+
 #endif // CIRCT_DIALECT_SMT_SMTTYPES_TD
