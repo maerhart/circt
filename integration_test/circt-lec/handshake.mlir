@@ -31,6 +31,13 @@ handshake.func @const1(%arg0: none) -> i32 {
   return %0 : i32
 }
 
+handshake.func @const0FromSource(%arg0: none) -> i32 {
+  handshake.sink %arg0 : none
+  %0 = handshake.source
+  %1 = handshake.constant %0 {value = 1 : i32} : i32
+  return %1 : i32
+}
+
 handshake.func @sinkSource(%arg0: none) -> none {
   handshake.sink %arg0 : none
   %0 = handshake.source
@@ -150,4 +157,31 @@ handshake.func @negBranch3(%cond: i1, %arg1: i32) -> (i32, i32) {
   %neg_cond = comb.xor %cond, %true : i1
   %a, %b = handshake.cond_br %neg_cond, %arg1 : i32
   return %b, %a : i32, i32
+}
+
+handshake.func @negNeg(%arg0: i32) -> i32 {
+  %0 = handshake.join %arg0, %arg0 : i32, i32
+  // %0 = handshake.source
+  %c-1 = handshake.constant %0 {value = -1 : i32} : i32
+  %neg = comb.xor %arg0, %c-1 : i32
+  %res = comb.xor %neg, %c-1 : i32
+  return %res : i32
+}
+
+handshake.func @divAndMulBy2(%arg0: i32) -> i32 {
+  %ctrl = handshake.join %arg0, %arg0 : i32, i32
+  %c1 = handshake.constant %ctrl {value = 1 : i32} : i32
+  %c2 = handshake.constant %ctrl {value = 2 : i32} : i32
+  %0 = comb.shrs %arg0, %c1 : i32
+  %1 = comb.mul %0, %c2 : i32
+  return %1 : i32
+}
+
+handshake.func @mulAndDivBy2(%arg0: i32) -> i32 {
+  %ctrl = handshake.join %arg0, %arg0 : i32, i32
+  %c1 = handshake.constant %ctrl {value = 1 : i32} : i32
+  %c2 = handshake.constant %ctrl {value = 2 : i32} : i32
+  %0 = comb.mul %arg0, %c2 : i32
+  %1 = comb.shrs %0, %c1 : i32
+  return %1 : i32
 }
