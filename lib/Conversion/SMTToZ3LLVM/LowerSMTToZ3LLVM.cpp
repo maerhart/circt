@@ -45,9 +45,9 @@ template <typename OpTy>
 class SMTLoweringPattern : public OpConversionPattern<OpTy> {
 public:
   SMTLoweringPattern(const TypeConverter &typeConverter, MLIRContext *context,
-                     DenseMap<StringRef, LLVM::LLVMFuncOp> &funcMap,
+                     DenseMap<StringAttr, LLVM::LLVMFuncOp> &funcMap,
                      DenseMap<Block *, Value> &ctxCache,
-                     DenseMap<StringRef, LLVM::GlobalOp> &stringCache)
+                     DenseMap<StringAttr, LLVM::GlobalOp> &stringCache)
       : OpConversionPattern<OpTy>(typeConverter, context), funcMap(funcMap),
         ctxCache(ctxCache), stringCache(stringCache) {}
 
@@ -94,7 +94,9 @@ protected:
 
   Value buildStringRef(OpBuilder &builder, Location loc, StringRef str) const {
     auto ip = builder.saveInsertionPoint();
-    auto &global = stringCache[str];
+    auto strAttr = StringAttr::get(builder.getContext(),
+                          Twine(str).concat(Twine('\00')));
+    auto &global = stringCache[strAttr];
     if (!global) {
       builder.setInsertionPointToEnd(builder.getBlock()
                                          ->getParent()
@@ -104,8 +106,7 @@ protected:
           LLVM::LLVMArrayType::get(builder.getI8Type(), str.size() + 1);
       global = builder.create<LLVM::GlobalOp>(
           loc, arrayTy, true, LLVM::linkage::Linkage::Private, str,
-          StringAttr::get(builder.getContext(),
-                          Twine(str).concat(Twine('\00'))));
+          strAttr);
       builder.restoreInsertionPoint(ip);
     }
     return builder.create<LLVM::AddressOfOp>(loc, global);
@@ -142,23 +143,24 @@ private:
                                  StringRef name,
                                  LLVM::LLVMFunctionType funcType,
                                  ValueRange args) const {
-    if (!funcMap.contains(name)) {
+    auto nameAttr = StringAttr::get(builder.getContext(), name);
+    if (!funcMap.contains(nameAttr)) {
       auto ip = builder.saveInsertionPoint();
       builder.setInsertionPointToEnd(builder.getBlock()
                                          ->getParent()
                                          ->getParentOfType<ModuleOp>()
                                          .getBody());
-      funcMap[name] = builder.create<LLVM::LLVMFuncOp>(loc, name, funcType);
+      funcMap[nameAttr] = builder.create<LLVM::LLVMFuncOp>(loc, name, funcType);
       builder.restoreInsertionPoint(ip);
     }
-    auto funcOp = funcMap[name];
+    auto funcOp = funcMap[nameAttr];
     return builder.create<LLVM::CallOp>(loc, funcOp, args);
   }
 
 private:
-  DenseMap<StringRef, LLVM::LLVMFuncOp> &funcMap;
+  DenseMap<StringAttr, LLVM::LLVMFuncOp> &funcMap;
   DenseMap<Block *, Value> &ctxCache;
-  DenseMap<StringRef, LLVM::GlobalOp> &stringCache;
+  DenseMap<StringAttr, LLVM::GlobalOp> &stringCache;
 };
 
 struct DeclareConstOpLowering : public SMTLoweringPattern<DeclareConstOp> {
@@ -171,11 +173,11 @@ struct DeclareConstOpLowering : public SMTLoweringPattern<DeclareConstOp> {
     if (!sort)
       return failure(); // TODO: error message
 
-    Value sym = buildAPICallGetPtr(
-        rewriter, op.getLoc(), "Z3_mk_string_symbol",
-        {ctx, buildStringRef(rewriter, op.getLoc(), adaptor.getDeclName())});
-    Value constDecl = buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_const",
-                                         {ctx, sym, sort});
+    Value str = buildStringRef(rewriter, op.getLoc(), adaptor.getDeclName());
+    // Value sym = buildAPICallGetPtr(
+    //     rewriter, op.getLoc(), "Z3_mk_string_symbol", {ctx, str});
+    Value constDecl = buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_fresh_const",
+                                         {ctx, str, sort});
     rewriter.replaceOp(op, constDecl);
 
     return success();
@@ -327,13 +329,13 @@ struct AssertOpLowering : public SMTLoweringPattern<AssertOp> {
     buildAPICallGetVoid(rewriter, op.getLoc(), "Z3_solver_assert",
                         {ctx, adaptor.getSolver(), adaptor.getInput()});
 
-    // auto stringPtr = buildAPICallGetPtr(rewriter, op.getLoc(),
-    // "Z3_ast_to_string", {ctx, adaptor.getInput()}); auto formatString =
-    // buildStringRef(rewriter, op.getLoc(), "AST:\n%s\n");
-    // buildAPICall(rewriter, op.getLoc(), "printf",
-    // LLVM::LLVMFunctionType::get(rewriter.getI32Type(),
-    // LLVM::LLVMPointerType::get(getContext()), true), {formatString,
-    // stringPtr});
+    auto stringPtr = buildAPICallGetPtr(rewriter, op.getLoc(),
+    "Z3_ast_to_string", {ctx, adaptor.getInput()}); auto formatString =
+    buildStringRef(rewriter, op.getLoc(), "AST:\n%s\n");
+    buildAPICall(rewriter, op.getLoc(), "printf",
+    LLVM::LLVMFunctionType::get(rewriter.getI32Type(),
+    LLVM::LLVMPointerType::get(getContext()), true), {formatString,
+    stringPtr});
 
     rewriter.eraseOp(op);
     return success();
@@ -367,8 +369,8 @@ struct CheckSatOpLowering : public SMTLoweringPattern<CheckSatOp> {
 
     // auto constNegOne = rewriter.create<LLVM::ConstantOp>(op.getLoc(),
     // rewriter.getI32Type(), -1); // == FALSE
-    auto constOne = rewriter.create<LLVM::ConstantOp>(op.getLoc(),
-                                                      rewriter.getI32Type(), 1);
+    auto constOne = rewriter.create<LLVM::ConstantOp>(op.getLoc(), rewriter.getI32Type(), 1);
+    auto constTwo = rewriter.create<LLVM::ConstantOp>(op.getLoc(), rewriter.getI32Type(), 2);
     // auto isFalse = rewriter.create<LLVM::ICmpOp>(op.getLoc(),
     // LLVM::ICmpPredicate::eq, checkResult, constNegOne); auto ifProofOp =
     // rewriter.create<scf::IfOp>(op.getLoc(), isFalse);
@@ -400,6 +402,32 @@ struct CheckSatOpLowering : public SMTLoweringPattern<CheckSatOp> {
                      LLVM::LLVMPointerType::get(getContext()), true),
                  {modelFormatString, modelStringPtr});
 
+    // Type ptrTy = LLVM::LLVMPointerType::get(getContext());
+    // Value numConstAssignments = *buildAPICall(rewriter, op.getLoc(), "Z3_model_get_num_consts", LLVM::LLVMFunctionType::get(rewriter.getI32Type(), {ptrTy, ptrTy}), ValueRange{ctx, model});
+    // Value lowerBound = rewriter.create<LLVM::ConstantOp>(op.getLoc(), rewriter.getI32Type(), 0);
+    // scf::ForOp forOp = rewriter.create<scf::ForOp>(op.getLoc(), constOne, constTwo, constOne);
+    // rewriter.setInsertionPointToStart(forOp.getBody());
+    // Value i = forOp.getBody()->getArgument(0);
+    // Value funcDecl = buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_model_get_const_decl", {ctx, model, i});
+    // Value constAst = buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_model_get_const_interp", {ctx, model, funcDecl});
+
+    // constAst = rewriter.create<UnrealizedConversionCastOp>(op.getLoc(), smt::ArrayType::get(getContext(), smt::IntegerType::get(getContext()), smt::BoolType::get(getContext())), constAst).getResult(0);
+    // Value index = rewriter.create<smt::IntConstantOp>(op.getLoc(), IntegerAttr::get(rewriter.getI32Type(), 0));
+    // Value constAstSelected = rewriter.create<smt::ArraySelectOp>(op.getLoc(), constAst, index);
+    // constAstSelected = rewriter.create<UnrealizedConversionCastOp>(op.getLoc(), ptrTy, constAstSelected).getResult(0);
+    // Value output = rewriter.create<LLVM::AllocaOp>(op.getLoc(), ptrTy, ptrTy, constOne);
+    // Value res = *buildAPICall(rewriter, op.getLoc(), "Z3_model_eval", LLVM::LLVMFunctionType::get(rewriter.getI32Type(), {ptrTy, ptrTy, ptrTy, rewriter.getI32Type(), ptrTy}), ValueRange{ctx, model, constAstSelected, constOne, output});
+    // Value succeeded = rewriter.create<LLVM::ICmpOp>(op.getLoc(), LLVM::ICmpPredicate::ne, res, lowerBound);
+    // auto ifOp = rewriter.create<scf::IfOp>(op.getLoc(), succeeded);
+    // auto ipSave = rewriter.saveInsertionPoint();
+    // rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+    // Value astResult = rewriter.create<LLVM::LoadOp>(op.getLoc(), ptrTy, output);
+
+    // auto stringPtr = buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_ast_to_string", {ctx, astResult});
+    // auto formatString = buildStringRef(rewriter, op.getLoc(), "Const AST:\n%s\n");
+    // buildAPICall(rewriter, op.getLoc(), "printf", LLVM::LLVMFunctionType::get(rewriter.getI32Type(), LLVM::LLVMPointerType::get(getContext()), true), {formatString, stringPtr});
+
+    // rewriter.restoreInsertionPoint(ipSave);
     return success();
   }
 };
@@ -676,7 +704,7 @@ struct ForallOpLowering : public SMTLoweringPattern<ForallOp> {
                                                adaptor.getBoundVarNames())) {
       Type type = arg.getType();
       Value sort = buildSort(rewriter, loc, ctx, type);
-      for (auto &use : arg.getUses()) {
+      for (auto &use : llvm::make_early_inc_range(arg.getUses())) {
         Operation *parent = use.getOwner();
         unsigned idx = 0;
         while (parent != op) {
@@ -686,7 +714,7 @@ struct ForallOpLowering : public SMTLoweringPattern<ForallOp> {
           parent = use.getOwner()->getParentOp();
         }
         // NOTE: de-Bruijn indices start at 1 (not 0)
-        idx += numArgs - i;
+        idx += numArgs - i - 1;
         Value deBruijnIndex =
             rewriter.create<LLVM::ConstantOp>(loc, rewriter.getI32Type(), idx);
         Value boundVar = buildAPICallGetPtr(
@@ -857,11 +885,13 @@ void LowerSMTToZ3LLVMPass::runOnOperation() {
   SymbolCache cache;
   cache.addDefinitions(getOperation());
   globals.add(cache);
-  DenseMap<StringRef, LLVM::LLVMFuncOp> funcMap;
+  DenseMap<StringAttr, LLVM::LLVMFuncOp> funcMap;
   getOperation()->walk(
-      [&](LLVM::LLVMFuncOp op) { funcMap[op.getSymName()] = op; });
+      [&](LLVM::LLVMFuncOp op) { funcMap[op.getSymNameAttr()] = op; });
   DenseMap<Block *, Value> ctxCache;
-  DenseMap<StringRef, LLVM::GlobalOp> stringCache;
+  DenseMap<StringAttr, LLVM::GlobalOp> stringCache;
+  getOperation()->walk(
+      [&](LLVM::GlobalOp op) { stringCache[op.getSymNameAttr()] = op; });
 
   LLVMConversionTarget target(getContext());
   target.addLegalOp<mlir::ModuleOp>();
