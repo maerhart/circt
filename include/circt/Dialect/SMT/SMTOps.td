@@ -30,7 +30,7 @@ class SMTArrayOp<string mnemonic, list<Trait> traits = []> :
 class SMTIntOp<string mnemonic, list<Trait> traits = []> :
   SMTOp<"int." # mnemonic, traits>;
 
-def AnySMTType : AnyTypeOf<[BoolType, IntType, BitVectorType, ArrayType]>;
+def AnySMTType : AnyTypeOf<[BoolType, IntType, BitVectorType, ArrayType, SortType]>;
 
 def BoolConstantOp : SMTOp<"constant", [
   Pure,

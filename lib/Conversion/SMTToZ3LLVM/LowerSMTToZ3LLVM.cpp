@@ -129,6 +129,13 @@ protected:
           return buildAPICallGetPtr(builder, loc, "Z3_mk_bool_sort",
                                     {smtContext});
         })
+        .Case([&](smt::SortType ty) {
+          Value str = buildStringRef(builder, loc, ty.getIdentifier());
+          Value sym = buildAPICallGetPtr(builder, loc, "Z3_mk_string_symbol",
+                                         {smtContext, str});
+          return buildAPICallGetPtr(builder, loc, "Z3_mk_uninterpreted_sort",
+                                    {smtContext, sym});
+        })
         .Case([&](smt::ArrayType ty) {
           return buildAPICallGetPtr(builder, loc,
                                     "Z3_mk_array_sort",
@@ -179,6 +186,88 @@ struct DeclareConstOpLowering : public SMTLoweringPattern<DeclareConstOp> {
     Value constDecl = buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_fresh_const",
                                          {ctx, str, sort});
     rewriter.replaceOp(op, constDecl);
+
+    return success();
+  }
+};
+
+struct DeclareFuncOpLowering : public SMTLoweringPattern<DeclareFuncOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+  LogicalResult
+  matchAndRewrite(DeclareFuncOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    Value ctx = buildZ3ContextPtr(rewriter, op.getLoc());
+    Type llvmPtrTy = LLVM::LLVMPointerType::get(getContext());
+    auto funcType = cast<SMTFunctionType>(op.getResult().getType());
+    Value rangeSort =
+        buildSort(rewriter, op.getLoc(), ctx, funcType.getRangeType());
+    if (!rangeSort)
+      return failure(); // TODO: error message
+
+    Type arrTy =
+        LLVM::LLVMArrayType::get(llvmPtrTy, funcType.getDomainTypes().size());
+    Value domain = rewriter.create<LLVM::UndefOp>(loc, arrTy);
+    for (auto [i, ty] : llvm::enumerate(funcType.getDomainTypes())) {
+      Value sort = buildSort(rewriter, op.getLoc(), ctx, ty);
+      if (!sort)
+        return failure();
+
+      domain = rewriter.create<LLVM::InsertValueOp>(loc, domain, sort, i);
+    }
+    Value one =
+        rewriter.create<LLVM::ConstantOp>(loc, rewriter.getI32Type(), 1);
+    Value domainStorage =
+        rewriter.create<LLVM::AllocaOp>(loc, llvmPtrTy, arrTy, one);
+    rewriter.create<LLVM::StoreOp>(loc, domain, domainStorage);
+
+    Value str = buildStringRef(rewriter, op.getLoc(), adaptor.getDeclName());
+    Value domainSize = rewriter.create<LLVM::ConstantOp>(
+        loc, rewriter.getI32Type(), funcType.getDomainTypes().size());
+    Value decl;
+    if (adaptor.getFresh()) {
+      decl =
+          buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_fresh_func_decl",
+                             {ctx, str, domainSize, domainStorage, rangeSort});
+    } else {
+      Value sym = buildAPICallGetPtr(rewriter, op.getLoc(),
+                                     "Z3_mk_string_symbol", {ctx, str});
+      decl =
+          buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_func_decl",
+                             {ctx, sym, domainSize, domainStorage, rangeSort});
+    }
+    rewriter.replaceOp(op, decl);
+
+    return success();
+  }
+};
+
+struct ApplyFuncOpLowering : public SMTLoweringPattern<ApplyFuncOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+  LogicalResult
+  matchAndRewrite(ApplyFuncOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    Value ctx = buildZ3ContextPtr(rewriter, op.getLoc());
+    Type llvmPtrTy = LLVM::LLVMPointerType::get(getContext());
+
+    Type arrTy = LLVM::LLVMArrayType::get(llvmPtrTy, adaptor.getArgs().size());
+    Value domain = rewriter.create<LLVM::UndefOp>(loc, arrTy);
+    for (auto [i, arg] : llvm::enumerate(adaptor.getArgs()))
+      domain = rewriter.create<LLVM::InsertValueOp>(loc, domain, arg, i);
+
+    Value one =
+        rewriter.create<LLVM::ConstantOp>(loc, rewriter.getI32Type(), 1);
+    Value domainStorage =
+        rewriter.create<LLVM::AllocaOp>(loc, llvmPtrTy, arrTy, one);
+    rewriter.create<LLVM::StoreOp>(loc, domain, domainStorage);
+
+    Value domainSize = rewriter.create<LLVM::ConstantOp>(
+        loc, rewriter.getI32Type(), adaptor.getArgs().size());
+    Value returnVal =
+        buildAPICallGetPtr(rewriter, op.getLoc(), "Z3_mk_app",
+                           {ctx, adaptor.getFunc(), domainSize, domainStorage});
+    rewriter.replaceOp(op, returnVal);
 
     return success();
   }
@@ -917,6 +1006,12 @@ void LowerSMTToZ3LLVMPass::runOnOperation() {
   converter.addConversion([&](smt::PatternType type) {
     return LLVM::LLVMPointerType::get(type.getContext());
   });
+  converter.addConversion([&](smt::SMTFunctionType type) {
+    return LLVM::LLVMPointerType::get(type.getContext());
+  });
+  converter.addConversion([&](smt::SortType type) {
+    return LLVM::LLVMPointerType::get(type.getContext());
+  });
 
   RewritePatternSet patterns(&getContext());
   populateFuncToLLVMConversionPatterns(converter, patterns);
@@ -988,8 +1083,9 @@ void LowerSMTToZ3LLVMPass::runOnOperation() {
                ArrayStoreOpLowering, ArrayBroadcastOpLowering,
                ArrayDefaultOpLowering, BoolConstantOpLowering,
                IntConstantOpLowering, IntCmpOpLowering, PatternCreateOpLowering,
-               ForallOpLowering, ExistsOpLowering>(
-      converter, &getContext(), funcMap, ctxCache, stringCache);
+               ForallOpLowering, ExistsOpLowering, DeclareFuncOpLowering,
+               ApplyFuncOpLowering>(converter, &getContext(), funcMap, ctxCache,
+                                    stringCache);
 
   if (failed(applyFullConversion(getOperation(), target, std::move(patterns))))
     return signalPassFailure();

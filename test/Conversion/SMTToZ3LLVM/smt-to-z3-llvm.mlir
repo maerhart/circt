@@ -300,6 +300,45 @@ func.func @test() {
     smt.yield %60 : !smt.bool
   }
 
+  // CHECK: %204 = llvm.call @Z3_mk_bool_sort(%97) : (!llvm.ptr) -> !llvm.ptr
+  // CHECK: %205 = llvm.mlir.undef : !llvm.array<2 x ptr>
+  // CHECK: %206 = llvm.call @Z3_mk_bool_sort(%97) : (!llvm.ptr) -> !llvm.ptr
+  // CHECK: %207 = llvm.insertvalue %206, %205[0] : !llvm.array<2 x ptr>
+  // CHECK: %208 = llvm.call @Z3_mk_bool_sort(%97) : (!llvm.ptr) -> !llvm.ptr
+  // CHECK: %209 = llvm.insertvalue %208, %207[1] : !llvm.array<2 x ptr>
+  // CHECK: %210 = llvm.mlir.constant(1 : i32) : i32
+  // CHECK: %211 = llvm.alloca %210 x !llvm.ptr : (i32) -> !llvm.ptr
+  // CHECK: llvm.store %209, %211 : !llvm.array<2 x ptr>, !llvm.ptr
+  // CHECK: %212 = llvm.mlir.addressof @func1 : !llvm.ptr
+  // CHECK: %213 = llvm.mlir.constant(2 : i32) : i32
+  // CHECK: %214 = llvm.call @Z3_mk_fresh_func_decl(%97, %212, %213, %211, %204) : (!llvm.ptr, !llvm.ptr, i32, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %60 = smt.declare_func "func1" fresh : !smt.func<(!smt.bool, !smt.bool) -> !smt.bool>
+
+  // CHECK: %215 = llvm.call @Z3_mk_bool_sort(%97) : (!llvm.ptr) -> !llvm.ptr
+  // CHECK: %216 = llvm.mlir.undef : !llvm.array<1 x ptr>
+  // CHECK: %217 = llvm.mlir.addressof @uninterpreted_sort : !llvm.ptr
+  // CHECK: %218 = llvm.call @Z3_mk_string_symbol(%97, %217) : (!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  // CHECK: %219 = llvm.call @Z3_mk_uninterpreted_sort(%97, %218) : (!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  // CHECK: %220 = llvm.insertvalue %219, %216[0] : !llvm.array<1 x ptr>
+  // CHECK: %221 = llvm.mlir.constant(1 : i32) : i32
+  // CHECK: %222 = llvm.alloca %221 x !llvm.ptr : (i32) -> !llvm.ptr
+  // CHECK: llvm.store %220, %222 : !llvm.array<1 x ptr>, !llvm.ptr
+  // CHECK: %223 = llvm.mlir.addressof @func2 : !llvm.ptr
+  // CHECK: %224 = llvm.mlir.constant(1 : i32) : i32
+  // CHECK: %225 = llvm.call @Z3_mk_string_symbol(%97, %223) : (!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  // CHECK: %226 = llvm.call @Z3_mk_func_decl(%97, %225, %224, %222, %215) : (!llvm.ptr, !llvm.ptr, i32, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+  %61 = smt.declare_func "func2" : !smt.func<(!smt.sort<"uninterpreted_sort">) -> !smt.bool>
+
+  // CHECK: %227 = llvm.mlir.undef : !llvm.array<2 x ptr>
+  // CHECK: %228 = llvm.insertvalue %15, %227[0] : !llvm.array<2 x ptr>
+  // CHECK: %229 = llvm.insertvalue %16, %228[1] : !llvm.array<2 x ptr>
+  // CHECK: %230 = llvm.mlir.constant(1 : i32) : i32
+  // CHECK: %231 = llvm.alloca %230 x !llvm.ptr : (i32) -> !llvm.ptr
+  // CHECK: llvm.store %229, %231 : !llvm.array<2 x ptr>, !llvm.ptr
+  // CHECK: %232 = llvm.mlir.constant(2 : i32) : i32
+  // CHECK: %233 = llvm.call @Z3_mk_app(%97, %214, %232, %231) : (!llvm.ptr, !llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+  %62 = smt.apply_func %60(%true, %false) : !smt.func<(!smt.bool, !smt.bool) -> !smt.bool>
+
   // CHECK-NEXT: llvm.return
   return
 }
@@ -313,6 +352,8 @@ llvm.mlir.global internal @ctx() {alignment = 8 : i64} : !llvm.ptr {
 // CHECK-DAG: llvm.mlir.global private constant @"0"("0\00") {addr_space = 0 : i32}
 // CHECK-DAG: llvm.mlir.global private constant @"123"("123\00") {addr_space = 0 : i32}
 // CHECK-DAG: llvm.mlir.global private constant @b("b\00") {addr_space = 0 : i32}
+// CHECK-DAG: llvm.mlir.global private constant @func1("func1\00") {addr_space = 0 : i32}
+// CHECK-DAG: llvm.mlir.global private constant @func2("func2\00") {addr_space = 0 : i32}
 
 // CHECK-DAG: llvm.func @Z3_mk_bv_numeral(!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
 // CHECK-DAG: llvm.func @Z3_mk_true(!llvm.ptr) -> !llvm.ptr
@@ -380,3 +421,6 @@ llvm.mlir.global internal @ctx() {alignment = 8 : i64} : !llvm.ptr {
 // CHECK-DAG: llvm.func @Z3_mk_bound(!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
 // CHECK-DAG: llvm.func @Z3_mk_forall(!llvm.ptr, i32, i32, !llvm.ptr, i32, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
 // CHECK-DAG: llvm.func @Z3_mk_exists(!llvm.ptr, i32, i32, !llvm.ptr, i32, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_func_decl(!llvm.ptr, !llvm.ptr, i32, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_fresh_func_decl(!llvm.ptr, !llvm.ptr, i32, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
+// CHECK-DAG: llvm.func @Z3_mk_app(!llvm.ptr, !llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
