@@ -48,3 +48,8 @@ func.func @main() {
 
   return
 }
+
+
+// Situation to legalize:
+// * regular write before deferred read [done]
+// * deferred write before regular or deferred read

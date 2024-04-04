@@ -11,7 +11,6 @@
 #include "circt/Conversion/CombToLLVM.h"
 #include "circt/Conversion/HWToLLVM.h"
 #include "circt/Dialect/Arc/ArcOps.h"
-#include "circt/Dialect/Arc/ModelInfo.h"
 #include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
 #include "circt/Support/Namespace.h"
@@ -71,44 +70,6 @@ struct ModelOpLowering : public OpConversionPattern<arc::ModelOp> {
   }
 };
 
-struct AllocStorageOpLowering
-    : public OpConversionPattern<arc::AllocStorageOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(arc::AllocStorageOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    auto type = typeConverter->convertType(op.getType());
-    if (!op.getOffset().has_value())
-      return failure();
-    rewriter.replaceOpWithNewOp<LLVM::GEPOp>(op, type, rewriter.getI8Type(),
-                                             adaptor.getInput(),
-                                             LLVM::GEPArg(*op.getOffset()));
-    return success();
-  }
-};
-
-template <class ConcreteOp>
-struct AllocStateLikeOpLowering : public OpConversionPattern<ConcreteOp> {
-  using OpConversionPattern<ConcreteOp>::OpConversionPattern;
-  using OpConversionPattern<ConcreteOp>::typeConverter;
-  using OpAdaptor = typename ConcreteOp::Adaptor;
-
-  LogicalResult
-  matchAndRewrite(ConcreteOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    // Get a pointer to the correct offset in the storage.
-    auto offsetAttr = op->template getAttrOfType<IntegerAttr>("offset");
-    if (!offsetAttr)
-      return failure();
-    Value ptr = rewriter.create<LLVM::GEPOp>(
-        op->getLoc(), adaptor.getStorage().getType(), rewriter.getI8Type(),
-        adaptor.getStorage(),
-        LLVM::GEPArg(offsetAttr.getValue().getZExtValue()));
-    rewriter.replaceOp(op, ptr);
-    return success();
-  }
-};
-
 struct StateReadOpLowering : public OpConversionPattern<arc::StateReadOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
@@ -136,39 +97,6 @@ struct StateWriteOpLowering : public OpConversionPattern<arc::StateWriteOp> {
       rewriter.replaceOpWithNewOp<LLVM::StoreOp>(op, adaptor.getValue(),
                                                  adaptor.getState());
     }
-    return success();
-  }
-};
-
-struct AllocMemoryOpLowering : public OpConversionPattern<arc::AllocMemoryOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(arc::AllocMemoryOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    auto offsetAttr = op->getAttrOfType<IntegerAttr>("offset");
-    if (!offsetAttr)
-      return failure();
-    Value ptr = rewriter.create<LLVM::GEPOp>(
-        op.getLoc(), adaptor.getStorage().getType(), rewriter.getI8Type(),
-        adaptor.getStorage(),
-        LLVM::GEPArg(offsetAttr.getValue().getZExtValue()));
-
-    rewriter.replaceOp(op, ptr);
-    return success();
-  }
-};
-
-struct StorageGetOpLowering : public OpConversionPattern<arc::StorageGetOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(arc::StorageGetOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    Value offset = rewriter.create<LLVM::ConstantOp>(
-        op.getLoc(), rewriter.getI32Type(), op.getOffsetAttr());
-    Value ptr = rewriter.create<LLVM::GEPOp>(
-        op.getLoc(), adaptor.getStorage().getType(), rewriter.getI8Type(),
-        adaptor.getStorage(), offset);
-    rewriter.replaceOp(op, ptr);
     return success();
   }
 };
@@ -302,6 +230,19 @@ struct ReplaceOpWithInputPattern : public OpConversionPattern<OpTy> {
   }
 };
 
+template <typename OpTy>
+struct EraseOpPattern : public OpConversionPattern<OpTy> {
+  using OpConversionPattern<OpTy>::OpConversionPattern;
+  using OpAdaptor = typename OpTy::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(OpTy op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -312,26 +253,47 @@ namespace {
 
 struct ModelInfoMap {
   size_t numStateBytes;
-  llvm::DenseMap<StringRef, StateInfo> states;
+  DenseMap<StringAttr, unsigned> offsets;
 };
 
 template <typename OpTy>
 struct ModelAwarePattern : public OpConversionPattern<OpTy> {
   ModelAwarePattern(const TypeConverter &typeConverter, MLIRContext *context,
-                    llvm::DenseMap<StringRef, ModelInfoMap> &modelInfo)
-      : OpConversionPattern<OpTy>(typeConverter, context),
-        modelInfo(modelInfo) {}
+                    llvm::DenseMap<StringAttr, ModelInfoMap> &modelInfo,
+                    DenseMap<StringAttr, StringAttr> &modelToLayout)
+      : OpConversionPattern<OpTy>(typeConverter, context), modelInfo(modelInfo),
+        modelToLayout(modelToLayout) {}
 
 protected:
   Value createPtrToPortState(ConversionPatternRewriter &rewriter, Location loc,
-                             Value state, const StateInfo &port) const {
+                             Value state, unsigned offset) const {
     MLIRContext *ctx = rewriter.getContext();
     return rewriter.create<LLVM::GEPOp>(loc, LLVM::LLVMPointerType::get(ctx),
                                         IntegerType::get(ctx, 8), state,
-                                        LLVM::GEPArg(port.offset));
+                                        LLVM::GEPArg(offset));
   }
 
-  llvm::DenseMap<StringRef, ModelInfoMap> &modelInfo;
+  llvm::DenseMap<StringAttr, ModelInfoMap> &modelInfo;
+  DenseMap<StringAttr, StringAttr> &modelToLayout;
+};
+
+struct LayoutGetOpLowering : public ModelAwarePattern<LayoutGetOp> {
+  using ModelAwarePattern::ModelAwarePattern;
+
+  LogicalResult
+  matchAndRewrite(LayoutGetOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto modelIt = modelInfo.find(
+        cast<LayoutType>(op.getLayout().getType()).getLayoutName().getAttr());
+    ModelInfoMap &model = modelIt->second;
+
+    unsigned offset = model.offsets[adaptor.getEntryAttr().getAttr()];
+
+    rewriter.replaceOpWithNewOp<LLVM::GEPOp>(
+        op, adaptor.getLayout().getType(), rewriter.getI8Type(),
+        adaptor.getLayout(), LLVM::GEPArg(offset));
+    return success();
+  }
 };
 
 /// Lowers SimInstantiateOp to a malloc and memset call. This pattern will
@@ -343,10 +305,11 @@ struct SimInstantiateOpLowering
   LogicalResult
   matchAndRewrite(arc::SimInstantiateOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto modelIt = modelInfo.find(
-        cast<SimModelInstanceType>(op.getBody().getArgument(0).getType())
-            .getModel()
-            .getValue());
+    auto modelIt =
+        modelInfo.find(modelToLayout[cast<SimModelInstanceType>(
+                                         op.getBody().getArgument(0).getType())
+                                         .getModel()
+                                         .getAttr()]);
     ModelInfoMap &model = modelIt->second;
 
     ModuleOp moduleOp = op->getParentOfType<ModuleOp>();
@@ -388,23 +351,22 @@ struct SimSetInputOpLowering : public ModelAwarePattern<arc::SimSetInputOp> {
   LogicalResult
   matchAndRewrite(arc::SimSetInputOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto modelIt =
-        modelInfo.find(cast<SimModelInstanceType>(op.getInstance().getType())
-                           .getModel()
-                           .getValue());
+    auto modelIt = modelInfo.find(
+        modelToLayout[cast<SimModelInstanceType>(op.getInstance().getType())
+                          .getModel()
+                          .getAttr()]);
     ModelInfoMap &model = modelIt->second;
 
-    auto portIt = model.states.find(op.getInput());
-    if (portIt == model.states.end()) {
+    auto portIt = model.offsets.find(op.getInputAttr());
+    if (portIt == model.offsets.end()) {
       // If the port is not found in the state, it means the model does not
       // actually use it. Thus this operation is a no-op.
       rewriter.eraseOp(op);
       return success();
     }
 
-    StateInfo &port = portIt->second;
-    Value statePtr = createPtrToPortState(rewriter, op.getLoc(),
-                                          adaptor.getInstance(), port);
+    Value statePtr = createPtrToPortState(
+        rewriter, op.getLoc(), adaptor.getInstance(), portIt->second);
     rewriter.replaceOpWithNewOp<LLVM::StoreOp>(op, adaptor.getValue(),
                                                statePtr);
 
@@ -418,14 +380,14 @@ struct SimGetPortOpLowering : public ModelAwarePattern<arc::SimGetPortOp> {
   LogicalResult
   matchAndRewrite(arc::SimGetPortOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto modelIt =
-        modelInfo.find(cast<SimModelInstanceType>(op.getInstance().getType())
-                           .getModel()
-                           .getValue());
+    auto modelIt = modelInfo.find(
+        modelToLayout[cast<SimModelInstanceType>(op.getInstance().getType())
+                          .getModel()
+                          .getAttr()]);
     ModelInfoMap &model = modelIt->second;
 
-    auto portIt = model.states.find(op.getPort());
-    if (portIt == model.states.end()) {
+    auto portIt = model.offsets.find(op.getPortAttr());
+    if (portIt == model.offsets.end()) {
       // If the port is not found in the state, it means the model does not
       // actually set it. Thus this operation returns 0.
       rewriter.replaceOpWithNewOp<LLVM::ConstantOp>(
@@ -433,9 +395,8 @@ struct SimGetPortOpLowering : public ModelAwarePattern<arc::SimGetPortOp> {
       return success();
     }
 
-    StateInfo &port = portIt->second;
-    Value statePtr = createPtrToPortState(rewriter, op.getLoc(),
-                                          adaptor.getInstance(), port);
+    Value statePtr = createPtrToPortState(
+        rewriter, op.getLoc(), adaptor.getInstance(), portIt->second);
     rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, op.getValue().getType(),
                                               statePtr);
 
@@ -575,13 +536,13 @@ void LowerArcToLLVMPass::runOnOperation() {
   converter.addConversion([&](seq::ClockType type) {
     return IntegerType::get(type.getContext(), 1);
   });
-  converter.addConversion([&](StorageType type) {
-    return LLVM::LLVMPointerType::get(type.getContext());
-  });
   converter.addConversion([&](MemoryType type) {
     return LLVM::LLVMPointerType::get(type.getContext());
   });
   converter.addConversion([&](StateType type) {
+    return LLVM::LLVMPointerType::get(type.getContext());
+  });
+  converter.addConversion([&](LayoutType type) {
     return LLVM::LLVMPointerType::get(type.getContext());
   });
   converter.addConversion([&](SimModelInstanceType type) {
@@ -606,46 +567,33 @@ void LowerArcToLLVMPass::runOnOperation() {
   populateCombToLLVMConversionPatterns(converter, patterns);
 
   // Arc patterns.
-  // clang-format off
-  patterns.add<
-    AllocMemoryOpLowering,
-    AllocStateLikeOpLowering<arc::AllocStateOp>,
-    AllocStateLikeOpLowering<arc::RootInputOp>,
-    AllocStateLikeOpLowering<arc::RootOutputOp>,
-    AllocStorageOpLowering,
-    ClockGateOpLowering,
-    MemoryReadOpLowering,
-    MemoryWriteOpLowering,
-    ModelOpLowering,
-    ReplaceOpWithInputPattern<seq::ToClockOp>,
-    ReplaceOpWithInputPattern<seq::FromClockOp>,
-    SeqConstClockLowering,
-    SimEmitValueOpLowering,
-    StateReadOpLowering,
-    StateWriteOpLowering,
-    StorageGetOpLowering,
-    ZeroCountOpLowering
-  >(converter, &getContext());
-  // clang-format on
+  patterns.add<ClockGateOpLowering, MemoryReadOpLowering, MemoryWriteOpLowering,
+               ModelOpLowering, ReplaceOpWithInputPattern<seq::ToClockOp>,
+               ReplaceOpWithInputPattern<seq::FromClockOp>,
+               SeqConstClockLowering, SimEmitValueOpLowering,
+               StateReadOpLowering, StateWriteOpLowering, ZeroCountOpLowering,
+               EraseOpPattern<LayoutOp>, EraseOpPattern<EntryOp>>(
+      converter, &getContext());
 
-  SmallVector<ModelInfo> models;
-  if (failed(collectModels(getOperation(), models))) {
-    signalPassFailure();
-    return;
+  DenseMap<StringAttr, StringAttr> modelToLayout;
+  for (auto modelOp : getOperation().getOps<ModelOp>())
+    modelToLayout[modelOp.getSymNameAttr()] =
+        cast<LayoutType>(modelOp.getBody().getArgumentTypes()[0])
+            .getLayoutName()
+            .getAttr();
+
+  DenseMap<StringAttr, ModelInfoMap> modelMap;
+  for (auto layoutOp : getOperation().getOps<LayoutOp>()) {
+    DenseMap<StringAttr, unsigned> offsets;
+    unsigned totalSize = layoutOp.getTotalSizeAndAllOffsets(offsets);
+    modelMap.insert({layoutOp.getSymNameAttr(), {totalSize, offsets}});
   }
 
-  llvm::DenseMap<StringRef, ModelInfoMap> modelMap(models.size());
-  for (ModelInfo &modelInfo : models) {
-    llvm::DenseMap<StringRef, StateInfo> states(modelInfo.states.size());
-    for (StateInfo &stateInfo : modelInfo.states)
-      states.insert({stateInfo.name, stateInfo});
-    modelMap.insert({modelInfo.name,
-                     ModelInfoMap{modelInfo.numStateBytes, std::move(states)}});
-  }
+  SymbolTableCollection symTable;
 
   patterns.add<SimInstantiateOpLowering, SimSetInputOpLowering,
-               SimGetPortOpLowering, SimStepOpLowering>(
-      converter, &getContext(), modelMap);
+               SimGetPortOpLowering, SimStepOpLowering, LayoutGetOpLowering>(
+      converter, &getContext(), modelMap, modelToLayout);
 
   // Apply the conversion.
   if (failed(applyFullConversion(getOperation(), target, std::move(patterns))))

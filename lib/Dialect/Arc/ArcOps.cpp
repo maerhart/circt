@@ -74,7 +74,7 @@ static LogicalResult verifyArcSymbolUse(Operation *op, TypeRange inputs,
 }
 
 static bool isSupportedModuleOp(Operation *moduleOp) {
-  return llvm::isa<arc::ModelOp, hw::HWModuleLike>(moduleOp);
+  return llvm::isa<arc::LayoutOp, hw::HWModuleLike>(moduleOp);
 }
 
 /// Fetches the operation pointed to by `pointing` with name `symbol`, checking
@@ -87,6 +87,14 @@ static Operation *getSupportedModuleOp(SymbolTableCollection &symbolTable,
     return nullptr;
   }
 
+  if (auto modelOp = dyn_cast<ModelOp>(moduleOp)) {
+    StringAttr layoutName =
+        cast<LayoutType>(modelOp.getBody().getArgumentTypes()[0])
+            .getLayoutName()
+            .getAttr();
+    moduleOp = symbolTable.lookupNearestSymbolFrom(pointing, layoutName);
+  }
+
   if (!isSupportedModuleOp(moduleOp)) {
     pointing->emitOpError("model symbol does not point to a supported model "
                           "operation, points to ")
@@ -97,24 +105,30 @@ static Operation *getSupportedModuleOp(SymbolTableCollection &symbolTable,
   return moduleOp;
 }
 
-static std::optional<hw::ModulePort> getModulePort(Operation *moduleOp,
-                                                   StringRef portName) {
-  auto findRightPort = [&](auto ports) -> std::optional<hw::ModulePort> {
+static std::optional<std::pair<Type, LayoutKind>>
+getModulePort(Operation *moduleOp, StringRef portName) {
+  auto findRightPort =
+      [&](auto ports) -> std::optional<std::pair<Type, LayoutKind>> {
     const hw::ModulePort *port = llvm::find_if(
         ports, [&](hw::ModulePort port) { return port.name == portName; });
     if (port == ports.end())
       return std::nullopt;
-    return *port;
+    return std::make_pair(port->type, port->dir == hw::ModulePort::Input
+                                          ? LayoutKind::Input
+                                          : LayoutKind::Output);
   };
 
-  return TypeSwitch<Operation *, std::optional<hw::ModulePort>>(moduleOp)
-      .Case<arc::ModelOp>(
-          [&](arc::ModelOp modelOp) -> std::optional<hw::ModulePort> {
-            return findRightPort(modelOp.getIo().getPorts());
-          })
-      .Case<hw::HWModuleLike>(
-          [&](hw::HWModuleLike moduleLike) -> std::optional<hw::ModulePort> {
-            return findRightPort(moduleLike.getPortList());
+  return TypeSwitch<Operation *, std::optional<std::pair<Type, LayoutKind>>>(
+             moduleOp)
+      .Case<hw::HWModuleLike>([&](hw::HWModuleLike moduleLike) {
+        return findRightPort(moduleLike.getPortList());
+      })
+      .Case<LayoutOp>(
+          [&](LayoutOp layoutOp) -> std::optional<std::pair<Type, LayoutKind>> {
+            for (auto entry : layoutOp.getOps<EntryOp>())
+              if (entry.getSymName() == portName)
+                return std::make_pair(entry.getType(), entry.getKind());
+            return std::nullopt;
           })
       .Default([](Operation *) { return std::nullopt; });
 }
@@ -272,26 +286,6 @@ LogicalResult ClockDomainOp::verifyRegions() {
 }
 
 //===----------------------------------------------------------------------===//
-// RootInputOp
-//===----------------------------------------------------------------------===//
-
-void RootInputOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
-  SmallString<32> buf("in_");
-  buf += getName();
-  setNameFn(getState(), buf);
-}
-
-//===----------------------------------------------------------------------===//
-// RootOutputOp
-//===----------------------------------------------------------------------===//
-
-void RootOutputOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
-  SmallString<32> buf("out_");
-  buf += getName();
-  setNameFn(getState(), buf);
-}
-
-//===----------------------------------------------------------------------===//
 // ModelOp
 //===----------------------------------------------------------------------===//
 
@@ -299,11 +293,60 @@ LogicalResult ModelOp::verify() {
   if (getBodyBlock().getArguments().size() != 1)
     return emitOpError("must have exactly one argument");
   if (auto type = getBodyBlock().getArgument(0).getType();
-      !isa<StorageType>(type))
-    return emitOpError("argument must be of storage type");
-  for (const hw::ModulePort &port : getIo().getPorts())
-    if (port.dir == hw::ModulePort::Direction::InOut)
-      return emitOpError("inout ports are not supported");
+      !isa<LayoutType>(type))
+    return emitOpError("argument must be of '!arc.model.layout' type");
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// LayoutOp
+//===----------------------------------------------------------------------===//
+
+unsigned
+LayoutOp::getTotalSizeAndAllOffsets(DenseMap<StringAttr, unsigned> &offsets) {
+  unsigned offset = 0;
+  for (auto entry : getOps<EntryOp>()) {
+    offsets[entry.getSymNameAttr()] = offset;
+    unsigned byteWidth = getByteWidth(entry.getType());
+    offset = llvm::alignToPowerOf2(offset + byteWidth,
+                                   llvm::bit_ceil(std::min(byteWidth, 16U)));
+  }
+
+  return offset;
+}
+
+//===----------------------------------------------------------------------===//
+// LayoutGetOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+LayoutGetOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  auto *layoutOp = getSupportedModuleOp(
+      symbolTable, getOperation(),
+      llvm::cast<LayoutType>(getLayout().getType()).getLayoutName().getAttr());
+  if (!layoutOp || !isa<LayoutOp>(layoutOp))
+    return failure();
+
+  bool found = false;
+  for (auto op : cast<LayoutOp>(layoutOp).getOps<EntryOp>()) {
+    if (op.getSymNameAttr() == getEntry()) {
+      if (isa<MemoryType>(op.getType()) && op.getType() == getType()) {
+        found = true;
+        break;
+      }
+      if (StateType::get(op.getType()) != getType())
+        return emitOpError(
+                   "result type does not match model layout entry, expected ")
+               << getType() << ", but got " << op.getType();
+
+      found = true;
+      break;
+    }
+  }
+
+  if (!found)
+    return emitOpError("entry not found in model layout");
+
   return success();
 }
 
@@ -560,18 +603,17 @@ SimSetInputOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   if (!moduleOp)
     return failure();
 
-  std::optional<hw::ModulePort> port = getModulePort(moduleOp, getInput());
+  auto port = getModulePort(moduleOp, getInput());
   if (!port)
     return emitOpError("port not found on model");
 
-  if (port->dir != hw::ModulePort::Direction::Input &&
-      port->dir != hw::ModulePort::Direction::InOut)
+  if (port->second != LayoutKind::Input && port->second != LayoutKind::InOut)
     return emitOpError("port is not an input port");
 
-  if (port->type != getValue().getType())
+  if (port->first != getValue().getType())
     return emitOpError(
                "mismatched types between value and model port, port expects ")
-           << port->type;
+           << port->first;
 
   return success();
 }
@@ -590,14 +632,14 @@ SimGetPortOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   if (!moduleOp)
     return failure();
 
-  std::optional<hw::ModulePort> port = getModulePort(moduleOp, getPort());
+  auto port = getModulePort(moduleOp, getPort());
   if (!port)
     return emitOpError("port not found on model");
 
-  if (port->type != getValue().getType())
+  if (port->first != getValue().getType())
     return emitOpError(
                "mismatched types between value and model port, port expects ")
-           << port->type;
+           << port->first;
 
   return success();
 }

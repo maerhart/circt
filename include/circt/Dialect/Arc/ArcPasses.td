@@ -24,12 +24,6 @@ def AddTaps : Pass<"arc-add-taps", "mlir::ModuleOp"> {
   ];
 }
 
-def AllocateState : Pass<"arc-allocate-state", "arc::ModelOp"> {
-  let summary = "Allocate and layout the global simulation state";
-  let constructor = "circt::arc::createAllocateStatePass()";
-  let dependentDialects = ["arc::ArcDialect"];
-}
-
 def ArcCanonicalizer : Pass<"arc-canonicalizer", "mlir::ModuleOp"> {
   let summary = "Simulation centric canonicalizations";
   let constructor = "createArcCanonicalizerPass()";
@@ -154,18 +148,6 @@ def LegalizeStateUpdate : Pass<"arc-legalize-state-update", "mlir::ModuleOp"> {
   let summary = "Insert temporaries such that state reads don't see writes";
   let constructor = "circt::arc::createLegalizeStateUpdatePass()";
   let dependentDialects = ["arc::ArcDialect"];
-}
-
-def LowerArcsToFuncs : Pass<"arc-lower-arcs-to-funcs", "mlir::ModuleOp"> {
-  let summary = "Lower arc definitions into functions";
-  let constructor = "circt::arc::createLowerArcsToFuncsPass()";
-  let dependentDialects = ["mlir::func::FuncDialect", "mlir::LLVM::LLVMDialect"];
-}
-
-def LowerClocksToFuncs : Pass<"arc-lower-clocks-to-funcs", "mlir::ModuleOp"> {
-  let summary = "Lower clock trees into functions";
-  let constructor = "circt::arc::createLowerClocksToFuncsPass()";
-  let dependentDialects = ["mlir::func::FuncDialect", "mlir::scf::SCFDialect"];
 }
 
 def LowerLUT : Pass<"arc-lower-lut", "arc::DefineOp"> {

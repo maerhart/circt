@@ -17,7 +17,6 @@
 #include "circt/Dialect/Arc/ArcInterfaces.h"
 #include "circt/Dialect/Arc/ArcOps.h"
 #include "circt/Dialect/Arc/ArcPasses.h"
-#include "circt/Dialect/Arc/ModelInfo.h"
 #include "circt/Dialect/Arc/ModelInfoExport.h"
 #include "circt/Dialect/Emit/EmitDialect.h"
 #include "circt/Dialect/Seq/SeqPasses.h"
@@ -170,7 +169,7 @@ enum Until {
   UntilArcConversion,
   UntilArcOpt,
   UntilStateLowering,
-  UntilStateAlloc,
+  UntilLegalizeStateUpdate,
   UntilLLVMLowering,
   UntilEnd
 };
@@ -179,7 +178,8 @@ static auto runUntilValues = llvm::cl::values(
     clEnumValN(UntilArcConversion, "arc-conv", "Conversion of modules to arcs"),
     clEnumValN(UntilArcOpt, "arc-opt", "Arc optimizations"),
     clEnumValN(UntilStateLowering, "state-lowering", "Stateful arc lowering"),
-    clEnumValN(UntilStateAlloc, "state-alloc", "State allocation"),
+    clEnumValN(UntilLegalizeStateUpdate, "legalize-state",
+               "Legalize State Updates"),
     clEnumValN(UntilLLVMLowering, "llvm-lowering", "Lowering to LLVM"),
     clEnumValN(UntilEnd, "all", "Run entire pipeline (default)"));
 static llvm::cl::opt<Until> runUntilBefore(
@@ -312,18 +312,11 @@ static void populateHwModuleToArcPipeline(PassManager &pm) {
     pm.addPass(createCSEPass());
   }
 
-  pm.addPass(arc::createGroupResetsAndEnablesPass());
-  pm.addPass(arc::createLegalizeStateUpdatePass());
-  pm.addPass(createCSEPass());
-  pm.addPass(arc::createArcCanonicalizerPass());
+  // pm.addPass(arc::createGroupResetsAndEnablesPass());
 
-  // Allocate states.
-  if (untilReached(UntilStateAlloc))
+  if (untilReached(UntilLegalizeStateUpdate))
     return;
-  pm.addPass(arc::createLowerArcsToFuncsPass());
-  pm.nest<arc::ModelOp>().addPass(arc::createAllocateStatePass());
-  pm.addPass(arc::createLowerClocksToFuncsPass()); // no CSE between state alloc
-                                                   // and clock func lowering
+  pm.addPass(arc::createLegalizeStateUpdatePass());
   pm.addPass(createCSEPass());
   pm.addPass(arc::createArcCanonicalizerPass());
 }
@@ -371,10 +364,7 @@ static LogicalResult processBuffer(
       llvm::errs() << "unable to open state file: " << ec.message() << '\n';
       return failure();
     }
-    if (failed(collectAndExportModelInfo(module.get(), outputFile.os()))) {
-      llvm::errs() << "failed to collect model info\n";
-      return failure();
-    }
+    serializeModelInfoToJson(module.get(), outputFile.os());
 
     outputFile.keep();
   }

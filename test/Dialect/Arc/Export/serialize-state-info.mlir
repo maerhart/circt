@@ -1,46 +1,53 @@
 // RUN: circt-translate %s --export-arc-model-info | FileCheck %s
 
 // CHECK-LABEL: "name": "Foo"
-// CHECK-DAG: "numStateBytes": 5724
-arc.model @Foo io !hw.modty<input a : i19, output b : i42> {
-^bb0(%arg0: !arc.storage<5724>):
+// CHECK-NEXT: "numStateBytes": 17
+arc.model @Foo {
+^bb0(%arg0: !arc.layout<@FooLayout>):
+}
+
+arc.layout @FooLayout {
   // CHECK:      "name": "a"
   // CHECK-NEXT: "offset": 0
   // CHECK-NEXT: "numBits": 19
   // CHECK-NEXT: "type": "input"
-  arc.root_input "a", %arg0 {offset = 0} : (!arc.storage<5724>) -> !arc.state<i19>
-
+  arc.entry input @a : i19
   // CHECK:      "name": "b"
-  // CHECK-NEXT: "offset": 16
+  // CHECK-NEXT: "offset": 4
   // CHECK-NEXT: "numBits": 42
   // CHECK-NEXT: "type": "output"
-  arc.root_output "b", %arg0 {offset = 16} : (!arc.storage<5724>) -> !arc.state<i42>
+  arc.entry output @b : i42
+  // CHECK:      "name": "c"
+  // CHECK-NEXT: "offset": 16
+  // CHECK-NEXT: "numBits": 8
+  // CHECK-NEXT: "type": "inout"
+  arc.entry inout @c : i8
 }
 
 // CHECK-LABEL: "name": "Bar"
-// CHECK-DAG: "numStateBytes": 9001
-arc.model @Bar io !hw.modty<> {
-^bb0(%arg0: !arc.storage<9001>):
-  // CHECK-NOT: "offset": "420"
-  arc.alloc_state %arg0 {offset = 420} : (!arc.storage<9001>) -> !arc.state<i11>
+// CHECK-NEXT: "numStateBytes": 240
+arc.model @Bar {
+^bb0(%arg0: !arc.layout<@BarLayout>):
+}
 
+arc.layout @BarLayout {
+  // CHECK-NOT: "name": "pad"
+  arc.entry padding @pad : i192
   // CHECK:      "name": "x"
-  // CHECK-NEXT: "offset": 24
+  // CHECK-NEXT: "offset": 32
   // CHECK-NEXT: "numBits": 63
   // CHECK-NEXT: "type": "register"
-  arc.alloc_state %arg0 {name = "x", offset = 24} : (!arc.storage<9001>) -> !arc.state<i63>
-
+  arc.entry register @x : i63
   // CHECK:      "name": "y"
-  // CHECK-NEXT: "offset": 48
+  // CHECK-NEXT: "offset": 40
   // CHECK-NEXT: "numBits": 17
   // CHECK-NEXT: "type": "memory"
-  // CHECK-NEXT: "stride": 3
+  // CHECK-NEXT: "stride": 4
   // CHECK-NEXT: "depth": 5
-  arc.alloc_memory %arg0 {name = "y", offset = 48, stride = 3} : (!arc.storage<9001>) -> !arc.memory<5 x i17, i3>
-
+  arc.entry memory @y : !arc.memory<5 x i17, i3>
   // CHECK:      "name": "z"
-  // CHECK-NEXT: "offset": 92
+  // CHECK-NEXT: "offset": 64
   // CHECK-NEXT: "numBits": 1337
   // CHECK-NEXT: "type": "wire"
-  arc.alloc_state %arg0 tap {name = "z", offset = 92} : (!arc.storage<9001>) -> !arc.state<i1337>
+  arc.entry wire @z : i1337
 }

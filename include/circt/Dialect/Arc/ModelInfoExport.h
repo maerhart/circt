@@ -20,8 +20,7 @@ namespace circt {
 namespace arc {
 
 /// Collects and exports Arc model info to JSON.
-mlir::LogicalResult collectAndExportModelInfo(mlir::ModuleOp module,
-                                              llvm::raw_ostream &os);
+void serializeModelInfoToJson(mlir::ModuleOp module, llvm::raw_ostream &os);
 
 /// Registers CIRCT translation from Arc to JSON model info.
 void registerArcModelInfoTranslation();

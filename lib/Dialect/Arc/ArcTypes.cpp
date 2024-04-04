@@ -21,7 +21,21 @@ using namespace mlir;
 #define GET_TYPEDEF_CLASSES
 #include "circt/Dialect/Arc/ArcTypes.cpp.inc"
 
-unsigned StateType::getBitWidth() { return hw::getBitWidth(getType()); }
+/// Don't consider padding and alignment
+unsigned arc::getBitWidth(mlir::Type type) {
+  if (auto memTy = llvm::dyn_cast<MemoryType>(type))
+    return memTy.getWordType().getWidth() * memTy.getNumWords();
+
+  return hw::getBitWidth(type);
+}
+
+unsigned arc::getByteWidth(mlir::Type type) {
+  return (getBitWidth(type) + 7) / 8;
+}
+
+//===----------------------------------------------------------------------===//
+// StateType
+//===----------------------------------------------------------------------===//
 
 LogicalResult
 StateType::verify(llvm::function_ref<InFlightDiagnostic()> emitError,
@@ -31,6 +45,10 @@ StateType::verify(llvm::function_ref<InFlightDiagnostic()> emitError,
                        << innerType;
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// MemoryType
+//===----------------------------------------------------------------------===//
 
 unsigned MemoryType::getStride() {
   unsigned stride = (getWordType().getWidth() + 7) / 8;

@@ -8,9 +8,11 @@
 
 #include "circt/Dialect/Arc/ArcOps.h"
 #include "circt/Dialect/Arc/ArcPasses.h"
+#include "circt/Support/Namespace.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/ImplicitLocOpBuilder.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
@@ -30,7 +32,8 @@ using namespace arc;
 
 /// Check if an operation partakes in state accesses.
 static bool isOpInteresting(Operation *op) {
-  if (isa<StateReadOp, StateWriteOp, CallOpInterface, CallableOpInterface>(op))
+  if (isa<DeferredStateReadOp, DeferredStateWriteOp, StateReadOp, StateWriteOp,
+          CallOpInterface, CallableOpInterface>(op))
     return true;
   if (op->getNumRegions() > 0)
     return true;
@@ -43,10 +46,15 @@ static bool isOpInteresting(Operation *op) {
 
 namespace {
 
-enum class AccessType { Read = 0, Write = 1 };
+enum class AccessType {
+  Read = 0,
+  Write = 1,
+  DeferredRead = 2,
+  DeferredWrite = 3
+};
 
 /// A read or write access to a state value.
-using Access = llvm::PointerIntPair<Value, 1, AccessType>;
+using Access = llvm::PointerIntPair<Value, 2, AccessType>;
 
 struct BlockAccesses;
 struct OpAccesses;
@@ -165,6 +173,11 @@ LogicalResult AccessAnalysis::analyze(Operation *op) {
       addOpAccess(opNode, Access(readOp.getState(), AccessType::Read));
     else if (auto writeOp = dyn_cast<StateWriteOp>(opNode.op))
       addOpAccess(opNode, Access(writeOp.getState(), AccessType::Write));
+    else if (auto readOp = dyn_cast<DeferredStateReadOp>(opNode.op))
+      addOpAccess(opNode, Access(readOp.getState(), AccessType::DeferredRead));
+    else if (auto writeOp = dyn_cast<DeferredStateWriteOp>(opNode.op))
+      addOpAccess(opNode,
+                  Access(writeOp.getState(), AccessType::DeferredWrite));
   }
   LLVM_DEBUG(llvm::dbgs() << "- Prepared " << blockAccesses.size()
                           << " block and " << opAccesses.size()
@@ -200,6 +213,12 @@ LogicalResult AccessAnalysis::analyze(Operation *op) {
           addOpAccess(*callOpNode, {callArg, AccessType::Read});
         if (blockNode->argAccesses.contains({calleeArg, AccessType::Write}))
           addOpAccess(*callOpNode, {callArg, AccessType::Write});
+        if (blockNode->argAccesses.contains(
+                {calleeArg, AccessType::DeferredRead}))
+          addOpAccess(*callOpNode, {callArg, AccessType::DeferredRead});
+        if (blockNode->argAccesses.contains(
+                {calleeArg, AccessType::DeferredWrite}))
+          addOpAccess(*callOpNode, {callArg, AccessType::DeferredWrite});
       }
     }
   }
@@ -221,7 +240,7 @@ void AccessAnalysis::addOpAccess(OpAccesses &op, Access access) {
   // the accessed state is either directly passed down through a block argument
   // (no defining op), or is trivially a local state allocation.
   auto *defOp = access.getPointer().getDefiningOp();
-  if (defOp && !isa<AllocStateOp, RootInputOp, RootOutputOp>(defOp)) {
+  if (defOp && !isa<LayoutGetOp>(defOp)) {
     auto d = op.op->emitOpError("accesses non-trivial state value defined by `")
              << defOp->getName()
              << "`; only block arguments and `arc.alloc_state` results are "
@@ -229,12 +248,6 @@ void AccessAnalysis::addOpAccess(OpAccesses &op, Access access) {
     d.attachNote(defOp->getLoc()) << "state defined here";
     anyInvalidStateAccesses = true;
   }
-
-  // HACK: Do not propagate accesses outside of `arc.passthrough` to prevent
-  // reads from being legalized. Ideally we'd be able to more precisely specify
-  // on read ops whether they should read the initial or the final value.
-  if (isa<PassThroughOp>(op.op))
-    return;
 
   // Propagate to the parent block and operation if the access escapes the block
   // or targets a block argument.
@@ -275,7 +288,11 @@ void AccessAnalysis::addBlockAccess(BlockAccesses &block, Access access) {
 
 namespace {
 struct Legalizer {
-  Legalizer(AccessAnalysis &analysis) : analysis(analysis) {}
+  Legalizer(ModuleOp module, AccessAnalysis &analysis) : analysis(analysis) {
+    SymbolCache symCache;
+    symCache.addDefinitions(module);
+    names.add(symCache);
+  }
   LogicalResult run(MutableArrayRef<Region> regions);
   LogicalResult visitBlock(Block *block);
 
@@ -288,6 +305,9 @@ struct Legalizer {
   /// operations, created during legalization to remove read-after-write
   /// hazards.
   DenseMap<Value, Value> legalizedStates;
+
+  SymbolTableCollection symTable;
+  Namespace names;
 };
 } // namespace
 
@@ -304,7 +324,9 @@ LogicalResult Legalizer::visitBlock(Block *block) {
   // In a first reverse pass over the block, find the first write that occurs
   // before the last read of a state, if any.
   SmallPtrSet<Value, 4> readStates;
+  SmallPtrSet<Value, 4> readDeferredStates;
   DenseMap<Value, Operation *> illegallyWrittenStates;
+  DenseMap<Value, Operation *> illegallyDeferredWrittenStates;
   for (Operation &op : llvm::reverse(*block)) {
     const auto *accesses = analysis.lookup(&op);
     if (!accesses)
@@ -312,19 +334,27 @@ LogicalResult Legalizer::visitBlock(Block *block) {
 
     // Determine the states written by this op for which we have already seen a
     // read earlier. These writes need to be legalized.
-    SmallVector<Value, 1> affectedStates;
     for (auto access : accesses->accesses)
       if (access.getInt() == AccessType::Write)
-        if (readStates.contains(access.getPointer()))
+        if (readDeferredStates.contains(access.getPointer()))
           illegallyWrittenStates[access.getPointer()] = &op;
+
+    for (auto access : accesses->accesses)
+      if (access.getInt() == AccessType::DeferredWrite)
+        if (readDeferredStates.contains(access.getPointer()) ||
+            readStates.contains(access.getPointer()))
+          illegallyDeferredWrittenStates[access.getPointer()] = &op;
 
     // Determine the states read by this op. This comes after handling of the
     // writes, such that a block that contains both reads and writes to a state
     // doesn't mark itself as illegal. Instead, we will descend into that block
     // further down and do a more fine-grained legalization.
-    for (auto access : accesses->accesses)
+    for (auto access : accesses->accesses) {
+      if (access.getInt() == AccessType::DeferredRead)
+        readDeferredStates.insert(access.getPointer());
       if (access.getInt() == AccessType::Read)
         readStates.insert(access.getPointer());
+    }
   }
 
   // Create a mapping from operations that create a read-after-write hazard to
@@ -359,11 +389,8 @@ LogicalResult Legalizer::visitBlock(Block *block) {
       // HACK: This is ugly, but we need a storage reference to allocate a state
       // into. Ideally we'd materialize this later on, but the current impl of
       // the alloc op requires a storage immediately. So try to find one.
-      auto storage = TypeSwitch<Operation *, Value>(state.getDefiningOp())
-                         .Case<AllocStateOp, RootInputOp, RootOutputOp>(
-                             [&](auto allocOp) { return allocOp.getStorage(); })
-                         .Default([](auto) { return Value{}; });
-      if (!storage) {
+      auto layoutGetOp = state.getDefiningOp<LayoutGetOp>();
+      if (!layoutGetOp) {
         mlir::emitError(
             state.getLoc(),
             "cannot find storage pointer to allocate temporary into");
@@ -374,8 +401,19 @@ LogicalResult Legalizer::visitBlock(Block *block) {
       // legalizing, and write it to the temporary.
       ++numLegalizedWrites;
       ImplicitLocOpBuilder builder(state.getLoc(), op);
-      auto tmpState =
-          builder.create<AllocStateOp>(state.getType(), storage, nullptr);
+      StringAttr layoutName =
+          cast<LayoutType>(layoutGetOp.getLayout().getType())
+              .getLayoutName()
+              .getLeafReference();
+      auto layoutOp = cast<LayoutOp>(symTable.lookupSymbolIn(
+          layoutGetOp->getParentOfType<ModuleOp>(), layoutName));
+      OpBuilder layoutBuilder = OpBuilder::atBlockEnd(layoutOp.getBody());
+      StringRef tempName = names.newName("tmp");
+      layoutBuilder.create<EntryOp>(state.getLoc(), tempName,
+                                    cast<StateType>(state.getType()).getType(),
+                                    LayoutKind::Register);
+      auto tmpState = builder.create<LayoutGetOp>(
+          state.getType(), layoutGetOp.getLayout(), tempName);
       auto stateValue = builder.create<StateReadOp>(state);
       builder.create<StateWriteOp>(tmpState, stateValue, Value{});
       locallyLegalizedStates.push_back(state);
@@ -384,7 +422,7 @@ LogicalResult Legalizer::visitBlock(Block *block) {
     return success();
   };
 
-  for (Operation &op : *block) {
+  for (Operation &op : llvm::make_early_inc_range(*block)) {
     if (isOpInteresting(&op)) {
       if (auto it = illegalWrites.find(&op); it != illegalWrites.end())
         if (failed(handleIllegalWrites(&op, it->second)))
@@ -401,8 +439,15 @@ LogicalResult Legalizer::visitBlock(Block *block) {
     const auto *accesses = analysis.lookup(&op);
     for (auto &operand : op.getOpOperands()) {
       if (accesses &&
-          accesses->accesses.contains({operand.get(), AccessType::Read}) &&
-          accesses->accesses.contains({operand.get(), AccessType::Write})) {
+          ((accesses->accesses.contains(
+                {operand.get(), AccessType::DeferredRead}) &&
+            accesses->accesses.contains({operand.get(), AccessType::Write})) ||
+           (accesses->accesses.contains(
+                {operand.get(), AccessType::DeferredWrite}) &&
+            (accesses->accesses.contains(
+                 {operand.get(), AccessType::DeferredRead}) ||
+             accesses->accesses.contains(
+                 {operand.get(), AccessType::Read}))))) {
         auto d = op.emitWarning("operation reads and writes state; "
                                 "legalization may be insufficient");
         d.attachNote()
@@ -412,7 +457,9 @@ LogicalResult Legalizer::visitBlock(Block *block) {
         d.attachNote(operand.get().getLoc()) << "state defined here:";
       }
       if (!accesses ||
-          !accesses->accesses.contains({operand.get(), AccessType::Write})) {
+          (!accesses->accesses.contains(
+               {operand.get(), AccessType::DeferredWrite}) &&
+           !accesses->accesses.contains({operand.get(), AccessType::Write}))) {
         if (auto tmpState = legalizedStates.lookup(operand.get())) {
           operand.set(tmpState);
           ++numUpdatedReads;
@@ -445,7 +492,7 @@ static LogicalResult getAncestorOpsInCommonDominatorBlock(
   // return values
   Operation *writeParent = write;
   while (writeParent->getBlock() != commonDominator) {
-    if (!isa<scf::IfOp, ClockTreeOp>(writeParent->getParentOp()))
+    if (!isa<scf::IfOp>(writeParent->getParentOp()))
       return write->emitOpError("memory write operations in arbitrarily nested "
                                 "regions not supported");
     writeParent = writeParent->getParentOp();
@@ -459,9 +506,8 @@ static LogicalResult getAncestorOpsInCommonDominatorBlock(
   return success();
 }
 
-static LogicalResult
-moveMemoryWritesAfterLastRead(Region &region, const DenseSet<Value> &memories,
-                              DominanceInfo *domInfo) {
+static LogicalResult moveMemoryWritesAfterLastRead(Region &region,
+                                                   DominanceInfo *domInfo) {
   // Collect memory values and their reads
   DenseMap<Value, SetVector<Operation *>> readOps;
   auto result = region.walk([&](Operation *op) {
@@ -475,13 +521,8 @@ moveMemoryWritesAfterLastRead(Region &region, const DenseSet<Value> &memories,
         if (isa<MemoryType>(operand.getType()))
           memoriesReadFrom.push_back(operand);
     }
-    for (auto memVal : memoriesReadFrom) {
-      if (!memories.contains(memVal))
-        return op->emitOpError("uses memory value not directly defined by a "
-                               "arc.alloc_memory operation"),
-               WalkResult::interrupt();
+    for (auto memVal : memoriesReadFrom)
       readOps[memVal].insert(op);
-    }
 
     return WalkResult::advance();
   });
@@ -495,9 +536,6 @@ moveMemoryWritesAfterLastRead(Region &region, const DenseSet<Value> &memories,
 
   // Move the writes
   for (auto writeOp : writes) {
-    if (!memories.contains(writeOp.getMemory()))
-      return writeOp->emitOpError("uses memory value not directly defined by a "
-                                  "arc.alloc_memory operation");
     for (auto *readOp : readOps[writeOp.getMemory()]) {
       // (1) If the last read and the write are in the same block, just move the
       // write after the read.
@@ -546,6 +584,24 @@ moveMemoryWritesAfterLastRead(Region &region, const DenseSet<Value> &memories,
 }
 
 //===----------------------------------------------------------------------===//
+// Patterns
+//===----------------------------------------------------------------------===//
+
+template <typename OpTy, typename TgtTy>
+struct OneToOneReplace : public OpConversionPattern<OpTy> {
+  using OpConversionPattern<OpTy>::OpConversionPattern;
+  using OpAdaptor = typename OpTy::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(OpTy op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<TgtTy>(op, op->getResultTypes(),
+                                       adaptor.getOperands());
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // Pass Infrastructure
 //===----------------------------------------------------------------------===//
 
@@ -571,23 +627,34 @@ void LegalizeStateUpdatePass::runOnOperation() {
 
   for (auto model : module.getOps<ModelOp>()) {
     DenseSet<Value> memories;
-    for (auto memOp : model.getOps<AllocMemoryOp>())
-      memories.insert(memOp.getResult());
-    for (auto ct : model.getOps<ClockTreeOp>())
-      if (failed(
-              moveMemoryWritesAfterLastRead(ct.getBody(), memories, domInfo)))
-        return signalPassFailure();
+    if (failed(moveMemoryWritesAfterLastRead(model.getBody(), domInfo)))
+      return signalPassFailure();
   }
 
   AccessAnalysis analysis;
   if (failed(analysis.analyze(module)))
     return signalPassFailure();
 
-  Legalizer legalizer(analysis);
+  Legalizer legalizer(getOperation(), analysis);
   if (failed(legalizer.run(module->getRegions())))
     return signalPassFailure();
   numLegalizedWrites += legalizer.numLegalizedWrites;
   numUpdatedReads += legalizer.numUpdatedReads;
+
+  ConversionTarget target(getContext());
+  target.addIllegalOp<DeferredStateReadOp>();
+  target.addIllegalOp<DeferredStateWriteOp>();
+  target.addLegalOp<StateWriteOp>();
+  target.addLegalOp<StateReadOp>();
+
+  RewritePatternSet patterns(&getContext());
+  patterns.add<OneToOneReplace<DeferredStateReadOp, StateReadOp>,
+               OneToOneReplace<DeferredStateWriteOp, StateWriteOp>>(
+      &getContext());
+
+  if (failed(
+          applyPartialConversion(getOperation(), target, std::move(patterns))))
+    return signalPassFailure();
 }
 
 std::unique_ptr<Pass> arc::createLegalizeStateUpdatePass() {

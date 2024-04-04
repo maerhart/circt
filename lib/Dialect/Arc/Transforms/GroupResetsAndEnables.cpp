@@ -36,9 +36,9 @@ using namespace mlir;
 
 namespace {
 
-struct ResetGroupingPattern : public OpRewritePattern<ClockTreeOp> {
+struct ResetGroupingPattern : public OpRewritePattern<ModelOp> {
   using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(ClockTreeOp clockTreeOp,
+  LogicalResult matchAndRewrite(ModelOp clockTreeOp,
                                 PatternRewriter &rewriter) const override {
     // Group similar resets into single IfOps
     // Create a list of reset values and map from them to the states they reset
@@ -83,9 +83,9 @@ struct ResetGroupingPattern : public OpRewritePattern<ClockTreeOp> {
   }
 };
 
-struct EnableGroupingPattern : public OpRewritePattern<ClockTreeOp> {
+struct EnableGroupingPattern : public OpRewritePattern<ModelOp> {
   using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(ClockTreeOp clockTreeOp,
+  LogicalResult matchAndRewrite(ModelOp clockTreeOp,
                                 PatternRewriter &rewriter) const override {
     // Amass regions that we want to group enables in
     SmallVector<Region *> groupingRegions;
@@ -171,7 +171,7 @@ struct GroupAssignmentsInIfPattern : public OpRewritePattern<scf::IfOp> {
     // Pull values only used in certain reset/enable cases into the appropriate
     // IfOps
     // Skip anything not in a ClockTreeOp
-    auto clockTreeOp = ifOp->getParentOfType<ClockTreeOp>();
+    auto clockTreeOp = ifOp->getParentOfType<ModelOp>();
     if (!clockTreeOp)
       return failure();
     // Group assignments in each region and keep track of whether either

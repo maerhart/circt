@@ -43,10 +43,10 @@ def MemoryType : ArcTypeDef<"Memory"> {
   }];
 }
 
-def StorageType : ArcTypeDef<"Storage"> {
-  let mnemonic = "storage";
-  let parameters = (ins OptionalParameter<"unsigned">:$size);
-  let assemblyFormat = "(`<` $size^ `>`)?";
+def Layout : ArcTypeDef<"Layout"> {
+  let mnemonic = "layout";
+  let parameters = (ins "mlir::FlatSymbolRefAttr":$layoutName);
+  let assemblyFormat = "`<` $layoutName `>`";
 }
 
 def SimModelInstance : ArcTypeDef<"SimModelInstance"> {

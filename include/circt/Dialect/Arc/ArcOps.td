@@ -429,97 +429,64 @@ def ClockDomainOp : ArcOp<"clock_domain", [
   let hasCanonicalizeMethod = 1;
 }
 
-def ClockTreeOp : ArcOp<"clock_tree", [NoTerminator, NoRegionArguments]> {
-  let summary = "A clock tree";
-  let arguments = (ins I1:$clock);
-  let regions = (region SizedRegion<1>:$body);
-  let assemblyFormat = [{
-    $clock attr-dict-with-keyword $body
-  }];
-  let extraClassDeclaration = [{
-    mlir::Block &getBodyBlock() { return getBody().front(); }
-  }];
-}
-
-def PassThroughOp : ArcOp<"passthrough", [NoTerminator, NoRegionArguments]> {
-  let summary = "Clock-less logic that is on the pass-through path";
-  let regions = (region SizedRegion<1>:$body);
-  let assemblyFormat = [{
-    attr-dict-with-keyword $body
-  }];
-  let extraClassDeclaration = [{
-    mlir::Block &getBodyBlock() { return getBody().front(); }
-  }];
-}
-
 //===----------------------------------------------------------------------===//
 // Storage Allocation
 //===----------------------------------------------------------------------===//
 
-def AllocStateOp : ArcOp<"alloc_state", [MemoryEffects<[MemAlloc]>]> {
-  let summary = "Allocate internal state";
-  let arguments = (ins StorageType:$storage, UnitAttr:$tap);
-  let results = (outs StateType:$state);
-  let assemblyFormat = [{
-    $storage (`tap` $tap^)? attr-dict `:` functional-type($storage, $state)
-  }];
-}
-
-def AllocMemoryOp : ArcOp<"alloc_memory", [MemoryEffects<[MemAlloc]>]> {
-  let summary = "Allocate a memory";
-  let arguments = (ins StorageType:$storage);
-  let results = (outs MemoryType:$memory);
-  let assemblyFormat = [{
-    $storage attr-dict `:` functional-type($storage, $memory)
-  }];
-}
-
-def AllocStorageOp : ArcOp<"alloc_storage", [MemoryEffects<[MemAlloc]>]> {
-  let summary = "Allocate contiguous storage space from a larger storage space";
-  let arguments = (ins StorageType:$input, OptionalAttr<I32Attr>:$offset);
-  let results = (outs StorageType:$output);
-  let assemblyFormat = [{
-    $input (`[` $offset^ `]`)? attr-dict `:` functional-type($input, $output)
-  }];
-}
-
-def RootInputOp : ArcOp<"root_input", [
-  DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+def LayoutOp : ArcOp<"layout", [
+  IsolatedFromAbove,
+  SymbolTable,
+  Symbol,
+  NoTerminator,
+  SingleBlock,
+  NoRegionArguments,
+  HasParent<"mlir::ModuleOp">,
 ]> {
-  let summary = "A root input";
-  let arguments = (ins StrAttr:$name, StorageType:$storage);
-  let results = (outs StateType:$state);
+  let summary = "represents the memory layout of a simulation model";
+  let arguments = (ins SymbolNameAttr:$sym_name);
+  let regions = (region SizedRegion<1>:$bodyRegion);
   let assemblyFormat = [{
-    $name `,` $storage attr-dict `:` functional-type($storage, $state)
+    $sym_name attr-dict-with-keyword $bodyRegion
+  }];
+
+  let extraClassDeclaration = [{
+    unsigned getTotalSizeAndAllOffsets(DenseMap<StringAttr, unsigned> &offsets);
   }];
 }
 
-def RootOutputOp : ArcOp<"root_output", [
-  DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+def Input : I32EnumAttrCase<"Input", 0, "input">;
+def Output : I32EnumAttrCase<"Output", 1, "output">;
+def InOut : I32EnumAttrCase<"InOut", 2, "inout">;
+def Register : I32EnumAttrCase<"Register", 3, "register">;
+def Memory : I32EnumAttrCase<"Memory", 4, "memory">;
+def Wire : I32EnumAttrCase<"Wire", 5, "wire">;
+def Padding : I32EnumAttrCase<"Padding", 6, "padding">;
+def LayoutKind : I32EnumAttr<
+    "LayoutKind", "",
+    [Input, Output, InOut, Register, Memory, Wire, Padding]> {
+  let cppNamespace = "circt::arc";
+}
+
+def EntryOp : ArcOp<"entry", [
+  Symbol,
+  HasParent<"arc::LayoutOp">,
 ]> {
-  let summary = "A root output";
-  let arguments = (ins StrAttr:$name, StorageType:$storage);
-  let results = (outs StateType:$state);
-  let assemblyFormat = [{
-    $name `,` $storage attr-dict `:` functional-type($storage, $state)
-  }];
+  let summary = "represents an entry in the simulation model layout";
+  let arguments = (ins SymbolNameAttr:$sym_name, TypeAttr:$type, LayoutKind:$kind);
+  let assemblyFormat = "$kind $sym_name attr-dict `:` $type";
 }
 
-//===----------------------------------------------------------------------===//
-// Storage Access
-//===----------------------------------------------------------------------===//
-
-def AllocatableType : AnyTypeOf<[StateType, MemoryType, StorageType]>;
-
-def StorageGetOp : ArcOp<"storage.get", [Pure]> {
-  let summary = "Access an allocated state, memory, or storage slice";
-  let arguments = (ins StorageType:$storage, I32Attr:$offset);
-  let results = (outs AllocatableType:$result);
+def LayoutGetOp : ArcOp<"layout.get", [
+  Pure,
+  DeclareOpInterfaceMethods<SymbolUserOpInterface>,
+]> {
+  let summary = "computes a pointer to an entry in the model layout";
+  let arguments = (ins Layout:$layout, FlatSymbolRefAttr:$entry);
+  let results = (outs AnyTypeOf<[MemoryType, StateType]>:$result);
   let assemblyFormat = [{
-    $storage `[` $offset `]` attr-dict
-    `:` qualified(type($storage)) `->` type($result)
+    $layout `[` $entry `]` attr-dict `:`
+    qualified(type($layout)) `->` qualified(type($result))
   }];
-  let hasCanonicalizeMethod = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -543,6 +510,43 @@ def StateReadOp : ArcOp<"state_read", [
 }
 
 def StateWriteOp : ArcOp<"state_write", [
+  MemoryEffects<[MemWrite]>,
+  StateAndValueTypesMatch<"state", "value">
+]> {
+  let summary = "Update a state's value";
+  let description = [{
+    Changes the value of a state. This operation is treated as a deferred
+    assignment by most transformation passes, which allows them to change the
+    order of `arc.state_read` and `arc.state_write` ops on the same state
+    without affecting the correctness of the model. The reads are always assumed
+    to produce the current value of the state and writes to be deferred until
+    all operations in the model have been executed for the current time step.
+
+    The only exceptions to this are the state update legalization pass, which
+    inserts the necessary temporary variables such that writes can be performed
+    immediately without affecting correctness. This allows later lowering passes
+    to treat `arc.state_write` as an immediate assignment (without defering).
+  }];
+  let arguments = (ins StateType:$state, AnyType:$value,
+                       Optional<I1>:$condition);
+  let assemblyFormat = [{
+    $state `=` $value (`if` $condition^)? attr-dict `:` type($state)
+  }];
+}
+
+def DeferredStateReadOp : ArcOp<"deferred_state_read", [
+  MemoryEffects<[MemRead]>,
+  StateAndValueTypesMatch<"state", "value">
+]> {
+  let summary = "Get a state's current value";
+  let arguments = (ins StateType:$state);
+  let results = (outs AnyType:$value);
+  let assemblyFormat = [{
+    $state attr-dict `:` type($state)
+  }];
+}
+
+def DeferredStateWriteOp : ArcOp<"deferred_state_write", [
   MemoryEffects<[MemWrite]>,
   StateAndValueTypesMatch<"state", "value">
 ]> {
@@ -658,12 +662,11 @@ def ModelOp : ArcOp<"model", [RegionKindInterface, IsolatedFromAbove,
     A model with stratified clocks. The `io` optional attribute
     specifies the I/O of the module associated to this model.
   }];
-  let arguments = (ins SymbolNameAttr:$sym_name,
-                       TypeAttrOf<ModuleType>:$io);
+  let arguments = (ins SymbolNameAttr:$sym_name);
   let regions = (region SizedRegion<1>:$body);
 
   let assemblyFormat = [{
-    $sym_name `io` $io attr-dict-with-keyword $body
+    $sym_name attr-dict-with-keyword $body
   }];
 
   let extraClassDeclaration = [{

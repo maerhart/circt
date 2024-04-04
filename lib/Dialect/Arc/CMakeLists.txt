@@ -3,7 +3,6 @@ set(CIRCT_Arc_Sources
   ArcFolds.cpp
   ArcOps.cpp
   ArcTypes.cpp
-  ModelInfo.cpp
 )
 
 set(LLVM_OPTIONAL_SOURCES

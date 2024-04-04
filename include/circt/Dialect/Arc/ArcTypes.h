@@ -16,4 +16,16 @@
 #define GET_TYPEDEF_CLASSES
 #include "circt/Dialect/Arc/ArcTypes.h.inc"
 
+namespace circt {
+namespace arc {
+
+///
+unsigned getBitWidth(mlir::Type type);
+
+///
+unsigned getByteWidth(mlir::Type type);
+
+} // namespace arc
+} // namespace circt
+
 #endif // CIRCT_DIALECT_ARC_ARCTYPES_H
