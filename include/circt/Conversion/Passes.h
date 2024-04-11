@@ -36,6 +36,7 @@
 #include "circt/Conversion/HWToSystemC.h"
 #include "circt/Conversion/HandshakeToDC.h"
 #include "circt/Conversion/HandshakeToHW.h"
+#include "circt/Conversion/HandshakeToSMT.h"
 #include "circt/Conversion/LLHDToLLVM.h"
 #include "circt/Conversion/LoopScheduleToCalyx.h"
 #include "circt/Conversion/MooreToCore.h"
