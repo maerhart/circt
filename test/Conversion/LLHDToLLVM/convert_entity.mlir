@@ -11,14 +11,14 @@ llhd.entity @convert_empty() -> () {}
 // CHECK:         [[IN0:%.+]] = llvm.getelementptr %arg2[0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(ptr, i64, i64, i64)>
 // CHECK:         llvm.return
 // CHECK:       }
-llhd.entity @convert_one_input(%in0 : !llhd.sig<i1>) -> () {}
+llhd.entity @convert_one_input(%in0 : !hw.inout<i1>) -> () {}
 
 // CHECK-LABEL: llvm.func @convert_one_output(
 // CHECK-SAME:    %arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: !llvm.ptr) {
 // CHECK:         [[OUT0:%.*]] = llvm.getelementptr %arg2[0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(ptr, i64, i64, i64)>
 // CHECK:         llvm.return
 // CHECK:       }
-llhd.entity @convert_one_output () -> (%out0 : !llhd.sig<i1>) {}
+llhd.entity @convert_one_output () -> (%out0 : !hw.inout<i1>) {}
 
 // CHECK-LABEL:   llvm.func @convert_input_and_output(
 // CHECK-SAME:      %arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: !llvm.ptr) {
@@ -26,4 +26,4 @@ llhd.entity @convert_one_output () -> (%out0 : !llhd.sig<i1>) {}
 // CHECK:           [[OUT0:%.*]] = llvm.getelementptr %arg2[1] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(ptr, i64, i64, i64)>
 // CHECK:           llvm.return
 // CHECK:         }
-llhd.entity @convert_input_and_output (%in0 : !llhd.sig<i1>) -> (%out0 : !llhd.sig<i1>) {}
+llhd.entity @convert_input_and_output (%in0 : !hw.inout<i1>) -> (%out0 : !hw.inout<i1>) {}

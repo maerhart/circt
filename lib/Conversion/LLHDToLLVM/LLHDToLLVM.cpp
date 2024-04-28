@@ -263,9 +263,9 @@ static void persistValue(LLVM::LLVMDialect *dialect, Location loc,
   Value toStore;
   if (auto ptr = dyn_cast<PtrType>(persist.getType())) {
     // Unwrap the pointer and store it's value.
-    auto elemTy = converter->convertType(ptr.getUnderlyingType());
+    auto elemTy = converter->convertType(ptr.getElementType());
     toStore = rewriter.create<LLVM::LoadOp>(loc, elemTy, convPersist);
-  } else if (isa<SigType>(persist.getType())) {
+  } else if (isa<hw::InOutType>(persist.getType())) {
     // Unwrap and store the signal struct.
     toStore = rewriter.create<LLVM::LoadOp>(loc, getLLVMSigType(dialect),
                                             convPersist);
@@ -303,7 +303,7 @@ static void persistValue(LLVM::LLVMDialect *dialect, Location loc,
           gepPersistenceState(dialect, loc, rewriter, stateTy, i, state);
       // Use the pointer in the state struct directly for pointer and signal
       // types.
-      if (isa<PtrType, SigType>(persist.getType())) {
+      if (isa<PtrType, hw::InOutType>(persist.getType())) {
         use.set(gep1);
       } else {
         auto load1 = rewriter.create<LLVM::LoadOp>(loc, elemTy, gep1);
@@ -559,7 +559,7 @@ static Value shiftArraySigPointer(Location loc,
 // Type conversions
 //===----------------------------------------------------------------------===//
 
-static Type convertSigType(SigType type, LLVMTypeConverter &converter) {
+static Type convertSigType(hw::InOutType type, LLVMTypeConverter &converter) {
   auto &context = converter.getContext();
   // auto i64Ty = IntegerType::get(&context, 64);
   auto voidPtrTy = LLVM::LLVMPointerType::get(&context);
@@ -574,7 +574,6 @@ static Type convertTimeType(TimeType type, LLVMTypeConverter &converter) {
 }
 
 static Type convertPtrType(PtrType type, LLVMTypeConverter &converter) {
-  // converter.convertType(type.getUnderlyingType())
   return LLVM::LLVMPointerType::get(type.getContext());
 }
 
@@ -1848,7 +1847,7 @@ void circt::populateLLHDToLLVMConversionPatterns(LLVMTypeConverter &converter,
 
 void circt::populateLLHDToLLVMTypeConversions(LLVMTypeConverter &converter) {
   converter.addConversion(
-      [&](SigType sig) { return convertSigType(sig, converter); });
+      [&](hw::InOutType sig) { return convertSigType(sig, converter); });
   converter.addConversion(
       [&](TimeType time) { return convertTimeType(time, converter); });
   converter.addConversion(
