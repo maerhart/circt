@@ -1,11 +1,12 @@
 // RUN: circt-opt %s --convert-llhd-to-llvm --verify-diagnostics --split-input-file
 
-llhd.entity @root() -> () {
-  // expected-error @+1 {{failed to legalize operation 'llhd.inst'}}
-  llhd.inst "inst" @initUsesProbedValue () -> () : () -> ()
+hw.module @root() {
+  // expected-error @+1 {{failed to legalize operation 'hw.instance'}}
+  hw.instance "inst" @initUsesProbedValue () -> ()
 }
 
-llhd.entity @initUsesProbedValue () -> () {
+// Test: initializer expression of second signal uses probe of another signal
+hw.module @initUsesProbedValue() {
   // expected-error @+1 {{failed to legalize operation 'hw.constant'}}
   %0 = hw.constant 0 : i1
   %1 = llhd.sig "sig" %0 : i1

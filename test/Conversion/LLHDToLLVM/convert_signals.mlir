@@ -4,8 +4,8 @@
 
 // CHECK-LABEL: llvm.func @convert_sig(
 // CHECK-SAME:    %arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: !llvm.ptr) {
-llhd.entity @convert_sig() -> () {
-  // Unused in entity definition. Only used at instantiation site.
+hw.module @convert_sig() {
+  // Unused inout entity definition. Only used at instantiation site.
   %0 = hw.constant 0 : i1
   %1 = hw.array_create %0, %0, %0, %0 : i1
 
@@ -17,7 +17,7 @@ llhd.entity @convert_sig() -> () {
 
 // CHECK-LABEL: llvm.func @convert_prb(
 // CHECK-SAME:    %arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: !llvm.ptr) {
-llhd.entity @convert_prb(%a: !hw.inout<i1>, %b: !hw.inout<array<3xi5>>) -> () {
+hw.module @convert_prb(inout %a: i1, inout %b: !hw.array<3xi5>) {
   // CHECK: [[SIGPTR_A:%.+]] = llvm.getelementptr %arg2[0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(ptr, i64, i64, i64)>
   // CHECK: [[SIGPTR_B:%.+]] = llvm.getelementptr %arg2[1] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(ptr, i64, i64, i64)>
 
@@ -39,7 +39,7 @@ llhd.entity @convert_prb(%a: !hw.inout<i1>, %b: !hw.inout<array<3xi5>>) -> () {
 
 // CHECK-LABEL: llvm.func @convert_drv(
 // CHECK-SAME:    %arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: !llvm.ptr) {
-llhd.entity @convert_drv(%a: !hw.inout<i1>, %b: !hw.inout<array<3xi5>>) -> () {
+hw.module @convert_drv(inout %a: i1, inout %b: !hw.array<3xi5>) {
   // CHECK: [[SIGPTR_A:%.+]] = llvm.getelementptr %arg2[0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(ptr, i64, i64, i64)>
   // CHECK: [[SIGPTR_B:%.+]] = llvm.getelementptr %arg2[1] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(ptr, i64, i64, i64)>
 
@@ -83,7 +83,7 @@ llhd.entity @convert_drv(%a: !hw.inout<i1>, %b: !hw.inout<array<3xi5>>) -> () {
 
 // CHECK-LABEL: llvm.func @convert_drv_enable(
 // CHECK-SAME:    %arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: !llvm.ptr) {
-llhd.entity @convert_drv_enable(%a: !hw.inout<i1>) -> () {
+hw.module @convert_drv_enable(inout %a: i1) {
   // Last piece of read logic.
   // CHECK: [[VALUE_A:%.+]] = llvm.trunc {{%.+}} : i16 to i1
   %0 = llhd.prb %a : !hw.inout<i1>

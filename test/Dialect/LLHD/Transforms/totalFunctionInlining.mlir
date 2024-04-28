@@ -1,4 +1,4 @@
-// RUN: circt-opt %s -inline="default-pipeline=''" -llhd-function-elimination | FileCheck %s
+// RUN: circt-opt %s -inline -llhd-function-elimination | FileCheck %s
 
 // This test checks the presence of inlining into entities and processes
 // and their general structure after inlining. It also checks that the functions
@@ -23,8 +23,8 @@ func.func @complex(%flag : i1) -> i32 {
   return %1 : i32
 }
 
-// CHECK-LABEL: @check_entity_inline
-llhd.entity @check_entity_inline() -> (%out : !hw.inout<i32>) {
+// CHECK-LABEL: @check_module_inline
+hw.module @check_module_inline(inout %out: i32) {
   // CHECK-NEXT: %{{.*}} = hw.constant
   // CHECK-NEXT: %{{.*}} = llhd.constant_time
   // CHECK-NEXT: llhd.drv
