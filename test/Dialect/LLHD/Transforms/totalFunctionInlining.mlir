@@ -35,7 +35,7 @@ hw.module @check_module_inline(inout %out: i32) {
 }
 
 // CHECK-LABEL: @check_proc_inline
-llhd.proc @check_proc_inline(%arg : !hw.inout<i1>) -> (%out : !hw.inout<i32>) {
+llhd.process @check_proc_inline(inout %arg : i1, inout %out : i32) {
   // CHECK-NEXT: %[[PRB:.*]] = llhd.prb
   // CHECK-NEXT: cf.cond_br %[[PRB]], ^[[BB1:.*]], ^[[BB2:.*]]
   // CHECK-NEXT: ^[[BB1]]:

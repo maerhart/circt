@@ -24,10 +24,10 @@ hw.module @root() {
   %0 = hw.constant 0 : i32
   %1 = llhd.sig "s1" %0 : i32
   %2 = llhd.sig "s2" %0 : i32
-  llhd.inst "proc" @proc () -> (%1, %2) : () -> (!hw.inout<i32>, !hw.inout<i32>)
+  hw.instance "proc" @proc (a: %1: !hw.inout<i32>, b: %2: !hw.inout<i32>) -> ()
 }
 
-llhd.proc @proc () -> (%a : !hw.inout<i32>, %b : !hw.inout<i32>) {
+llhd.process @proc (inout %a : i32, inout %b : i32) {
   cf.br ^timed
 ^timed:
   %t1 = llhd.constant_time #llhd.time<0ns, 0d, 1e>

@@ -17,7 +17,7 @@ hw.module @checkPrbDceAndCseIn(inout %arg0 : i32, inout %arg1 : i32, inout %arg2
 }
 
 // CHECK-LABEL: @checkPrbDceButNotCse
-llhd.proc @checkPrbDceButNotCse(%arg0 : !hw.inout<i32>) -> (%arg1 : !hw.inout<i32>, %arg2 : !hw.inout<i32>) {
+llhd.process @checkPrbDceButNotCse(inout %arg0 : i32, inout %arg1 : i32, inout %arg2 : i32) {
   // CHECK-NEXT: llhd.constant_time
   %time = llhd.constant_time <0ns, 1d, 0e>
 

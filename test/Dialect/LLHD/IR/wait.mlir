@@ -7,7 +7,7 @@
 //   * 2 observed signals, with time, successor with arguments
 
 // CHECK-LABEL: @check_wait_0
-llhd.proc @check_wait_0 () -> () {
+llhd.process @check_wait_0() {
   // CHECK: llhd.wait ^[[BB:.*]]
   "llhd.wait"() [^bb1] {operandSegmentSizes=array<i32: 0,0,0>} : () -> ()
   // CHECK-NEXT: ^[[BB]]
@@ -16,7 +16,7 @@ llhd.proc @check_wait_0 () -> () {
 }
 
 // CHECK-LABEL: @check_wait_1
-llhd.proc @check_wait_1 () -> () {
+llhd.process @check_wait_1() {
   // CHECK-NEXT: %[[TIME:.*]] = llhd.constant_time
   %time = llhd.constant_time #llhd.time<0ns, 0d, 0e>
   // CHECK-NEXT: llhd.wait for %[[TIME]], ^[[BB:.*]](%[[TIME]] : !llhd.time)
@@ -26,8 +26,8 @@ llhd.proc @check_wait_1 () -> () {
   llhd.halt
 }
 
-// CHECK: llhd.proc @check_wait_2(%[[ARG0:.*]] : !hw.inout<i64>, %[[ARG1:.*]] : !hw.inout<i1>) -> () {
-llhd.proc @check_wait_2 (%arg0 : !hw.inout<i64>, %arg1 : !hw.inout<i1>) -> () {
+// CHECK: llhd.process @check_wait_2(inout %[[ARG0:.*]] : i64, inout %[[ARG1:.*]] : i1) {
+llhd.process @check_wait_2(inout %arg0 : i64, inout %arg1 : i1) {
   // CHECK-NEXT: llhd.wait (%[[ARG0]], %[[ARG1]] : !hw.inout<i64>, !hw.inout<i1>), ^[[BB:.*]](%[[ARG1]] : !hw.inout<i1>)
   "llhd.wait"(%arg0, %arg1, %arg1) [^bb1] {operandSegmentSizes=array<i32: 2,0,1>} : (!hw.inout<i64>, !hw.inout<i1>, !hw.inout<i1>) -> ()
   // CHECK: ^[[BB]](%[[A:.*]]: !hw.inout<i1>):
@@ -35,8 +35,8 @@ llhd.proc @check_wait_2 (%arg0 : !hw.inout<i64>, %arg1 : !hw.inout<i1>) -> () {
   llhd.halt
 }
 
-// CHECK: llhd.proc @check_wait_3(%[[ARG0:.*]] : !hw.inout<i64>, %[[ARG1:.*]] : !hw.inout<i1>) -> () {
-llhd.proc @check_wait_3 (%arg0 : !hw.inout<i64>, %arg1 : !hw.inout<i1>) -> () {
+// CHECK: llhd.process @check_wait_3(inout %[[ARG0:.*]] : i64, inout %[[ARG1:.*]] : i1) {
+llhd.process @check_wait_3(inout %arg0 : i64, inout %arg1 : i1) {
   // CHECK-NEXT: %[[TIME:.*]] = llhd.constant_time
   %time = llhd.constant_time #llhd.time<0ns, 0d, 0e>
   // CHECK-NEXT: llhd.wait for %[[TIME]], (%[[ARG0]], %[[ARG1]] : !hw.inout<i64>, !hw.inout<i1>), ^[[BB:.*]](%[[ARG1]], %[[ARG0]] : !hw.inout<i1>, !hw.inout<i64>)

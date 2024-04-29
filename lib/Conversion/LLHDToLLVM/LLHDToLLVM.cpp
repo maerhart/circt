@@ -173,7 +173,8 @@ static bool isWaitDestArg(Operation *op) {
 /// defined in. An LLVMType structure containing those types, in order of
 /// appearance, is returned.
 static Type getProcPersistenceTy(LLVM::LLVMDialect *dialect,
-                                 const TypeConverter *converter, ProcOp &proc) {
+                                 const TypeConverter *converter,
+                                 ProcessOp &proc) {
   SmallVector<Type, 3> types = SmallVector<Type, 3>();
   proc.walk([&](Operation *op) -> void {
     if (op->isUsedOutsideOfBlock(op->getBlock()) || isWaitDestArg(op)) {
@@ -184,7 +185,7 @@ static Type getProcPersistenceTy(LLVM::LLVMDialect *dialect,
   });
 
   // Also persist block arguments escaping their defining block.
-  for (auto &block : proc.getBlocks()) {
+  for (auto &block : proc.getBody().getBlocks()) {
     // Skip entry block (contains the function signature in its args).
     if (block.isEntryBlock())
       continue;
@@ -320,7 +321,7 @@ static void persistValue(LLVM::LLVMDialect *dialect, Location loc,
 static void insertPersistence(const TypeConverter *converter,
                               ConversionPatternRewriter &rewriter,
                               LLVM::LLVMDialect *dialect, Location loc,
-                              ProcOp &proc, Type &stateTy,
+                              ProcessOp &proc, Type &stateTy,
                               LLVM::LLVMFuncOp &converted,
                               Operation *splitEntryBefore) {
   auto i32Ty = IntegerType::get(dialect->getContext(), 32);
@@ -674,20 +675,22 @@ private:
 } // namespace
 
 namespace {
-/// Convert an `llhd.proc` operation to LLVM dialect. This inserts the required
-/// logic to resume execution after an `llhd.wait` operation, as well as state
-/// keeping for values that need to persist across suspension.
-struct ProcOpConversion : public ConvertToLLVMPattern {
-  explicit ProcOpConversion(MLIRContext *ctx, LLVMTypeConverter &typeConverter)
-      : ConvertToLLVMPattern(ProcOp::getOperationName(), ctx, typeConverter) {}
+/// Convert an `llhd.process` operation to LLVM dialect. This inserts the
+/// required logic to resume execution after an `llhd.wait` operation, as well
+/// as state keeping for values that need to persist across suspension.
+struct ProcessOpConversion : public ConvertToLLVMPattern {
+  explicit ProcessOpConversion(MLIRContext *ctx,
+                               LLVMTypeConverter &typeConverter)
+      : ConvertToLLVMPattern(ProcessOp::getOperationName(), ctx,
+                             typeConverter) {}
 
   LogicalResult
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    auto procOp = cast<ProcOp>(op);
+    auto procOp = cast<ProcessOp>(op);
 
     // Get adapted operands.
-    ProcOpAdaptor transformed(operands);
+    ProcessOpAdaptor transformed(operands);
 
     // Collect used llvm types.
     auto voidTy = getVoidType();
@@ -707,30 +710,29 @@ struct ProcOpConversion : public ConvertToLLVMPattern {
 
     // Have an intermediate signature conversion to add the arguments for the
     // state, process-specific state and signal table.
-    LLVMTypeConverter::SignatureConversion intermediate(
-        procOp.getNumArguments());
+    LLVMTypeConverter::SignatureConversion intermediate(procOp.getNumPorts());
     // Add state, process state table and signal table arguments.
     std::array<Type, 3> procArgTys({voidPtrTy, voidPtrTy, voidPtrTy});
     intermediate.addInputs(procArgTys);
-    for (size_t i = 0, e = procOp.getNumArguments(); i < e; ++i)
+    for (size_t i = 0, e = procOp.getNumPorts(); i < e; ++i)
       intermediate.addInputs(i, voidTy);
     rewriter.applySignatureConversion(&procOp.getBody(), intermediate,
                                       typeConverter);
 
     // Get the final signature conversion.
     OpBuilder bodyBuilder =
-        OpBuilder::atBlockBegin(&procOp.getBlocks().front());
+        OpBuilder::atBlockBegin(&procOp.getBody().getBlocks().front());
     LLVMTypeConverter::SignatureConversion final(
         intermediate.getConvertedTypes().size());
     final.addInputs(0, voidPtrTy);
     final.addInputs(1, voidPtrTy);
     final.addInputs(2, voidPtrTy);
 
-    for (size_t i = 0, e = procOp.getNumArguments(); i < e; ++i) {
+    for (size_t i = 0, e = procOp.getNumPorts(); i < e; ++i) {
       // Create gep operations from the signal table for each original argument.
-      auto gep = bodyBuilder.create<LLVM::GEPOp>(op->getLoc(), voidPtrTy, sigTy,
-                                                 procOp.getArgument(2),
-                                                 LLVM::GEPArg(i));
+      auto gep = bodyBuilder.create<LLVM::GEPOp>(
+          op->getLoc(), voidPtrTy, sigTy,
+          procOp.getBody().front().getArgument(2), LLVM::GEPArg(i));
 
       // Remap the i-th original argument to the gep'd value.
       final.remapInput(i + 3, gep.getResult());
@@ -743,7 +745,7 @@ struct ProcOpConversion : public ConvertToLLVMPattern {
     auto llvmFunc = rewriter.create<LLVM::LLVMFuncOp>(op->getLoc(),
                                                       procOp.getName(), funcTy);
     llvmFunc->setAttr("llhd.argument_count",
-                      rewriter.getI32IntegerAttr(procOp.getNumArguments()));
+                      rewriter.getI32IntegerAttr(procOp.getNumPorts()));
 
     // Inline the process region in the new llvm function.
     rewriter.inlineRegionBefore(procOp.getBody(), llvmFunc.getBody(),
@@ -1157,13 +1159,14 @@ struct HWInstanceOpConversion : public ConvertToLLVMPattern {
 /// in the instantiated entity.
 struct InstOpConversion : public ConvertToLLVMPattern {
   explicit InstOpConversion(MLIRContext *ctx, LLVMTypeConverter &typeConverter)
-      : ConvertToLLVMPattern(InstOp::getOperationName(), ctx, typeConverter) {}
+      : ConvertToLLVMPattern(hw::InstanceOp::getOperationName(), ctx,
+                             typeConverter) {}
 
   LogicalResult
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     // Get the inst operation.
-    auto instOp = cast<InstOp>(op);
+    auto instOp = cast<hw::InstanceOp>(op);
     // Get the parent module.
     auto module = op->getParentOfType<ModuleOp>();
     auto entity = op->getParentOfType<hw::HWModuleOp>();
@@ -1199,7 +1202,8 @@ struct InstOpConversion : public ConvertToLLVMPattern {
         OpBuilder::atBlockTerminator(&initFunc.getBody().getBlocks().front());
 
     // Use the instance name to retrieve the instance from the state.
-    auto ownerName = entity.getName().str() + "." + instOp.getName().str();
+    auto ownerName =
+        entity.getName().str() + "." + instOp.getInstanceName().str();
 
     // Get or create owner name string
     Value owner;
@@ -1216,11 +1220,11 @@ struct InstOpConversion : public ConvertToLLVMPattern {
     }
 
     // Handle process instantiation.
-    auto proc = module.lookupSymbol<ProcOp>(instOp.getCallee());
+    auto proc = module.lookupSymbol<ProcessOp>(instOp.getModuleName());
     if (!proc)
       return failure();
 
-    auto sensesTy = LLVM::LLVMArrayType::get(i1Ty, proc.getNumArguments());
+    auto sensesTy = LLVM::LLVMArrayType::get(i1Ty, proc.getNumPorts());
     auto procStateTy = LLVM::LLVMStructType::getLiteral(
         rewriter.getContext(),
         {i32Ty, i32Ty, voidPtrTy /*ptr(sensesTy)*/,
@@ -1900,8 +1904,8 @@ void circt::populateLLHDToLLVMConversionPatterns(LLVMTypeConverter &converter,
 
   // Unit conversion patterns.
   patterns.add<HWOutputOpConversion>(converter, ctx);
-  patterns.add<ProcOpConversion, WaitOpConversion, HaltOpConversion>(ctx,
-                                                                     converter);
+  patterns.add<ProcessOpConversion, WaitOpConversion, HaltOpConversion>(
+      ctx, converter);
   patterns.add<HWModuleOpConversion>(ctx, converter, sigCounter, regCounter);
 
   // Signal conversion patterns.
@@ -1948,7 +1952,7 @@ void LLHDToLLVMLoweringPass::runOnOperation() {
                                                          converter);
 
   LLVMConversionTarget target(getContext());
-  target.addIllegalOp<InstOp, hw::InstanceOp>();
+  target.addIllegalOp<hw::InstanceOp>();
   target.addLegalOp<UnrealizedConversionCastOp>();
   cf::populateControlFlowToLLVMConversionPatterns(converter, patterns);
   arith::populateArithToLLVMConversionPatterns(converter, patterns);

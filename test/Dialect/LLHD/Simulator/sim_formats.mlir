@@ -99,10 +99,10 @@ hw.module @root() {
   %0 = hw.constant 1 : i8
   %s = llhd.sig "s" %0 : i8
   %1 = llhd.sig "1" %0 : i8
-  llhd.inst "foo" @foo () -> (%s) : () -> (!hw.inout<i8>)
+  hw.instance "foo" @foo (s: %s: !hw.inout<i8>) -> ()
 }
 
-llhd.proc @foo () -> (%s : !hw.inout<i8>) {
+llhd.process @foo(inout %s : i8) {
   cf.br ^entry
 ^entry:
   %1 = llhd.prb %s : !hw.inout<i8>

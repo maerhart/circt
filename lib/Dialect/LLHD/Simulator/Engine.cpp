@@ -253,25 +253,21 @@ void Engine::walkEntity(hw::HWModuleOp entity, Instance &child) {
     }
 
     // Build (recursive) instance layout.
-    if (auto inst = dyn_cast<InstOp>(op)) {
+    if (auto inst = dyn_cast<hw::InstanceOp>(op)) {
       // Skip self-recursion.
-      if (inst.getCallee() == child.name)
+      if (inst.getModuleName() == child.name)
         return;
-      if (auto e =
-              op->getParentOfType<ModuleOp>().lookupSymbol(inst.getCallee())) {
-        Instance newChild(child.unit + '.' + inst.getName().str());
-        newChild.unit = inst.getCallee().str();
+      if (auto e = op->getParentOfType<ModuleOp>().lookupSymbol(
+              inst.getModuleName())) {
+        Instance newChild(child.unit + '.' + inst.getInstanceName().str());
+        newChild.unit = inst.getModuleName().str();
         newChild.nArgs = inst.getNumOperands();
-        newChild.path = child.path + "/" + inst.getName().str();
+        newChild.path = child.path + "/" + inst.getInstanceName().str();
 
         // Add instance arguments to sensitivity list. The first nArgs signals
         // in the sensitivity list represent the unit's arguments, while the
         // following ones represent the unit-defined signals.
-        llvm::SmallVector<Value, 8> args;
-        args.insert(args.end(), inst.getInputs().begin(),
-                    inst.getInputs().end());
-        args.insert(args.end(), inst.getOutputs().begin(),
-                    inst.getOutputs().end());
+        llvm::SmallVector<Value, 8> args(inst.getInputs());
 
         for (size_t i = 0, e = args.size(); i < e; ++i) {
           // The signal comes from an instance's argument.

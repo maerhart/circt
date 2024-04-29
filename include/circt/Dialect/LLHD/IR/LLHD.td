@@ -13,7 +13,9 @@
 #ifndef CIRCT_DIALECT_LLHD_IR_LLHD
 #define CIRCT_DIALECT_LLHD_IR_LLHD
 
+include "circt/Dialect/HW/HWAttributes.td"
 include "circt/Dialect/HW/HWTypes.td"
+include "circt/Dialect/HW/HWOpInterfaces.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/OpBase.td"
 include "mlir/IR/PatternBase.td"

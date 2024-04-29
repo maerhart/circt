@@ -38,7 +38,7 @@ static SmallVector<Block *, 8> intersection(SmallVectorImpl<Block *> &v1,
 }
 
 void EarlyCodeMotionPass::runOnOperation() {
-  llhd::ProcOp proc = getOperation();
+  llhd::ProcessOp proc = getOperation();
   llhd::TemporalRegionAnalysis trAnalysis = llhd::TemporalRegionAnalysis(proc);
   mlir::DominanceInfo dom(proc);
 
@@ -65,7 +65,7 @@ void EarlyCodeMotionPass::runOnOperation() {
 
       SmallVector<Block *, 8> validPlacements;
       // Initialize validPlacements to all blocks in the process
-      for (Block &b : proc.getBlocks())
+      for (Block &b : proc.getBody().getBlocks())
         validPlacements.push_back(&b);
 
       // Delete all blocks in validPlacements that are not common to all
@@ -79,7 +79,7 @@ void EarlyCodeMotionPass::runOnOperation() {
           instBlock = operand.getDefiningOp()->getBlock();
         }
 
-        for (Block &b : proc.getBlocks()) {
+        for (Block &b : proc.getBody().getBlocks()) {
           if (dom.dominates(instBlock, &b))
             dominationSet.push_back(&b);
         }
@@ -130,7 +130,7 @@ void EarlyCodeMotionPass::runOnOperation() {
   }
 }
 
-std::unique_ptr<OperationPass<llhd::ProcOp>>
+std::unique_ptr<OperationPass<llhd::ProcessOp>>
 circt::llhd::createEarlyCodeMotionPass() {
   return std::make_unique<EarlyCodeMotionPass>();
 }

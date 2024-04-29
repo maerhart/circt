@@ -182,11 +182,11 @@ struct MemberVisitor {
 
   // Handle procedures.
   LogicalResult visit(const slang::ast::ProceduralBlockSymbol &procNode) {
-    auto procOp = builder.create<moore::ProcedureOp>(
+    auto ProcessOp = builder.create<moore::ProcedureOp>(
         loc, convertProcedureKind(procNode.procedureKind));
-    procOp.getBodyRegion().emplaceBlock();
+    ProcessOp.getBodyRegion().emplaceBlock();
     OpBuilder::InsertionGuard guard(builder);
-    builder.setInsertionPointToEnd(procOp.getBody());
+    builder.setInsertionPointToEnd(ProcessOp.getBody());
     Context::ValueSymbolScope scope(context.valueSymbols);
     return context.convertStatement(procNode.getBody());
   }

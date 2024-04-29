@@ -9,10 +9,10 @@
 hw.module @root() {
   %0 = hw.constant 1 : i1
   %1 = llhd.sig "toggle" %0 : i1
-  llhd.inst "proc" @p () -> (%1) : () -> (!hw.inout<i1>)
+  hw.instance "proc" @p(a: %1: !hw.inout<i1>) -> ()
 }
 
-llhd.proc @p () -> (%a : !hw.inout<i1>) {
+llhd.process @p(inout %a : i1) {
   cf.br ^wait
 ^wait:
   %1 = llhd.prb %a : !hw.inout<i1>

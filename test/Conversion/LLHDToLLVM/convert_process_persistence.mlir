@@ -7,7 +7,7 @@ func.func private @dummyB(%arg0: !llhd.ptr<i42>)
 
 // CHECK-LABEL: llvm.func @PersistValuesAcrossPotentialResumePoints(
 // CHECK-SAME:    %arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: !llvm.ptr)
-llhd.proc @PersistValuesAcrossPotentialResumePoints () -> () {
+llhd.process @PersistValuesAcrossPotentialResumePoints() {
   // Values used across basic blocks get persisted directly
   // CHECK: [[TMP1:%.+]] = llvm.mlir.constant(1337 :
   // CHECK: [[PERSIST_PTR1:%.+]] = llvm.getelementptr %arg1[0, 3, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(i32, i32, ptr, struct<(i42, ptr)>)>

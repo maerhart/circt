@@ -11,8 +11,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "circt/Dialect/LLHD/IR/LLHDOps.h"
+#include "circt/Dialect/HW/CustomDirectiveImpl.h"
 #include "circt/Dialect/HW/HWOps.h"
+#include "circt/Dialect/HW/ModuleImplementation.h"
 #include "circt/Dialect/LLHD/IR/LLHDDialect.h"
+#include "circt/Support/Namespace.h"
 #include "mlir/Dialect/CommonFolders.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -23,14 +26,17 @@
 #include "mlir/IR/Region.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Interfaces/FunctionImplementation.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 using namespace circt;
 using namespace mlir;
+using namespace llhd;
 
 template <class AttrElementT,
           class ElementValueT = typename AttrElementT::ValueType,
@@ -339,216 +345,427 @@ SuccessorOperands llhd::WaitOp::getSuccessorOperands(unsigned index) {
 }
 
 //===----------------------------------------------------------------------===//
-// ProcOp
+// ProcessOp
 //===----------------------------------------------------------------------===//
 
-LogicalResult circt::llhd::ProcOp::verifyType() {
-  // Fail if function returns more than zero values. This is because the
-  // outputs of a process are specially marked arguments.
-  if (getNumResults() > 0) {
-    return emitOpError(
-        "process has more than zero return types, this is not allowed");
+template <typename ModuleTy>
+static SmallVector<hw::PortInfo> getPortList(ModuleTy &mod) {
+  auto modTy = mod.getHWModuleType();
+  auto emptyDict = DictionaryAttr::get(mod.getContext());
+  SmallVector<hw::PortInfo> retval;
+  auto locs = mod.getAllPortLocs();
+  for (unsigned i = 0, e = modTy.getNumPorts(); i < e; ++i) {
+    LocationAttr loc = locs[i];
+    DictionaryAttr attrs =
+        dyn_cast_or_null<DictionaryAttr>(mod.getPortAttrs(i));
+    if (!attrs)
+      attrs = emptyDict;
+    retval.push_back({modTy.getPorts()[i],
+                      modTy.isOutput(i) ? modTy.getOutputIdForPortId(i)
+                                        : modTy.getInputIdForPortId(i),
+                      attrs, loc});
   }
-
-  // Check that all operands are of signal type
-  for (int i = 0, e = getNumArguments(); i < e; ++i) {
-    if (!isa<hw::InOutType>(getArgument(i).getType())) {
-      return emitOpError("usage of invalid argument type, was ")
-             << getArgument(i).getType() << ", expected LLHD signal type";
-    }
-  }
-  return success();
+  return retval;
 }
 
-/// Returns the argument types of this function.
-ArrayRef<Type> llhd::ProcOp::getArgumentTypes() {
-  return getFunctionType().getInputs();
+template <typename ModuleTy>
+static hw::PortInfo getPort(ModuleTy &mod, size_t idx) {
+  auto modTy = mod.getHWModuleType();
+  auto emptyDict = DictionaryAttr::get(mod.getContext());
+  LocationAttr loc = mod.getPortLoc(idx);
+  DictionaryAttr attrs =
+      dyn_cast_or_null<DictionaryAttr>(mod.getPortAttrs(idx));
+  if (!attrs)
+    attrs = emptyDict;
+  return {modTy.getPorts()[idx],
+          modTy.isOutput(idx) ? modTy.getOutputIdForPortId(idx)
+                              : modTy.getInputIdForPortId(idx),
+          attrs, loc};
 }
 
-/// Returns the result types of this function.
-ArrayRef<Type> llhd::ProcOp::getResultTypes() {
-  return getFunctionType().getResults();
+static bool hasAttribute(StringRef name, ArrayRef<NamedAttribute> attrs) {
+  for (auto &argAttr : attrs)
+    if (argAttr.getName() == name)
+      return true;
+  return false;
 }
 
-LogicalResult circt::llhd::ProcOp::verifyBody() { return success(); }
+template <typename ModuleTy>
+static ParseResult parseHWModuleOp(OpAsmParser &parser,
+                                   OperationState &result) {
 
-LogicalResult llhd::ProcOp::verify() {
-  // Check that the ins attribute is smaller or equal the number of
-  // arguments
-  uint64_t numArgs = getNumArguments();
-  uint64_t numIns = getInsAttr().getInt();
-  if (numArgs < numIns) {
-    return emitOpError(
-               "Cannot have more inputs than arguments, expected at most ")
-           << numArgs << ", got " << numIns;
-  }
-  return success();
-}
+  using namespace mlir::function_interface_impl;
+  auto builder = parser.getBuilder();
+  auto loc = parser.getCurrentLocation();
 
-static ParseResult
-parseProcArgumentList(OpAsmParser &parser, SmallVectorImpl<Type> &argTypes,
-                      SmallVectorImpl<OpAsmParser::Argument> &argNames) {
-  if (parser.parseLParen())
-    return failure();
+  // Parse the visibility attribute.
+  (void)mlir::impl::parseOptionalVisibilityKeyword(parser, result.attributes);
 
-  // The argument list either has to consistently have ssa-id's followed by
-  // types, or just be a type list.  It isn't ok to sometimes have SSA ID's
-  // and sometimes not.
-  auto parseArgument = [&]() -> ParseResult {
-    llvm::SMLoc loc = parser.getCurrentLocation();
-
-    // Parse argument name if present.
-    OpAsmParser::Argument argument;
-    Type argumentType;
-    auto optArg = parser.parseOptionalArgument(argument);
-    if (optArg.has_value()) {
-      if (succeeded(optArg.value())) {
-        // Reject this if the preceding argument was missing a name.
-        if (argNames.empty() && !argTypes.empty())
-          return parser.emitError(loc,
-                                  "expected type instead of SSA identifier");
-        argNames.push_back(argument);
-
-        if (parser.parseColonType(argumentType))
-          return failure();
-      } else if (!argNames.empty()) {
-        // Reject this if the preceding argument had a name.
-        return parser.emitError(loc, "expected SSA identifier");
-      } else if (parser.parseType(argumentType)) {
-        return failure();
-      }
-    }
-
-    // Add the argument type.
-    argTypes.push_back(argumentType);
-    argNames.back().type = argumentType;
-
-    return success();
-  };
-
-  // Parse the function arguments.
-  if (failed(parser.parseOptionalRParen())) {
-    do {
-      unsigned numTypedArguments = argTypes.size();
-      if (parseArgument())
-        return failure();
-
-      llvm::SMLoc loc = parser.getCurrentLocation();
-      if (argTypes.size() == numTypedArguments &&
-          succeeded(parser.parseOptionalComma()))
-        return parser.emitError(loc, "variadic arguments are not allowed");
-    } while (succeeded(parser.parseOptionalComma()));
-    if (parser.parseRParen())
-      return failure();
-  }
-
-  return success();
-}
-
-ParseResult llhd::ProcOp::parse(OpAsmParser &parser, OperationState &result) {
-  StringAttr procName;
-  SmallVector<OpAsmParser::Argument, 8> argNames;
-  SmallVector<Type, 8> argTypes;
-  Builder &builder = parser.getBuilder();
-
-  if (parser.parseSymbolName(procName, SymbolTable::getSymbolAttrName(),
+  // Parse the name as a symbol.
+  StringAttr nameAttr;
+  if (parser.parseSymbolName(nameAttr, SymbolTable::getSymbolAttrName(),
                              result.attributes))
     return failure();
 
-  if (parseProcArgumentList(parser, argTypes, argNames))
+  // Parse the parameters.
+  ArrayAttr parameters;
+  if (parseOptionalParameterList(parser, parameters))
     return failure();
 
-  result.addAttribute("ins", builder.getI64IntegerAttr(argTypes.size()));
-  if (parser.parseArrow())
+  SmallVector<hw::module_like_impl::PortParse> ports;
+  TypeAttr modType;
+  if (failed(
+          hw::module_like_impl::parseModuleSignature(parser, ports, modType)))
     return failure();
 
-  if (parseProcArgumentList(parser, argTypes, argNames))
+  // Parse the attribute dict.
+  if (failed(parser.parseOptionalAttrDictWithKeyword(result.attributes)))
     return failure();
 
-  auto type = builder.getFunctionType(argTypes, std::nullopt);
-  result.addAttribute(circt::llhd::ProcOp::getFunctionTypeAttrName(result.name),
-                      TypeAttr::get(type));
+  if (hasAttribute("parameters", result.attributes)) {
+    parser.emitError(loc, "explicit `parameters` attributes not allowed");
+    return failure();
+  }
 
+  result.addAttribute("parameters", parameters);
+  result.addAttribute(ModuleTy::getModuleTypeAttrName(result.name), modType);
+
+  // Convert the specified array of dictionary attrs (which may have null
+  // entries) to an ArrayAttr of dictionaries.
+  SmallVector<Attribute> attrs;
+  for (auto &port : ports)
+    attrs.push_back(port.attrs ? port.attrs : builder.getDictionaryAttr({}));
+  // Add the attributes to the ports.
+  auto nonEmptyAttrsFn = [](Attribute attr) {
+    return attr && !cast<DictionaryAttr>(attr).empty();
+  };
+  if (llvm::any_of(attrs, nonEmptyAttrsFn))
+    result.addAttribute(ModuleTy::getPerPortAttrsAttrName(result.name),
+                        builder.getArrayAttr(attrs));
+
+  // Add the port locations.
+  auto unknownLoc = builder.getUnknownLoc();
+  auto nonEmptyLocsFn = [unknownLoc](Attribute attr) {
+    return attr && cast<Location>(attr) != unknownLoc;
+  };
+  SmallVector<Attribute> locs;
+  StringAttr portLocsAttrName;
+
+  // Plain modules only store the output port locations, as the input port
+  // locations will be stored in the basic block arguments.
+  portLocsAttrName = ModuleTy::getResultLocsAttrName(result.name);
+  for (auto &port : ports)
+    if (port.direction == hw::ModulePort::Direction::Output)
+      locs.push_back(port.sourceLoc ? Location(*port.sourceLoc) : unknownLoc);
+
+  if (llvm::any_of(locs, nonEmptyLocsFn))
+    result.addAttribute(portLocsAttrName, builder.getArrayAttr(locs));
+
+  // Add the entry block arguments.
+  SmallVector<OpAsmParser::Argument, 4> entryArgs;
+  for (auto &port : ports)
+    if (port.direction != hw::ModulePort::Direction::Output)
+      entryArgs.push_back(port);
+
+  // Parse the optional function body.
   auto *body = result.addRegion();
-  if (parser.parseRegion(*body, argNames))
+  if (parser.parseRegion(*body, entryArgs))
     return failure();
 
   return success();
 }
 
-/// Print the signature of the `proc` unit. Assumes that it passed the
-/// verification.
-static void printProcArguments(OpAsmPrinter &p, Operation *op,
-                               ArrayRef<Type> types, uint64_t numIns) {
-  Region &body = op->getRegion(0);
-  auto printList = [&](unsigned i, unsigned max) -> void {
-    for (; i < max; ++i) {
-      p << body.front().getArgument(i) << " : " << types[i];
-      p.printOptionalAttrDict(::mlir::function_interface_impl::getArgAttrs(
-          cast<mlir::FunctionOpInterface>(op), i));
+ParseResult ProcessOp::parse(OpAsmParser &parser, OperationState &result) {
+  return parseHWModuleOp<ProcessOp>(parser, result);
+}
 
-      if (i < max - 1)
-        p << ", ";
+template <typename ModuleTy>
+static void printModuleOp(OpAsmPrinter &p, ModuleTy mod) {
+  p << ' ';
+  // Print the visibility of the module.
+  StringRef visibilityAttrName = SymbolTable::getVisibilityAttrName();
+  if (auto visibility = mod.getOperation()->template getAttrOfType<StringAttr>(
+          visibilityAttrName))
+    p << visibility.getValue() << ' ';
+
+  // Print the operation and the function name.
+  p.printSymbolName(SymbolTable::getSymbolName(mod.getOperation()).getValue());
+
+  // Print the parameter list if present.
+  printOptionalParameterList(p, mod.getOperation(), mod.getParameters());
+
+  hw::module_like_impl::printModuleSignatureNew(p, mod);
+
+  SmallVector<StringRef, 3> omittedAttrs;
+  omittedAttrs.push_back(mod.getResultLocsAttrName());
+  omittedAttrs.push_back(mod.getModuleTypeAttrName());
+  omittedAttrs.push_back(mod.getPerPortAttrsAttrName());
+  omittedAttrs.push_back(mod.getParametersAttrName());
+  omittedAttrs.push_back(visibilityAttrName);
+  if (auto cmt =
+          mod.getOperation()->template getAttrOfType<StringAttr>("comment"))
+    if (cmt.getValue().empty())
+      omittedAttrs.push_back("comment");
+
+  mlir::function_interface_impl::printFunctionAttributes(p, mod.getOperation(),
+                                                         omittedAttrs);
+}
+
+void ProcessOp::print(OpAsmPrinter &p) {
+  printModuleOp(p, *this);
+
+  // Print the body if this is not an external function.
+  Region &body = getBody();
+  if (!body.empty()) {
+    p << " ";
+    p.printRegion(body, /*printEntryBlockArgs=*/false,
+                  /*printBlockTerminators=*/true);
+  }
+}
+
+static LogicalResult verifyModuleCommon(hw::HWModuleLike module) {
+  assert(isa<hw::HWModuleLike>(module) &&
+         "verifier hook should only be called on modules");
+
+  SmallPtrSet<Attribute, 4> paramNames;
+
+  // Check parameter default values are sensible.
+  for (auto param : module->getAttrOfType<ArrayAttr>("parameters")) {
+    auto paramAttr = cast<hw::ParamDeclAttr>(param);
+
+    // Check that we don't have any redundant parameter names.  These are
+    // resolved by string name: reuse of the same name would cause ambiguities.
+    if (!paramNames.insert(paramAttr.getName()).second)
+      return module->emitOpError("parameter ")
+             << paramAttr << " has the same name as a previous parameter";
+
+    // Default values are allowed to be missing, check them if present.
+    auto value = paramAttr.getValue();
+    if (!value)
+      continue;
+
+    auto typedValue = dyn_cast<TypedAttr>(value);
+    if (!typedValue)
+      return module->emitOpError("parameter ")
+             << paramAttr << " should have a typed value; has value " << value;
+
+    if (typedValue.getType() != paramAttr.getType())
+      return module->emitOpError("parameter ")
+             << paramAttr << " should have type " << paramAttr.getType()
+             << "; has type " << typedValue.getType();
+
+    // Verify that this is a valid parameter value, disallowing parameter
+    // references.  We could allow parameters to refer to each other in the
+    // future with lexical ordering if there is a need.
+    if (failed(checkParameterInContext(value, module, module,
+                                       /*disallowParamRefs=*/true)))
+      return failure();
+  }
+  return success();
+}
+
+LogicalResult ProcessOp::verify() {
+  if (failed(verifyModuleCommon(*this)))
+    return failure();
+
+  auto type = getModuleType();
+  auto *body = getBodyBlock();
+
+  // Verify the number of block arguments.
+  auto numInputs = type.getNumInputs();
+  if (body->getNumArguments() != numInputs)
+    return emitOpError("entry block must have")
+           << numInputs << " arguments to match module signature";
+
+  return success();
+}
+
+SmallVector<Location> ProcessOp::getAllPortLocs() {
+  SmallVector<Location> portLocs;
+  portLocs.reserve(getNumPorts());
+  auto resultLocs = getResultLocsAttr();
+  unsigned inputCount = 0;
+  auto modType = getModuleType();
+  auto unknownLoc = UnknownLoc::get(getContext());
+  auto *body = getBodyBlock();
+  for (unsigned i = 0, e = getNumPorts(); i < e; ++i) {
+    if (modType.isOutput(i)) {
+      auto loc = resultLocs
+                     ? cast<Location>(
+                           resultLocs.getValue()[portLocs.size() - inputCount])
+                     : unknownLoc;
+      portLocs.push_back(loc);
+    } else {
+      auto loc = body ? body->getArgument(inputCount).getLoc() : unknownLoc;
+      portLocs.push_back(loc);
+      ++inputCount;
     }
-  };
-
-  p << '(';
-  printList(0, numIns);
-  p << ") -> (";
-  printList(numIns, types.size());
-  p << ')';
+  }
+  return portLocs;
 }
 
-void llhd::ProcOp::print(OpAsmPrinter &printer) {
-  FunctionType type = getFunctionType();
-  printer << ' ';
-  printer.printSymbolName(getName());
-  printProcArguments(printer, getOperation(), type.getInputs(),
-                     getInsAttr().getInt());
-  printer << " ";
-  printer.printRegion(getBody(), false, true);
+void ProcessOp::setAllPortLocsAttrs(ArrayRef<Attribute> locs) {
+  SmallVector<Attribute> resultLocs;
+  unsigned inputCount = 0;
+  auto modType = getModuleType();
+  auto *body = getBodyBlock();
+  for (unsigned i = 0, e = getNumPorts(); i < e; ++i) {
+    if (modType.isOutput(i))
+      resultLocs.push_back(locs[i]);
+    else
+      body->getArgument(inputCount++).setLoc(cast<Location>(locs[i]));
+  }
+  setResultLocsAttr(ArrayAttr::get(getContext(), resultLocs));
 }
 
-Region *llhd::ProcOp::getCallableRegion() {
-  return isExternal() ? nullptr : &getBody();
+template <typename ModTy>
+static void setAllPortNames(ArrayRef<Attribute> names, ModTy module) {
+  auto numInputs = module.getNumInputPorts();
+  SmallVector<Attribute> argNames(names.begin(), names.begin() + numInputs);
+  SmallVector<Attribute> resNames(names.begin() + numInputs, names.end());
+  auto oldType = module.getModuleType();
+  SmallVector<hw::ModulePort> newPorts(oldType.getPorts().begin(),
+                                       oldType.getPorts().end());
+  for (size_t i = 0UL, e = newPorts.size(); i != e; ++i)
+    newPorts[i].name = cast<StringAttr>(names[i]);
+  auto newType = hw::ModuleType::get(module.getContext(), newPorts);
+  module.setModuleType(newType);
 }
 
-//===----------------------------------------------------------------------===//
-// InstOp
-//===----------------------------------------------------------------------===//
+void ProcessOp::setAllPortNames(ArrayRef<Attribute> names) {
+  ::setAllPortNames(names, *this);
+}
 
-LogicalResult llhd::InstOp::verify() {
-  // Check that the callee attribute was specified.
-  auto calleeAttr = (*this)->getAttrOfType<FlatSymbolRefAttr>("callee");
-  if (!calleeAttr)
-    return emitOpError("requires a 'callee' symbol reference attribute");
+ArrayRef<Attribute> ProcessOp::getAllPortAttrs() {
+  auto attrs = getPerPortAttrs();
+  if (attrs && !attrs->empty())
+    return attrs->getValue();
+  return {};
+}
 
-  auto proc = (*this)->getParentOfType<ModuleOp>().lookupSymbol<llhd::ProcOp>(
-      calleeAttr.getValue());
-  if (proc) {
-    auto type = proc.getFunctionType();
-
-    if (proc.getIns() != getInputs().size())
-      return emitOpError("incorrect number of inputs for proc instantiation");
-
-    if (type.getNumInputs() != getNumOperands())
-      return emitOpError("incorrect number of outputs for proc instantiation");
-
-    for (size_t i = 0, e = type.getNumInputs(); i != e; ++i) {
-      if (getOperand(i).getType() != type.getInput(i))
-        return emitOpError("operand type mismatch");
+static ArrayAttr arrayOrEmpty(mlir::MLIRContext *context,
+                              ArrayRef<Attribute> attrs) {
+  if (attrs.empty())
+    return ArrayAttr::get(context, {});
+  bool empty = true;
+  for (auto a : attrs)
+    if (a && !cast<DictionaryAttr>(a).empty()) {
+      empty = false;
+      break;
     }
+  if (empty)
+    return ArrayAttr::get(context, {});
+  return ArrayAttr::get(context, attrs);
+}
 
-    return success();
+void ProcessOp::setAllPortAttrs(ArrayRef<Attribute> attrs) {
+  setPerPortAttrsAttr(arrayOrEmpty(getContext(), attrs));
+}
+
+void ProcessOp::removeAllPortAttrs() {
+  setPerPortAttrsAttr(ArrayAttr::get(getContext(), {}));
+}
+
+template <typename ModTy>
+static void setHWModuleType(ModTy &mod, hw::ModuleType type) {
+  auto argAttrs = mod.getAllInputAttrs();
+  auto resAttrs = mod.getAllOutputAttrs();
+  mod.setModuleTypeAttr(TypeAttr::get(type));
+  unsigned newNumArgs = type.getNumInputs();
+  unsigned newNumResults = type.getNumOutputs();
+
+  auto emptyDict = DictionaryAttr::get(mod.getContext());
+  argAttrs.resize(newNumArgs, emptyDict);
+  resAttrs.resize(newNumResults, emptyDict);
+
+  SmallVector<Attribute> attrs;
+  attrs.append(argAttrs.begin(), argAttrs.end());
+  attrs.append(resAttrs.begin(), resAttrs.end());
+
+  if (attrs.empty())
+    return mod.removeAllPortAttrs();
+  mod.setAllPortAttrs(attrs);
+}
+
+void ProcessOp::setHWModuleType(hw::ModuleType type) {
+  return ::setHWModuleType(*this, type);
+}
+
+template <typename ModuleTy>
+static void
+buildModule(OpBuilder &builder, OperationState &result, StringAttr name,
+            const hw::ModulePortInfo &ports, ArrayAttr parameters,
+            ArrayRef<NamedAttribute> attributes, StringAttr comment) {
+  using namespace mlir::function_interface_impl;
+
+  // Add an attribute for the name.
+  result.addAttribute(SymbolTable::getSymbolAttrName(), name);
+
+  SmallVector<Attribute> perPortAttrs;
+  SmallVector<hw::ModulePort> portTypes;
+
+  for (auto elt : ports) {
+    portTypes.push_back(elt);
+    llvm::SmallVector<NamedAttribute> portAttrs;
+    if (elt.attrs)
+      llvm::copy(elt.attrs, std::back_inserter(portAttrs));
+    perPortAttrs.push_back(builder.getDictionaryAttr(portAttrs));
   }
 
-  return emitOpError() << "'" << calleeAttr.getValue()
-                       << "' does not reference a valid llhd.proc";
+  // Allow clients to pass in null for the parameters list.
+  if (!parameters)
+    parameters = builder.getArrayAttr({});
+
+  // Record the argument and result types as an attribute.
+  auto type = hw::ModuleType::get(builder.getContext(), portTypes);
+  result.addAttribute(ModuleTy::getModuleTypeAttrName(result.name),
+                      TypeAttr::get(type));
+  result.addAttribute("per_port_attrs",
+                      arrayOrEmpty(builder.getContext(), perPortAttrs));
+  result.addAttribute("parameters", parameters);
+  if (!comment)
+    comment = builder.getStringAttr("");
+  result.addAttribute("comment", comment);
+  result.addAttributes(attributes);
+  result.addRegion();
 }
 
-FunctionType llhd::InstOp::getCalleeType() {
-  SmallVector<Type, 8> argTypes(getOperandTypes());
-  return FunctionType::get(getContext(), argTypes, ArrayRef<Type>());
+void ProcessOp::build(OpBuilder &builder, OperationState &result,
+                      StringAttr name, const hw::ModulePortInfo &ports,
+                      ArrayAttr parameters, ArrayRef<NamedAttribute> attributes,
+                      StringAttr comment, bool shouldEnsureTerminator) {
+  buildModule<ProcessOp>(builder, result, name, ports, parameters, attributes,
+                         comment);
+
+  // Create a region and a block for the body.
+  auto *bodyRegion = result.regions[0].get();
+  Block *body = new Block();
+  bodyRegion->push_back(body);
+
+  // Add arguments to the body block.
+  auto unknownLoc = builder.getUnknownLoc();
+  for (auto port : ports.getInputs()) {
+    auto loc = port.loc ? Location(port.loc) : unknownLoc;
+    auto type = port.type;
+    if (port.isInOut() && !isa<hw::InOutType>(type))
+      type = hw::InOutType::get(type);
+    body->addArgument(type, loc);
+  }
+
+  // Add result ports attribute.
+  auto unknownLocAttr = cast<LocationAttr>(unknownLoc);
+  SmallVector<Attribute> resultLocs;
+  for (auto port : ports.getOutputs())
+    resultLocs.push_back(port.loc ? port.loc : unknownLocAttr);
+  result.addAttribute("result_locs", builder.getArrayAttr(resultLocs));
+}
+
+void ProcessOp::build(OpBuilder &builder, OperationState &result,
+                      StringAttr name, ArrayRef<hw::PortInfo> ports,
+                      ArrayAttr parameters, ArrayRef<NamedAttribute> attributes,
+                      StringAttr comment) {
+  build(builder, result, name, hw::ModulePortInfo(ports), parameters,
+        attributes, comment);
 }
 
 //===----------------------------------------------------------------------===//

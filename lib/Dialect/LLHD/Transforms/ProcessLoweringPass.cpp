@@ -60,7 +60,7 @@ static LogicalResult checkSignalsAreObserved(OperandRange obs, Value value) {
   return failure();
 }
 
-static LogicalResult isProcValidToLower(llhd::ProcOp op) {
+static LogicalResult isProcValidToLower(llhd::ProcessOp op) {
   size_t numBlocks = op.getBody().getBlocks().size();
 
   if (numBlocks == 1) {
@@ -117,25 +117,14 @@ static LogicalResult isProcValidToLower(llhd::ProcOp op) {
 void ProcessLoweringPass::runOnOperation() {
   ModuleOp module = getOperation();
 
-  WalkResult result = module.walk([](llhd::ProcOp op) -> WalkResult {
+  WalkResult result = module.walk([](llhd::ProcessOp op) -> WalkResult {
     // Check invariants
     if (failed(isProcValidToLower(op)))
       return WalkResult::interrupt();
 
     OpBuilder builder(op);
-
-    // Replace ProcOp with HWModuleOp
-    SmallVector<hw::PortInfo> ports;
-    for (auto [i, ty] : llvm::enumerate(op.getFunctionType().getInputs())) {
-      hw::PortInfo port;
-      port.type = ty;
-      port.name = builder.getStringAttr("inout" + Twine(i));
-      port.dir = hw::ModulePort::InOut;
-      ports.push_back(port);
-    }
-
-    auto entity =
-        builder.create<hw::HWModuleOp>(op.getLoc(), op.getNameAttr(), ports);
+    auto entity = builder.create<hw::HWModuleOp>(op.getLoc(), op.getNameAttr(),
+                                                 op.getPortList());
     // Move all blocks from the process to the entity, the process does not have
     // a region afterwards.
     entity.getBody().takeBody(op.getBody());

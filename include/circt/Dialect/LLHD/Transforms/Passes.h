@@ -19,15 +19,15 @@
 namespace circt {
 namespace llhd {
 
-class ProcOp;
+class ProcessOp;
 
 std::unique_ptr<OperationPass<ModuleOp>> createProcessLoweringPass();
 
 std::unique_ptr<OperationPass<ModuleOp>> createFunctionEliminationPass();
 
-std::unique_ptr<OperationPass<ProcOp>> createMemoryToBlockArgumentPass();
+std::unique_ptr<OperationPass<ProcessOp>> createMemoryToBlockArgumentPass();
 
-std::unique_ptr<OperationPass<ProcOp>> createEarlyCodeMotionPass();
+std::unique_ptr<OperationPass<ProcessOp>> createEarlyCodeMotionPass();
 
 /// Register the LLHD Transformation passes.
 void initLLHDTransformationPasses();

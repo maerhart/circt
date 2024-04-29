@@ -44,7 +44,7 @@ struct LLHDInlinerInterface : public mlir::DialectInlinerInterface {
 
   bool isLegalToInline(Region *, Region *src, bool, IRMapping &) const final {
     // Don't inline processes
-    return !isa<llhd::ProcOp>(src->getParentOp());
+    return !isa<llhd::ProcessOp>(src->getParentOp());
   }
 };
 } // end anonymous namespace

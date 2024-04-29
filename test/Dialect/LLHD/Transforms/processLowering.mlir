@@ -3,7 +3,7 @@
 // no inputs and outputs
 // CHECK-LABEL: hw.module @empty
 // CHECK-SAME: ()
-llhd.proc @empty() -> () {
+llhd.process @empty() {
   // CHECK-NEXT: hw.output
   llhd.halt
 }
@@ -11,7 +11,7 @@ llhd.proc @empty() -> () {
 // check that input and output signals are transferred correctly
 // CHECK-LABEL: hw.module @inputAndOutput
 // CHECK-SAME: (inout %{{.*}} : i64, inout %{{.*}} : i1, inout %{{.*}} : i1)
-llhd.proc @inputAndOutput(%arg0 : !hw.inout<i64>, %arg1 : !hw.inout<i1>) -> (%arg2 : !hw.inout<i1>) {
+llhd.process @inputAndOutput(inout %arg0 : i64, inout %arg1 : i1, inout %arg2 : i1) {
   // CHECK-NEXT: hw.output
   llhd.halt
 }
@@ -19,7 +19,7 @@ llhd.proc @inputAndOutput(%arg0 : !hw.inout<i64>, %arg1 : !hw.inout<i1>) -> (%ar
 // check wait suspended process
 // CHECK-LABEL: hw.module @simpleWait
 // CHECK-SAME: ()
-llhd.proc @simpleWait() -> () {
+llhd.process @simpleWait() {
   // CHECK-NEXT: hw.output
   cf.br ^bb1
 ^bb1:
@@ -29,7 +29,7 @@ llhd.proc @simpleWait() -> () {
 // Check wait with observing probed signals
 // CHECK-LABEL: hw.module @prbAndWait
 // CHECK-SAME: (inout %{{.*}} : i64)
-llhd.proc @prbAndWait(%arg0 : !hw.inout<i64>) -> () {
+llhd.process @prbAndWait(inout %arg0 : i64) {
   // CHECK-NEXT: %{{.*}} = llhd.prb
   // CHECK-NEXT: hw.output
   cf.br ^bb1
@@ -41,7 +41,7 @@ llhd.proc @prbAndWait(%arg0 : !hw.inout<i64>) -> () {
 // Check wait with observing probed signals
 // CHECK-LABEL: hw.module @prbAndWaitMoreObserved
 // CHECK-SAME: (inout %{{.*}} : i64, inout %{{.*}} : i64)
-llhd.proc @prbAndWaitMoreObserved(%arg0 : !hw.inout<i64>, %arg1 : !hw.inout<i64>) -> () {
+llhd.process @prbAndWaitMoreObserved(inout %arg0 : i64, inout %arg1 : i64) {
   // CHECK-NEXT: %{{.*}} = llhd.prb
   // CHECK-NEXT: hw.output
   cf.br ^bb1
@@ -51,7 +51,7 @@ llhd.proc @prbAndWaitMoreObserved(%arg0 : !hw.inout<i64>, %arg1 : !hw.inout<i64>
 }
 
 // CHECK-LABEL: hw.module @muxedSignal
-llhd.proc @muxedSignal(%arg0 : !hw.inout<i64>, %arg1 : !hw.inout<i64>) -> () {
+llhd.process @muxedSignal(inout %arg0 : i64, inout %arg1 : i64) {
   cf.br ^bb1
 ^bb1:
   // CHECK-NEXT: %{{.*}} = hw.constant
@@ -65,7 +65,7 @@ llhd.proc @muxedSignal(%arg0 : !hw.inout<i64>, %arg1 : !hw.inout<i64>) -> () {
 }
 
 // CHECK-LABEL: hw.module @muxedSignal2
-llhd.proc @muxedSignal2(%arg0 : !hw.inout<i64>, %arg1 : !hw.inout<i64>) -> () {
+llhd.process @muxedSignal2(inout %arg0 : i64, inout %arg1 : i64) {
   cf.br ^bb1
 ^bb1:
   // CHECK-NEXT: %{{.*}} = hw.constant
@@ -79,7 +79,7 @@ llhd.proc @muxedSignal2(%arg0 : !hw.inout<i64>, %arg1 : !hw.inout<i64>) -> () {
 }
 
 // CHECK-LABEL: hw.module @partialSignal
-llhd.proc @partialSignal(%arg0 : !hw.inout<i64>) -> () {
+llhd.process @partialSignal(inout %arg0 : i64) {
   cf.br ^bb1
 ^bb1:
   // CHECK-NEXT: %{{.*}} = hw.constant
