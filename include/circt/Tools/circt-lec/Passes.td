@@ -46,6 +46,8 @@ def ConstructLEC : Pass<"construct-lec", "::mlir::ModuleOp"> {
   let dependentDialects = [
     "verif::VerifDialect", "mlir::func::FuncDialect", "mlir::LLVM::LLVMDialect"
   ];
+
+  let constructor = "createConstructLEC()";
 }
 
 #endif // CIRCT_TOOLS_CIRCT_LEC_PASSES_TD

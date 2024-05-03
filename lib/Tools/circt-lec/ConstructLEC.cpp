@@ -31,9 +31,33 @@ namespace circt {
 namespace {
 struct ConstructLECPass
     : public circt::impl::ConstructLECBase<ConstructLECPass> {
-  using circt::impl::ConstructLECBase<ConstructLECPass>::ConstructLECBase;
+  ConstructLECPass() : circt::impl::ConstructLECBase<ConstructLECPass>() {
+    options.areTriviallyNotEquivalent = [](Operation *op1,
+                                           Operation *op2) -> LogicalResult {
+      auto moduleA = dyn_cast<HWModuleOp>(op1);
+      auto moduleB = dyn_cast<HWModuleOp>(op2);
+      if (!moduleA || !moduleB)
+        return failure();
+
+      if (moduleA.getModuleType() != moduleB.getModuleType())
+        return moduleA.emitError(
+                   "module's IO types don't match second modules: ")
+               << moduleA.getModuleType() << " vs " << moduleB.getModuleType();
+
+      return success();
+    };
+  }
+  ConstructLECPass(const ConstructLECOptions &options)
+      : circt::impl::ConstructLECBase<ConstructLECPass>(), options(options) {
+    firstModule = options.firstModule;
+    secondModule = options.secondModule;
+    insertMainFunc = options.insertMainFunc;
+  }
+
   void runOnOperation() override;
-  hw::HWModuleOp lookupModule(StringRef name);
+  Operation *lookupModule(StringRef name);
+
+  ConstructLECOptions options;
 };
 } // namespace
 
@@ -55,17 +79,21 @@ static Value lookupOrCreateStringGlobal(OpBuilder &builder, ModuleOp moduleOp,
   return builder.create<LLVM::AddressOfOp>(loc, global);
 }
 
-hw::HWModuleOp ConstructLECPass::lookupModule(StringRef name) {
+Operation *ConstructLECPass::lookupModule(StringRef name) {
   Operation *expectedModule = SymbolTable::lookupNearestSymbolFrom(
       getOperation(), StringAttr::get(&getContext(), name));
-  if (!expectedModule || !isa<hw::HWModuleOp>(expectedModule)) {
-    getOperation().emitError("module named '") << name << "' not found";
-    return {};
-  }
-  return cast<hw::HWModuleOp>(expectedModule);
+  if (!expectedModule)
+    getOperation().emitError("symbol '") << name << "' not found";
+
+  return expectedModule;
 }
 
 void ConstructLECPass::runOnOperation() {
+  // Update the options member
+  options.firstModule = firstModule;
+  options.secondModule = secondModule;
+  options.insertMainFunc = insertMainFunc;
+
   // Create necessary function declarations and globals
   OpBuilder builder = OpBuilder::atBlockEnd(getOperation().getBody());
   Location loc = getOperation()->getLoc();
@@ -77,18 +105,15 @@ void ConstructLECPass::runOnOperation() {
       LLVM::lookupOrCreateFn(getOperation(), "printf", ptrTy, voidTy, true);
 
   // Lookup the modules.
-  auto moduleA = lookupModule(firstModule);
+  auto *moduleA = lookupModule(firstModule);
   if (!moduleA)
     return signalPassFailure();
-  auto moduleB = lookupModule(secondModule);
+  auto *moduleB = lookupModule(secondModule);
   if (!moduleB)
     return signalPassFailure();
 
-  if (moduleA.getModuleType() != moduleB.getModuleType()) {
-    moduleA.emitError("module's IO types don't match second modules: ")
-        << moduleA.getModuleType() << " vs " << moduleB.getModuleType();
+  if (failed(options.areTriviallyNotEquivalent(moduleA, moduleB)))
     return signalPassFailure();
-  }
 
   // Reuse the name of the first module for the entry function, so we don't have
   // to do any uniquing and the LEC driver also already knows this name.
@@ -119,10 +144,10 @@ void ConstructLECPass::runOnOperation() {
   } else {
     auto lecOp = builder.create<verif::LogicEquivalenceCheckingOp>(loc);
     areEquivalent = lecOp.getAreEquivalent();
-    auto *outputOpA = moduleA.getBodyBlock()->getTerminator();
-    auto *outputOpB = moduleB.getBodyBlock()->getTerminator();
-    lecOp.getFirstCircuit().takeBody(moduleA.getBody());
-    lecOp.getSecondCircuit().takeBody(moduleB.getBody());
+    auto *outputOpA = moduleA->getRegion(0).front().getTerminator();
+    auto *outputOpB = moduleB->getRegion(0).front().getTerminator();
+    lecOp.getFirstCircuit().takeBody(moduleA->getRegion(0));
+    lecOp.getSecondCircuit().takeBody(moduleB->getRegion(0));
 
     moduleA->erase();
     moduleB->erase();
@@ -152,4 +177,13 @@ void ConstructLECPass::runOnOperation() {
   builder.create<LLVM::CallOp>(loc, printfFunc, ValueRange{formatString});
 
   builder.create<func::ReturnOp>(loc, ValueRange{});
+}
+
+std::unique_ptr<Pass> circt::createConstructLEC() {
+  return std::make_unique<ConstructLECPass>();
+}
+
+std::unique_ptr<Pass>
+circt::createConstructLEC(const ConstructLECOptions &options) {
+  return std::make_unique<ConstructLECPass>(options);
 }
