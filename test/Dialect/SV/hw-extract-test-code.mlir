@@ -435,21 +435,21 @@ module {
 module {
   // CHECK-LABEL: @RegExtracted_cover
   // CHECK-SAME: %designAndTestCode
-  // CHECK: %testCode1 = seq.firreg
-  // CHECK: %testCode2 = seq.firreg
-  // CHECK-NOT: seq.firreg
+  // CHECK: %testCode1 = seq.compreg
+  // CHECK: %testCode2 = seq.compreg
+  // CHECK-NOT: seq.compreg
 
   // CHECK-LABEL: @RegExtracted
-  // CHECK: %symbol = seq.firreg
-  // CHECK: %designAndTestCode = seq.firreg
-  // CHECK-NOT: seq.firreg
+  // CHECK: %symbol = seq.compreg
+  // CHECK: %designAndTestCode = seq.compreg
+  // CHECK-NOT: seq.compreg
   hw.module @RegExtracted(in %clock: !seq.clock, in %reset: i1, in %in: i1, out out: i1) {
     %muxed = comb.mux bin %reset, %in, %testCode1 : i1
-    %testCode1 = seq.firreg %muxed clock %clock : i1
-    %testCode2 = seq.firreg %testCode1 clock %clock : i1
-    %symbol = seq.firreg %in clock %clock sym @foo : i1
-    %designAndTestCode = seq.firreg %in clock %clock : i1
-    %deadReg = seq.firreg %testCode1 clock %clock : i1
+    %testCode1 = seq.compreg %muxed clock %clock : i1
+    %testCode2 = seq.compreg %testCode1 clock %clock : i1
+    %symbol = seq.compreg sym @foo %in clock %clock : i1
+    %designAndTestCode = seq.compreg %in clock %clock : i1
+    %deadReg = seq.compreg %testCode1 clock %clock : i1
 
     %clk = seq.from_clock %clock
     sv.always posedge %clk {

@@ -3,10 +3,10 @@
 // CHECK-LABEL:   hw.module @testPowerOn(in 
 // CHECK-SAME:            %[[VAL_0:.*]] : i32, in %[[VAL_1:.*]] : i32, in %[[VAL_2:.*]] : i1, in %[[VAL_3:.*]] : !seq.clock, in %[[VAL_4:.*]] : i1, out out0 : i32, out out1 : i1) {
 // CHECK:           %[[VAL_5:.*]] = comb.sub %[[VAL_0]], %[[VAL_1]] : i32
-// CHECK:           %[[VAL_6:.*]] = seq.compreg sym @p0_stage0_reg0 %[[VAL_5]], %[[VAL_3]] : i32
-// CHECK:           %[[VAL_7:.*]] = seq.compreg sym @p0_stage0_reg1 %[[VAL_0]], %[[VAL_3]] : i32
+// CHECK:           %[[VAL_6:.*]] = seq.compreg sym @p0_stage0_reg0 %[[VAL_5]] clock %[[VAL_3]] : i32
+// CHECK:           %[[VAL_7:.*]] = seq.compreg sym @p0_stage0_reg1 %[[VAL_0]] clock %[[VAL_3]] : i32
 // CHECK:           %[[VAL_8:.*]] = hw.constant false
-// CHECK:           %[[VAL_9:.*]] = seq.compreg sym @p0_stage1_enable %[[VAL_2]], %[[VAL_3]] reset %[[VAL_4]], %[[VAL_8]]  powerOn %[[VAL_8]] : i1
+// CHECK:           %[[VAL_9:.*]] = seq.compreg sym @p0_stage1_enable %[[VAL_2]] clock %[[VAL_3]] reset %[[VAL_4]], %[[VAL_8]]  powerOn %[[VAL_8]] : i1
 // CHECK:           %[[VAL_10:.*]] = comb.add %[[VAL_6]], %[[VAL_7]] : i32
 // CHECK:           hw.output %[[VAL_10]], %[[VAL_9]] : i32, i1
 // CHECK:         }

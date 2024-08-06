@@ -40,17 +40,20 @@ def CompRegOp : SeqOp<"compreg",
     Optional<I1>:$reset,
     Optional<AnyType>:$resetValue,
     Optional<AnyType>:$powerOnValue,
-    OptionalAttr<InnerSymAttr>:$inner_sym
+    OptionalAttr<InnerSymAttr>:$inner_sym,
+    UnitAttr:$isAsync
   );
   let results = (outs AnyType:$data);
   let assemblyFormat = [{
-    (`sym` $inner_sym^)? `` custom<ImplicitSSAName>($name) $input `,` $clk
-    (`reset` $reset^ `,` $resetValue)?
+    (`sym` $inner_sym^)? `` custom<ImplicitSSAName>($name) $input `clock` $clk
+    (`reset` (`async` $isAsync^)? $reset^ `,` $resetValue)?
     (`powerOn` $powerOnValue^)? attr-dict `:` type($data)
     custom<OptionalTypeMatch>(ref(type($data)), ref($resetValue), type($resetValue))
     custom<OptionalTypeMatch>(ref(type($data)), ref($powerOnValue), type($powerOnValue))
   }];
   let hasVerifier = 1;
+  let hasCanonicalizeMethod = 1;
+  let hasFolder = 1;
 
   let builders = [
     /// Create a register with no name nor inner_sym.
@@ -66,6 +69,12 @@ def CompRegOp : SeqOp<"compreg",
       return build($_builder, $_state, input.getType(), input, clk, nameAttr,
                    /*reset*/ Value(), /*resetValue*/ Value(),
                    /*powerOnValue*/ Value(), hw::InnerSymAttr::get(nameAttr));
+    }]>,
+    OpBuilder<(ins "Value":$input, "Value":$clk, "StringAttrOrRef":$name, "hw::InnerSymAttr":$innerSym, CArg<"Value", "{}">:$powerOn), [{
+      auto nameAttr = name.get($_builder.getContext());
+      return build($_builder, $_state, input.getType(), input, clk, nameAttr,
+                   /*reset*/ Value(), /*resetValue*/ Value(),
+                   powerOn, innerSym);
     }]>,
     /// Create a register with a reset, with an inner_sym matching the
     /// register's name, and optional power-on value.
@@ -101,7 +110,7 @@ def CompRegClockEnabledOp : SeqOp<"compreg.ce",
   );
   let results = (outs AnyType:$data);
   let assemblyFormat = [{
-    (`sym` $inner_sym^)? `` custom<ImplicitSSAName>($name) $input `,` $clk `,` $clockEnable
+    (`sym` $inner_sym^)? `` custom<ImplicitSSAName>($name) $input `clock` $clk `,` $clockEnable
     (`reset` $reset^ `,` $resetValue)?
     (`powerOn` $powerOnValue^)? attr-dict `:` type($data)
     custom<OptionalTypeMatch>(ref(type($data)), ref($resetValue), type($resetValue))
@@ -170,88 +179,6 @@ def ShiftRegOp : SeqOp<"shiftreg", [
     (`powerOn` $powerOnValue^)? attr-dict `:` type($data)
     custom<OptionalTypeMatch>(ref(type($data)), ref($resetValue), type($resetValue))
     custom<OptionalTypeMatch>(ref(type($data)), ref($powerOnValue), type($powerOnValue))
-  }];
-}
-
-//===----------------------------------------------------------------------===//
-// FIRRTL-flavored register
-//===----------------------------------------------------------------------===//
-
-def FirRegOp : SeqOp<"firreg",
-    [Pure, Clocked, Resettable,
-     AllTypesMatch<["next", "data"/*, "resetValue"*/]>,
-     SameVariadicOperandSize, MemoryEffects<[MemWrite, MemRead, MemAlloc]>,
-     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
-     DeclareOpInterfaceMethods<InnerSymbol, ["getTargetResultIndex"]>]> {
-      // AllTypesMatch doesn't work with Optional types yet.
-
-  let summary = "Register with preset and sync or async reset";
-  let description = [{
-    `firreg` represents registers originating from FIRRTL after the lowering
-    of the IR to HW.  The register is used as an intermediary in the process
-    of lowering to SystemVerilog to facilitate optimisation at the HW level,
-    compactly representing a register with a single operation instead of
-    composing it from register definitions, always blocks and if statements.
-
-    The `data` output of the register accesses the value it stores.  On the
-    rising edge of the `clk` input, the register takes a new value provided
-    by the `next` signal.  Optionally, the register can also be provided with
-    a synchronous or an asynchronous `reset` signal and `resetValue`, as shown
-    in the example below.
-
-    ```
-    %name = seq.firreg %next clock %clk [ sym @sym ]
-        [ reset (sync|async) %reset, %value ]
-        [ preset value ] : type
-    ```
-
-    Implicitly, all registers are pre-set to a randomized value.
-
-    A register implementing a counter starting at 0 from reset can be defined
-    as follows:
-
-    ```
-    %zero = hw.constant 0 : i32
-    %reg = seq.firreg %next clock %clk reset sync %reset, %zero : i32
-    %one = hw.constant 1 : i32
-    %next = comb.add %reg, %one : i32
-    ```
-  }];
-
-  let arguments = (ins
-    AnyType:$next,
-    ClockType:$clk,
-    StrAttr:$name,
-    OptionalAttr<InnerSymAttr>:$inner_sym,
-    OptionalAttr<APIntAttr>:$preset,
-    Optional<I1>:$reset, Optional<AnyType>:$resetValue,
-    UnitAttr:$isAsync
-  );
-  let results = (outs AnyType:$data);
-
-  let skipDefaultBuilders = 1;
-  let hasCanonicalizeMethod = true;
-  let hasFolder = true;
-  let builders = [
-    OpBuilder<(ins "Value":$next, "Value":$clk,
-                   "StringAttr":$name,
-                   CArg<"hw::InnerSymAttr", "{}">:$innerSym,
-                   CArg<"Attribute","{}">:$preset)>,
-    OpBuilder<(ins "Value":$next, "Value":$clk,
-                   "StringAttr":$name,
-                   "Value":$reset, "Value":$resetValue,
-                   CArg<"hw::InnerSymAttr", "{}">:$innerSym,
-                   CArg<"bool", "false">:$isAsync)>
-  ];
-
-  let hasCustomAssemblyFormat = 1;
-  let hasVerifier = 1;
-
-  let extraClassDeclaration = [{
-    /// Check whether the register has a reset value.
-    bool hasReset() { return !!getReset(); }
-    /// Check whether the register has a preset value.
-    bool hasPresetValue() { return !!getPresetAttr(); }
   }];
 }
 

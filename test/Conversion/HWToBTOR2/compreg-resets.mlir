@@ -15,13 +15,13 @@ module {
     //CHECK:    [[NID8:[0-9]+]] constd [[NID3]] 0
     %c0_i32 = hw.constant 0 : i32
 
-    %reg0 = seq.compreg %in, %clock reset %reset0, %c0_i32 : i32
-    %reg1 = seq.compreg %in, %clock reset %reset1, %c0_i32 : i32
+    %reg0 = seq.compreg %in clock %clock reset %reset0, %c0_i32 : i32
+    %reg1 = seq.compreg %in clock %clock reset %reset1, %c0_i32 : i32
 
     //CHECK:    [[NID9:[0-9]+]] and [[NID0]] [[NID1]] [[NID2]]
     %reset_and = comb.and bin %reset0, %reset1 : i1
 
-    %reg2 = seq.compreg %in, %clock reset %reset_and, %c0_i32 : i32
+    %reg2 = seq.compreg %in clock %clock reset %reset_and, %c0_i32 : i32
 
     // Register reset ITEs and next statements are emitted last
     //CHECK:    [[NID10:[0-9]+]] ite [[NID3]] [[NID1]] [[NID8]] [[NID4]]

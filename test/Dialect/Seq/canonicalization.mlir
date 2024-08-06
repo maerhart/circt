@@ -8,7 +8,7 @@ hw.module @FirReg(in %clk : !seq.clock, in %in : i32) {
   %true = hw.constant true
 
   // Registers that update to themselves should be replaced with a constant 0.
-  %reg0 = seq.firreg %reg0 clock %clk : i32
+  %reg0 = seq.compreg %reg0 clock %clk : i32
   hw.instance "reg0" @Observe(x: %reg0: i32) -> ()
   // CHECK: hw.instance "reg0" @Observe(x: %c0_i32: i32) -> ()
 
@@ -16,8 +16,8 @@ hw.module @FirReg(in %clk : !seq.clock, in %in : i32) {
   %clk_false = seq.to_clock %false
 
   // Registers that are never clocked should be replaced with a constant 0.
-  %reg1a = seq.firreg %in clock %clk_false : i32
-  %reg1b = seq.firreg %in clock %clk_true : i32
+  %reg1a = seq.compreg %in clock %clk_false : i32
+  %reg1b = seq.compreg %in clock %clk_true : i32
   hw.instance "reg1a" @Observe(x: %reg1a: i32) -> ()
   hw.instance "reg1b" @Observe(x: %reg1b: i32) -> ()
   // CHECK: hw.instance "reg1a" @Observe(x: %c0_i32: i32) -> ()
@@ -27,9 +27,9 @@ hw.module @FirReg(in %clk : !seq.clock, in %in : i32) {
 // Should not optimize away the register if it has a symbol.
 // CHECK-LABEL: @FirRegSymbol
 hw.module @FirRegSymbol(in %clk : !seq.clock, out out : i32) {
-  // CHECK: %reg = seq.firreg %reg clock %clk sym @reg : i32
+  // CHECK: %reg = seq.compreg sym @reg %reg clock %clk : i32
   // CHECK: hw.output %reg : i32
-  %reg = seq.firreg %reg clock %clk sym @reg : i32
+  %reg = seq.compreg sym @reg %reg clock %clk : i32
   hw.output %reg : i32
 }
 
@@ -41,23 +41,23 @@ hw.module @FirRegReset(in %clk : !seq.clock, in %in : i32, in %r : i1, in %v : i
 
   // Registers that update to themselves should be replaced with their reset
   // value only when a reset value is constant.
-  %reg0a = seq.firreg %reg0a clock %clk reset sync %r, %v : i32
-  %reg0b = seq.firreg %reg0b clock %clk reset sync %r, %c0_i32 : i32
+  %reg0a = seq.compreg %reg0a clock %clk reset %r, %v : i32
+  %reg0b = seq.compreg %reg0b clock %clk reset %r, %c0_i32 : i32
   hw.instance "reg0a" @Observe(x: %reg0a: i32) -> ()
   hw.instance "reg0b" @Observe(x: %reg0b: i32) -> ()
   // CHECK: hw.instance "reg0a" @Observe(x: %reg0a: i32) -> ()
   // CHECK-NEXT: hw.instance "reg0b" @Observe(x: %c0_i32: i32) -> ()
 
   // Registers that never reset should drop their reset value.
-  %reg1 = seq.firreg %in clock %clk reset sync %false, %v : i32
+  %reg1 = seq.compreg %in clock %clk reset %false, %v : i32
   hw.instance "reg1" @Observe(x: %reg1: i32) -> ()
-  // CHECK: %reg1 = seq.firreg %in clock %clk : i32
+  // CHECK: %reg1 = seq.compreg %in clock %clk : i32
   // CHECK: hw.instance "reg1" @Observe(x: %reg1: i32) -> ()
 
   // Registers that are permanently reset should be replaced with their reset
   // value.
-  %reg2a = seq.firreg %in clock %clk reset sync %true, %v : i32
-  %reg2b = seq.firreg %in clock %clk reset async %true, %v : i32
+  %reg2a = seq.compreg %in clock %clk reset %true, %v : i32
+  %reg2b = seq.compreg %in clock %clk reset async %true, %v : i32
   hw.instance "reg2a" @Observe(x: %reg2a: i32) -> ()
   hw.instance "reg2b" @Observe(x: %reg2b: i32) -> ()
   // CHECK: hw.instance "reg2a" @Observe(x: %v: i32) -> ()
@@ -67,9 +67,9 @@ hw.module @FirRegReset(in %clk : !seq.clock, in %in : i32, in %r : i1, in %v : i
   %clk_true = seq.to_clock %true
   %clk_false = seq.to_clock %false
   %c0_i32 = hw.constant 0 : i32
-  %reg3a = seq.firreg %in clock %clk_false reset sync %r, %v : i32
-  %reg3b = seq.firreg %in clock %clk_true reset sync %r, %v : i32
-  %reg3c = seq.firreg %in clock %clk_true reset sync %r, %c0_i32 : i32
+  %reg3a = seq.compreg %in clock %clk_false reset %r, %v : i32
+  %reg3b = seq.compreg %in clock %clk_true reset %r, %v : i32
+  %reg3c = seq.compreg %in clock %clk_true reset %r, %c0_i32 : i32
   hw.instance "reg3a" @Observe(x: %reg3a: i32) -> ()
   hw.instance "reg3b" @Observe(x: %reg3b: i32) -> ()
   hw.instance "reg3c" @Observe(x: %reg3c: i32) -> ()
@@ -78,25 +78,29 @@ hw.module @FirRegReset(in %clk : !seq.clock, in %in : i32, in %r : i1, in %v : i
   // CHECK: hw.instance "reg3c" @Observe(x: %c0_i32: i32) -> ()
 
   // A register with preset value is not folded right now
-  // CHECK: %reg_preset = seq.firreg
-  %reg_preset = seq.firreg %reg_preset clock %clk reset sync %r, %c0_i32 preset 3: i32
+  // CHECK: %reg_preset = seq.compreg
+  %three = hw.constant 3 : i32
+  %zero = hw.constant 0 : i32
+  %reg_preset = seq.compreg %reg_preset clock %clk reset %r, %c0_i32 powerOn %three : i32
+  // CHECK-NEXT: hw.instance
+  hw.instance "reg_preset" @Observe(x: %reg_preset: i32) -> ()
 
   // A register with 0 preset value is folded.
-  %reg_preset_0 = seq.firreg %reg_preset_0 clock %clk preset 0: i32
+  %reg_preset_0 = seq.compreg %reg_preset_0 clock %clk powerOn %zero: i32
   hw.instance "reg_preset_0" @Observe(x: %reg_preset_0: i32) -> ()
   // CHECK-NEXT: hw.instance "reg_preset_0" @Observe(x: %c0_i32: i32) -> ()
 
   // A register with const false reset and 0 preset value is folded.
-  %reg_preset_1 = seq.firreg %reg_preset_1 clock %clk reset sync %false, %c0_i32 preset 0: i32
+  %reg_preset_1 = seq.compreg %reg_preset_1 clock %clk reset %false, %c0_i32 powerOn %zero : i32
   // CHECK-NEXT: hw.instance "reg_preset_1" @Observe(x: %c0_i32: i32) -> ()
   hw.instance "reg_preset_1" @Observe(x: %reg_preset_1: i32) -> ()
 
   // A register with const false reset and 0 preset value is folded.
-  %reg_preset_2 = seq.firreg %reg_preset_2 clock %clk reset sync %false, %c0_i32 preset 3: i32
+  %reg_preset_2 = seq.compreg %reg_preset_2 clock %clk reset %false, %c0_i32 powerOn %three : i32
   // CHECK-NEXT: hw.instance "reg_preset_2" @Observe(x: %c3_i32: i32) -> ()
   hw.instance "reg_preset_2" @Observe(x: %reg_preset_2: i32) -> ()
 
-  %reg_preset_3 = seq.firreg %reg_preset_3 clock %clk reset sync %r, %c3_i32 preset 3: i32
+  %reg_preset_3 = seq.compreg %reg_preset_3 clock %clk reset %r, %c3_i32 powerOn %three : i32
   // CHECK-NEXT: hw.instance "reg_preset_3" @Observe(x: %c3_i32: i32) -> ()
   hw.instance "reg_preset_3" @Observe(x: %reg_preset_3: i32) -> ()
 }
@@ -107,7 +111,7 @@ hw.module @FirRegAggregate(in %clk : !seq.clock, out out : !hw.struct<foo: i32>)
   // CHECK:      %c0_i32 = hw.constant 0 : i32
   // CHECK-NEXT: %0 = hw.bitcast %c0_i32 : (i32) -> !hw.struct<foo: i32>
   // CHECK-NEXT: hw.output %0
-  %reg = seq.firreg %reg clock %clk : !hw.struct<foo: i32>
+  %reg = seq.compreg %reg clock %clk : !hw.struct<foo: i32>
   hw.output %reg : !hw.struct<foo: i32>
 }
 
@@ -115,10 +119,10 @@ hw.module @FirRegAggregate(in %clk : !seq.clock, out out : !hw.struct<foo: i32>)
 hw.module @UninitializedArrayElement(in %a : i1, in %clock : !seq.clock, out b: !hw.array<2xi1>) {
   // CHECK:      %false = hw.constant false
   // CHECK-NEXT: %0 = hw.array_create %false, %a : i1
-  // CHECK-NEXT: %r = seq.firreg %0 clock %clock : !hw.array<2xi1>
+  // CHECK-NEXT: %r = seq.compreg %0 clock %clock : !hw.array<2xi1>
   // CHECK-NEXT: hw.output %r : !hw.array<2xi1>
   %true = hw.constant true
-  %r = seq.firreg %1 clock %clock : !hw.array<2xi1>
+  %r = seq.compreg %1 clock %clock : !hw.array<2xi1>
   %0 = hw.array_get %r[%true] : !hw.array<2xi1>, i1
   %1 = hw.array_create %0, %a : i1
   hw.output %r : !hw.array<2xi1>
@@ -274,7 +278,7 @@ hw.module @const_clock(out clock_true : !seq.clock, out clock_false : !seq.clock
 hw.module @const_clock_reg(in %clock : !seq.clock, out r_data : !seq.clock) {
   // CHECK: seq.const_clock low
   %0 = seq.const_clock  low
-  %1 = seq.firreg %1 clock %0 : !seq.clock
+  %1 = seq.compreg %1 clock %0 : !seq.clock
   hw.output %1 : !seq.clock
 }
 

@@ -1,6 +1,6 @@
 add_circt_conversion_library(CIRCTSeqToSV
   FirMemLowering.cpp
-  FirRegLowering.cpp
+  CompRegLowering.cpp
   SeqToSV.cpp
   LowerFirMem.cpp
 

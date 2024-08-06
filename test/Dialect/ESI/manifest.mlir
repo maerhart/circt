@@ -80,10 +80,10 @@ hw.module @top(in %clk: !seq.clock, in %rst: i1) {
 // HW:            [[R1:%.+]] = sv.reg : !hw.inout<uarray<{{.*}}xi64>>
 // HW:            sv.assign [[R1]], [[R0]] : !hw.uarray<{{.*}}xi64>
 // HW:            [[R2:%.+]] = comb.extract %address from 0 : (i29) -> i8
-// HW:            [[R3:%.+]] = seq.compreg  [[R2]], %clk : i8
+// HW:            [[R3:%.+]] = seq.compreg [[R2]] clock %clk : i8
 // HW:            [[R4:%.+]] = sv.array_index_inout [[R1]][[[R3]]] : !hw.inout<uarray<{{.*}}xi64>>, i8
 // HW:            [[R5:%.+]] = sv.read_inout [[R4]] : !hw.inout<i64>
-// HW:            [[R6:%.+]] = seq.compreg  [[R5]], %clk : i64
+// HW:            [[R6:%.+]] = seq.compreg [[R5]] clock %clk : i64
 // HW:            hw.output [[R6]] : i64
 
 // HW-LABEL:    hw.module @top

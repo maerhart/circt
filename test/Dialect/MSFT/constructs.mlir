@@ -46,7 +46,7 @@ hw.module @SAExample1 (in %clk: !seq.clock, out out: !hw.array<2 x array<3 x i8>
 
 hw.module @PE(in %clk: !seq.clock, in %a: i8, in %b: i8, out sum: i8) {
   %sum = comb.add %a, %b: i8
-  %sumDelay1 = seq.compreg %sum, %clk : i8
+  %sumDelay1 = seq.compreg %sum clock %clk : i8
   hw.output %sumDelay1 : i8
 }
 

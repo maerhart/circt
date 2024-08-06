@@ -14,7 +14,7 @@ hw.module @PrintfExample(in %clk : !seq.clock, in %rst : i1) {
   %0 = hwarith.constant 7 : ui32
   %true = hw.constant true
   %false = hw.constant false
-  %1 = seq.compreg.ce %true, %clk, %5 reset %rst, %false : i1
+  %1 = seq.compreg.ce %true clock %clk, %5 reset %rst, %false : i1
   %true_0 = hw.constant true
   %2 = comb.xor bin %1, %true_0 : i1
   %true_1 = hw.constant true

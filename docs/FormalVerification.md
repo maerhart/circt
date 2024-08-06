@@ -208,7 +208,7 @@ hw.module @mod(in %clk: !seq.clock, in %arg0: i32, in %rst: i1,
   %6 = ltl.concat %rst, %5 : i1, !ltl.sequence
   %7 = ltl.clock %6, posedge %clk : !ltl.sequence
   verif.assume %7 : !ltl.sequence
-  %state0 = seq.compreg %8, %clk reset %rst, %rst_val : i32
+  %state0 = seq.compreg %8 clock %clk reset %rst, %rst_val : i32
   %8 = comb.add %arg0, %state0 : i32
   %9 = comb.xor %state0, %c-1_i32 : i32
   %10 = comb.modu %9, %c2_i32 : i32

@@ -11,8 +11,8 @@ module {
     %true = hw.constant true
     // CHECK:  %c-2_i2 = hw.constant -2 : i2
     %c-2_i2 = hw.constant -2 : i2
-    // CHECK:  %count = seq.compreg %6, %clock reset %reset, %c0_i32 : i32  
-    %count = seq.compreg %6, %clock reset %reset, %c0_i32 : i32
+    // CHECK:  %count = seq.compreg %6 clock %clock reset %reset, %c0_i32 : i32  
+    %count = seq.compreg %6 clock %clock reset %reset, %c0_i32 : i32
     // CHECK-NOT: hw.wire
     %wf = hw.wire %false sym @f : i1
     %b = hw.wire %2 sym @b : i32

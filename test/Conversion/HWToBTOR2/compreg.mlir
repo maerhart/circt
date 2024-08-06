@@ -30,7 +30,7 @@ module {
     //CHECK:    [[NID11:[0-9]+]] constd [[NID6]] 0
     %c0_i32 = hw.constant 0 : i32
     
-    %count = seq.compreg %9, %clock reset %reset, %c0_i32 : i32
+    %count = seq.compreg %9 clock %clock reset %reset, %c0_i32 : i32
 
     //CHECK:    [[NID13:[0-9]+]] eq [[NID0]] [[NID12]] [[NID7]]
     %1 = comb.icmp bin eq %count, %c22_i32 : i32

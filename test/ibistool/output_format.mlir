@@ -6,7 +6,7 @@
 
 // CHECK-POST-IBIS-LABEL:   hw.module @A_B(
 // CHECK-POST-IBIS-SAME:            in %[[VAL_0:.*]] : !seq.clock, in %[[VAL_1:.*]] : i1, out p_out : i1) {
-// CHECK-POST-IBIS:           %[[VAL_2:.*]] = seq.compreg %[[VAL_1]], %[[VAL_0]] : i1
+// CHECK-POST-IBIS:           %[[VAL_2:.*]] = seq.compreg %[[VAL_1]] clock %[[VAL_0]] : i1
 // CHECK-POST-IBIS:           hw.output %[[VAL_2]] : i1
 // CHECK-POST-IBIS:         }
 
@@ -72,7 +72,7 @@ ibis.class sym @A {
     %a_out = ibis.get_port %parent, @out : !ibis.scoperef<@foo::@A> -> !ibis.portref<in i1>
     %in = ibis.port.read %a_in : !ibis.portref<out i1>
     %clk = ibis.port.read %a_clk : !ibis.portref<out !seq.clock>
-    %r = seq.compreg %in, %clk: i1
+    %r = seq.compreg %in clock %clk: i1
     ibis.port.write %a_out, %r : !ibis.portref<in i1>
   }
 }

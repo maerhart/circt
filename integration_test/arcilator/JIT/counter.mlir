@@ -16,7 +16,7 @@
 hw.module @counter(in %clk: i1, out o: i8) {
   %seq_clk = seq.to_clock %clk
 
-  %reg = seq.compreg %added, %seq_clk : i8
+  %reg = seq.compreg %added clock %seq_clk : i8
 
   %one = hw.constant 1 : i8
   %added = comb.add %reg, %one : i8

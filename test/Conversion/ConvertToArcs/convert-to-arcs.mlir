@@ -76,9 +76,9 @@ hw.module @Pipeline(in %clock: !seq.clock, in %i0: i4, in %i1: i4, out z: i4) {
   // CHECK-NEXT: [[S2:%.+]] = arc.call @Pipeline_arc_1([[S1]], %i1)
   // CHECK-NEXT: hw.output [[S2]]
   %0 = comb.add %i0, %i1 : i4
-  %1 = seq.compreg %0, %clock : i4
+  %1 = seq.compreg %0 clock %clock : i4
   %2 = comb.xor %1, %i0 : i4
-  %3 = seq.compreg %2, %clock : i4
+  %3 = seq.compreg %2 clock %clock : i4
   %4 = comb.mul %3, %i1 : i4
   hw.output %4 : i4
 }
@@ -100,10 +100,10 @@ hw.module @Reshuffling(in %clockA: !seq.clock, in %clockB: !seq.clock, out z0: i
   // CHECK-NEXT: arc.state @Reshuffling_arc_0(%x.z2, %x.z3) clock %clockB latency 1
   // CHECK-NEXT: hw.output
   %x.z0, %x.z1, %x.z2, %x.z3 = hw.instance "x" @Reshuffling2() -> (z0: i4, z1: i4, z2: i4, z3: i4)
-  %4 = seq.compreg %x.z0, %clockA : i4
-  %5 = seq.compreg %x.z1, %clockA : i4
-  %6 = seq.compreg %x.z2, %clockB : i4
-  %7 = seq.compreg %x.z3, %clockB : i4
+  %4 = seq.compreg %x.z0 clock %clockA : i4
+  %5 = seq.compreg %x.z1 clock %clockA : i4
+  %6 = seq.compreg %x.z2 clock %clockB : i4
+  %7 = seq.compreg %x.z3 clock %clockB : i4
   hw.output %4, %5, %6, %7 : i4, i4, i4, i4
 }
 // CHECK-NEXT: }
@@ -134,8 +134,8 @@ hw.module @FactorOutCommonOps(in %clock: !seq.clock, in %i0: i4, in %i1: i4, out
   // CHECK-DAG: [[T2:%.+]] = arc.state @FactorOutCommonOps_arc_0([[T0]], %i1) clock %clock latency 1
   %1 = comb.xor %0, %i0 : i4
   %2 = comb.mul %0, %i1 : i4
-  %3 = seq.compreg %1, %clock : i4
-  %4 = seq.compreg %2, %clock : i4
+  %3 = seq.compreg %1 clock %clock : i4
+  %4 = seq.compreg %2 clock %clock : i4
   // CHECK-NEXT: hw.output [[T1]], [[T2]]
   hw.output %3, %4 : i4, i4
 }
@@ -175,8 +175,8 @@ hw.module @AbsorbNames(in %clock: !seq.clock) {
   // CHECK-SAME:   {names = ["myRegA", "myRegB"]}
   // CHECK-NEXT: hw.output
   %x.z0, %x.z1 = hw.instance "x" @AbsorbNames2() -> (z0: i4, z1: i4)
-  %myRegA = seq.compreg %x.z0, %clock : i4
-  %myRegB = seq.compreg %x.z1, %clock : i4
+  %myRegA = seq.compreg %x.z0 clock %clock : i4
+  %myRegB = seq.compreg %x.z1 clock %clock : i4
 }
 // CHECK-NEXT: }
 
@@ -191,7 +191,7 @@ hw.module @Trivial(in %clock: !seq.clock, in %i0: i4, in %reset: i1, out out: i4
   // CHECK: [[RES0:%.+]] = arc.state @[[TRIVIAL_ARC]](%i0) clock %clock reset %reset latency 1 {names = ["foo"]
   // CHECK-NEXT: hw.output [[RES0:%.+]]
   %0 = hw.constant 0 : i4
-  %foo = seq.compreg %i0, %clock reset %reset, %0 : i4
+  %foo = seq.compreg %i0 clock %clock reset %reset, %0 : i4
   hw.output %foo : i4
 }
 // CHECK-NEXT: }
@@ -210,8 +210,8 @@ hw.module @NonTrivial(in %clock: !seq.clock, in %i0: i4, in %reset1: i1, in %res
   // CHECK-NEXT: [[RES3:%.+]] = arc.state @[[NONTRIVIAL_ARC_1]](%i0) clock %clock reset %reset2 latency 1 {names = ["bar"]
   // CHECK-NEXT: hw.output [[RES2]], [[RES3]]
   %0 = hw.constant 0 : i4
-  %foo = seq.compreg %i0, %clock reset %reset1, %0 : i4
-  %bar = seq.compreg %i0, %clock reset %reset2, %0 : i4
+  %foo = seq.compreg %i0 clock %clock reset %reset1, %0 : i4
+  %bar = seq.compreg %i0 clock %clock reset %reset2, %0 : i4
   hw.output %foo, %bar : i4, i4
 }
 // CHECK-NEXT: }

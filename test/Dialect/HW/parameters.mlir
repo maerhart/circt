@@ -187,8 +187,8 @@ hw.module @parameterizedCombSeq<param: i32>
 
   // CHECK: %0 = comb.add %a, %a : !hw.int<#hw.param.decl.ref<"param">>
   %0 = comb.add %a, %a : !hw.int<#hw.param.decl.ref<"param">>
-  // CHECK: %1 = seq.compreg %0, %clk : !hw.int<#hw.param.decl.ref<"param">>
-  %1 = seq.compreg %0, %clk: !hw.int<#hw.param.decl.ref<"param">>
+  // CHECK: %1 = seq.compreg %0 clock %clk : !hw.int<#hw.param.decl.ref<"param">>
+  %1 = seq.compreg %0 clock %clk: !hw.int<#hw.param.decl.ref<"param">>
 }
 
 // CHECK-LABEL: hw.module @CLog2Expression<param: i32>() {

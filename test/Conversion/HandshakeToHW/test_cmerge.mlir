@@ -10,9 +10,9 @@
 // CHECK:           %[[VAL_14:.*]], %[[VAL_15:.*]] = esi.wrap.vr %[[VAL_16:.*]], %[[VAL_17:.*]] : i64
 // CHECK:           %[[VAL_18:.*]] = hw.constant 0 : i2
 // CHECK:           %[[VAL_19:.*]] = hw.constant false
-// CHECK:           %[[VAL_20:.*]] = seq.compreg sym @won_reg %[[VAL_21:.*]], %[[VAL_2]] reset %[[VAL_3]], %[[VAL_18]]  : i2
-// CHECK:           %[[VAL_22:.*]] = seq.compreg sym @result_emitted_reg %[[VAL_23:.*]], %[[VAL_2]] reset %[[VAL_3]], %[[VAL_19]]  : i1
-// CHECK:           %[[VAL_24:.*]] = seq.compreg sym @index_emitted_reg %[[VAL_25:.*]], %[[VAL_2]] reset %[[VAL_3]], %[[VAL_19]]  : i1
+// CHECK:           %[[VAL_20:.*]] = seq.compreg sym @won_reg %[[VAL_21:.*]] clock %[[VAL_2]] reset %[[VAL_3]], %[[VAL_18]]  : i2
+// CHECK:           %[[VAL_22:.*]] = seq.compreg sym @result_emitted_reg %[[VAL_23:.*]] clock %[[VAL_2]] reset %[[VAL_3]], %[[VAL_19]]  : i1
+// CHECK:           %[[VAL_24:.*]] = seq.compreg sym @index_emitted_reg %[[VAL_25:.*]] clock %[[VAL_2]] reset %[[VAL_3]], %[[VAL_19]]  : i1
 // CHECK:           %[[VAL_26:.*]] = comb.extract %[[VAL_27:.*]] from 0 : (i2) -> i1
 // CHECK:           %[[VAL_28:.*]] = comb.extract %[[VAL_27]] from 1 : (i2) -> i1
 // CHECK:           %[[VAL_29:.*]] = comb.or %[[VAL_26]], %[[VAL_28]] : i1
@@ -68,9 +68,9 @@ handshake.func @test_cmerge(%arg0: none, %arg1: none, %arg2: none, ...) -> (none
 // CHECK:           %[[VAL_18:.*]], %[[VAL_19:.*]] = esi.wrap.vr %[[VAL_20:.*]], %[[VAL_21:.*]] : i64
 // CHECK:           %[[VAL_22:.*]] = hw.constant 0 : i3
 // CHECK:           %[[VAL_23:.*]] = hw.constant false
-// CHECK:           %[[VAL_24:.*]] = seq.compreg sym @won_reg %[[VAL_25:.*]], %[[VAL_3]] reset %[[VAL_4]], %[[VAL_22]]  : i3
-// CHECK:           %[[VAL_26:.*]] = seq.compreg sym @result_emitted_reg %[[VAL_27:.*]], %[[VAL_3]] reset %[[VAL_4]], %[[VAL_23]]  : i1
-// CHECK:           %[[VAL_28:.*]] = seq.compreg sym @index_emitted_reg %[[VAL_29:.*]], %[[VAL_3]] reset %[[VAL_4]], %[[VAL_23]]  : i1
+// CHECK:           %[[VAL_24:.*]] = seq.compreg sym @won_reg %[[VAL_25:.*]] clock %[[VAL_3]] reset %[[VAL_4]], %[[VAL_22]]  : i3
+// CHECK:           %[[VAL_26:.*]] = seq.compreg sym @result_emitted_reg %[[VAL_27:.*]] clock %[[VAL_3]] reset %[[VAL_4]], %[[VAL_23]]  : i1
+// CHECK:           %[[VAL_28:.*]] = seq.compreg sym @index_emitted_reg %[[VAL_29:.*]] clock %[[VAL_3]] reset %[[VAL_4]], %[[VAL_23]]  : i1
 // CHECK:           %[[VAL_30:.*]] = comb.extract %[[VAL_31:.*]] from 0 : (i3) -> i1
 // CHECK:           %[[VAL_32:.*]] = comb.extract %[[VAL_31]] from 1 : (i3) -> i1
 // CHECK:           %[[VAL_33:.*]] = comb.extract %[[VAL_31]] from 2 : (i3) -> i1

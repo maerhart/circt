@@ -15,7 +15,7 @@ hw.module @comb(in %in0: i32, in %in1: i32, out out: i32) {
 // CHECK:  }
 hw.module @one_reg(in %clk: !seq.clock, in %in0: i32, in %in1: i32, out out: i32) {
   %0 = comb.add %in0, %in1 : i32
-  %single_reg = seq.compreg %0, %clk : i32
+  %single_reg = seq.compreg %0 clock %clk : i32
   hw.output %single_reg : i32
 }
 
@@ -25,8 +25,8 @@ hw.module @one_reg(in %clk: !seq.clock, in %in0: i32, in %in1: i32, out out: i32
 // CHECK:  }
 hw.module @two_reg(in %clk: !seq.clock, in %in0: i32, in %in1: i32, out out: i32) {
   %0 = comb.add %in0, %in1 : i32
-  %1 = seq.compreg %0, %clk : i32
-  %2 = seq.compreg %1, %clk : i32
+  %1 = seq.compreg %0 clock %clk : i32
+  %2 = seq.compreg %1 clock %clk : i32
   hw.output %2 : i32
 }
 
@@ -36,8 +36,8 @@ hw.module @two_reg(in %clk: !seq.clock, in %in0: i32, in %in1: i32, out out: i32
 // CHECK:  }
 hw.module @named_regs(in %clk: !seq.clock, in %in0: i32, in %in1: i32, out out: i32) {
   %0 = comb.add %in0, %in1 : i32
-  %firstreg = seq.compreg %0, %clk : i32
-  %secondreg = seq.compreg %firstreg, %clk : i32
+  %firstreg = seq.compreg %0 clock %clk : i32
+  %secondreg = seq.compreg %firstreg clock %clk : i32
   hw.output %secondreg : i32
 }
 
@@ -56,6 +56,6 @@ hw.module @nested_reg(in %clk: !seq.clock, in %in0: i32, in %in1: i32, out out: 
 // CHECK:  }
 hw.module @nested_nested_reg(in %clk: !seq.clock, in %in0: i32, in %in1: i32, out out: i32) {
   %0 = hw.instance "nested_reg" @nested_reg(clk: %clk: !seq.clock, in0: %in0: i32, in1: %in1: i32) ->  (out: i32)
-  %top_reg = seq.compreg %0, %clk : i32
+  %top_reg = seq.compreg %0 clock %clk : i32
   hw.output %top_reg : i32
 }

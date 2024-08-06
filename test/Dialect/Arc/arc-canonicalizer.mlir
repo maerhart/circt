@@ -134,8 +134,8 @@ hw.module @icmpNeCanonicalizer(in %arg0: i1, in %arg1: i1, in %arg2: i1, in %arg
 // CHECK-SAME: in %[[CLOCK:[^ ]*]] : !seq.clock, in %[[INPUT:[^ ]*]] : i32, in %[[RESET:[^ ]*]] : i1, in %[[RESET_VALUE:[^ ]*]] : i32
 hw.module @HoistCompRegReset(in %clock: !seq.clock, in %input: i32, in %reset: i1, in %resetValue: i32, out out: i32) {
   // CHECK: %[[NEW_INPUT:.*]] = comb.mux %[[RESET]], %[[RESET_VALUE]], %[[INPUT]] : i32
-  // CHECK: %[[REG:.*]] = seq.compreg %[[NEW_INPUT]], %[[CLOCK]] : i32
-  %reg = seq.compreg %input, %clock reset %reset, %resetValue : i32
+  // CHECK: %[[REG:.*]] = seq.compreg %[[NEW_INPUT]] clock %[[CLOCK]] : i32
+  %reg = seq.compreg %input clock %clock reset %reset, %resetValue : i32
 
   // CHECK: hw.output %[[REG]] : i32
   hw.output %reg : i32
@@ -147,8 +147,8 @@ hw.module @NoHoistCompRegZeroResetValue(in %clock: !seq.clock, in %input: i32, i
   // CHECK: %[[ZERO:.*]] = hw.constant 0 : i32
   %zero = hw.constant 0 : i32
 
-  // CHECK: %[[REG:.*]] = seq.compreg %[[INPUT]], %[[CLOCK]] reset %[[RESET]], %[[ZERO]] : i32
-  %reg = seq.compreg %input, %clock reset %reset, %zero : i32
+  // CHECK: %[[REG:.*]] = seq.compreg %[[INPUT]] clock %[[CLOCK]] reset %[[RESET]], %[[ZERO]] : i32
+  %reg = seq.compreg %input clock %clock reset %reset, %zero : i32
 
   // CHECK: hw.output %[[REG]] : i32
   hw.output %reg : i32

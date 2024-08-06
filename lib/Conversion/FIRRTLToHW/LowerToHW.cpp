@@ -3011,7 +3011,7 @@ LogicalResult FIRRTLLowering::visitDecl(RegOp op) {
   // Create a reg op, wiring itself to its input.
   auto innerSym = lowerInnerSymbol(op);
   Backedge inputEdge = backedgeBuilder.get(resultType);
-  auto reg = builder.create<seq::FirRegOp>(inputEdge, clockVal,
+  auto reg = builder.create<seq::CompRegOp>(inputEdge, clockVal,
                                            op.getNameAttr(), innerSym);
 
   // Pass along the start and end random initialization bits for this register.
@@ -3052,8 +3052,8 @@ LogicalResult FIRRTLLowering::visitDecl(RegResetOp op) {
   bool isAsync = type_isa<AsyncResetType>(op.getResetSignal().getType());
   Backedge inputEdge = backedgeBuilder.get(resultType);
   auto reg =
-      builder.create<seq::FirRegOp>(inputEdge, clockVal, op.getNameAttr(),
-                                    resetSignal, resetValue, innerSym, isAsync);
+      builder.create<seq::CompRegOp>(inputEdge, clockVal, op.getNameAttr(),
+                                    resetSignal, resetValue, Value(), innerSym, isAsync);
 
   // Pass along the start and end random initialization bits for this register.
   if (auto randomRegister = op->getAttr("firrtl.random_init_register"))
@@ -4156,7 +4156,7 @@ LogicalResult FIRRTLLowering::visitStmt(SkipOp op) {
   return success();
 }
 
-/// Resolve a connection to `destVal`, an `hw::WireOp` or `seq::FirRegOp`, by
+/// Resolve a connection to `destVal`, an `hw::WireOp` or `seq::CompRegOp`, by
 /// updating the input operand to be `srcVal`. Returns true if the update was
 /// made and the connection can be considered lowered. Returns false if the
 /// destination isn't a wire or register with an input operand to be updated.
@@ -4175,9 +4175,9 @@ FailureOr<bool> FIRRTLLowering::lowerConnect(Value destVal, Value srcVal) {
         op.getInputMutable().assign(srcVal);
         return true;
       })
-      .Case<seq::FirRegOp>([&](auto op) {
-        maybeUnused(op.getNext());
-        op.getNextMutable().assign(srcVal);
+      .Case<seq::CompRegOp>([&](auto op) {
+        maybeUnused(op.getInput());
+        op.getInputMutable().assign(srcVal);
         return true;
       })
       .Case<hw::StructExtractOp, hw::ArrayGetOp>([](auto op) {

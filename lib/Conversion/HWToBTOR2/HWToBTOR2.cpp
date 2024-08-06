@@ -505,11 +505,6 @@ private:
       next = reg.getInput();
       reset = reg.getReset();
       resetVal = reg.getResetValue();
-    } else if (auto reg = dyn_cast<seq::FirRegOp>(op)) {
-      width = hw::getBitWidth(reg.getType());
-      next = reg.getNext();
-      reset = reg.getReset();
-      resetVal = reg.getResetValue();
     } else {
       op->emitError("Invalid register operation !");
       return;
@@ -845,28 +840,13 @@ public:
     // Typeswitch is used here because other seq types will be supported
     // like all operations relating to memories and CompRegs
     TypeSwitch<Operation *, void>(op)
-        .Case<seq::FirRegOp, seq::CompRegOp>([&](auto expr) { visit(expr); })
+        .Case<seq::CompRegOp>([&](auto expr) { visit(expr); })
         .Default([&](auto expr) { visitUnsupportedOp(op); });
   }
 
-  // Firrtl registers generate a state instruction
+  // Computational registers generate a state instruction
   // The final update is also used to generate a set of next btor
   // instructions
-  void visit(seq::FirRegOp reg) {
-    // Start by retrieving the register's name and width
-    StringRef regName = reg.getName();
-    int64_t w = requireSort(reg.getType());
-
-    // Generate state instruction (represents the register declaration)
-    genState(reg, w, regName);
-
-    // Record the operation for future `next` instruction generation
-    // This is required to model transitions between states (i.e. how a
-    // register's value evolves over time)
-    regOps.push_back(reg);
-  }
-
-  // Compregs behave in a similar way as firregs for btor2 emission
   void visit(seq::CompRegOp reg) {
     // Start by retrieving the register's name and width
     StringRef regName = reg.getName().value();
@@ -948,7 +928,7 @@ void ConvertHWToBTOR2Pass::runOnOperation() {
     // Previsit all registers in the module in order to avoid dependency cycles
     module.walk([&](Operation *op) {
       TypeSwitch<Operation *, void>(op)
-          .Case<seq::FirRegOp, seq::CompRegOp>([&](auto reg) {
+          .Case<seq::CompRegOp>([&](auto reg) {
             visit(reg);
             handledOps.insert(op);
           })

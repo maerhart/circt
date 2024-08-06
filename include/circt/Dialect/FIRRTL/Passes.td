@@ -394,7 +394,7 @@ def InferWidths : Pass<"firrtl-infer-widths", "firrtl::CircuitOp"> {
 }
 
 def InferResets : Pass<"firrtl-infer-resets", "firrtl::CircuitOp"> {
-  let summary = "Infer reset synchronicity and add implicit resets";
+  let summary = "Infer resethronicity and add implicit resets";
   let description = [{
     This pass infers whether resets are synchronous or asynchronous, and extends
     reset-less registers with an asynchronous reset based on the following

@@ -54,12 +54,12 @@ hw.module.generated @ROMemory, @FIRRTLMem(in %R0_addr: i10, in %R0_en: i1, in %R
 hw.module @TestROMemoryWithLatency(in %clock: !seq.clock, in %addr: i10, in %enable: i1, out data: i8) {
   // CHECK-NOT: hw.instance
   // CHECK-NEXT: [[FOO:%.+]] = arc.memory <1024 x i8, i10> {name = "foo"}
-  // CHECK-NEXT: [[ADDR0:%.+]] = seq.compreg %addr, %clock
-  // CHECK-NEXT: [[ADDR1:%.+]] = seq.compreg [[ADDR0]], %clock
-  // CHECK-NEXT: [[ADDR2:%.+]] = seq.compreg [[ADDR1]], %clock
-  // CHECK-NEXT: [[EN0:%.+]] = seq.compreg %enable, %clock
-  // CHECK-NEXT: [[EN1:%.+]] = seq.compreg [[EN0]], %clock
-  // CHECK-NEXT: [[EN2:%.+]] = seq.compreg [[EN1]], %clock
+  // CHECK-NEXT: [[ADDR0:%.+]] = seq.compreg %addr clock %clock
+  // CHECK-NEXT: [[ADDR1:%.+]] = seq.compreg [[ADDR0]] clock %clock
+  // CHECK-NEXT: [[ADDR2:%.+]] = seq.compreg [[ADDR1]] clock %clock
+  // CHECK-NEXT: [[EN0:%.+]] = seq.compreg %enable clock %clock
+  // CHECK-NEXT: [[EN1:%.+]] = seq.compreg [[EN0]] clock %clock
+  // CHECK-NEXT: [[EN2:%.+]] = seq.compreg [[EN1]] clock %clock
   // CHECK-NEXT: [[D0:%.+]] = arc.memory_read_port [[FOO]][[[ADDR2]]] : <1024 x i8, i10>
   // CHECK-NEXT: [[ZERO:%.+]] = hw.constant 0 : i8
   // CHECK-NEXT: [[D1:%.+]] = comb.mux [[EN2]], [[D0]], [[ZERO]] : i8

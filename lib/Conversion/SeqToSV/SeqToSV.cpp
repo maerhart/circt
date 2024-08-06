@@ -12,7 +12,7 @@
 
 #include "circt/Conversion/SeqToSV.h"
 #include "FirMemLowering.h"
-#include "FirRegLowering.h"
+#include "CompRegLowering.h"
 #include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/Emit/EmitOps.h"
 #include "circt/Dialect/HW/ConversionPatterns.h"
@@ -128,13 +128,6 @@ private:
   bool lowerToAlwaysFF;
 };
 
-/// Create the assign.
-template <>
-void CompRegLower<CompRegOp>::createAssign(ConversionPatternRewriter &rewriter,
-                                           Location loc, sv::RegOp svReg,
-                                           OpAdaptor reg) const {
-  rewriter.create<sv::PAssignOp>(loc, svReg, reg.getInput());
-}
 /// Create the assign inside of an if block.
 template <>
 void CompRegLower<CompRegClockEnabledOp>::createAssign(
@@ -432,7 +425,7 @@ void SeqToSVPass::runOnOperation() {
 
   mlir::parallelForEach(&getContext(), modules, [&](HWModuleOp module) {
     SeqToSVTypeConverter typeConverter;
-    FirRegLowering regLowering(typeConverter, module, disableRegRandomization,
+    CompRegLowering regLowering(typeConverter, module, disableRegRandomization,
                                emitSeparateAlwaysBlocks);
     regLowering.lower();
     if (regLowering.needsRegRandomization()) {
@@ -487,8 +480,6 @@ void SeqToSVPass::runOnOperation() {
   target.markUnknownOpDynamicallyLegal(isLegalOp);
 
   RewritePatternSet patterns(context);
-  patterns.add<CompRegLower<CompRegOp>>(typeConverter, context,
-                                        lowerToAlwaysFF);
   patterns.add<CompRegLower<CompRegClockEnabledOp>>(typeConverter, context,
                                                     lowerToAlwaysFF);
   patterns.add<ClockCastLowering<seq::FromClockOp>>(typeConverter, context);

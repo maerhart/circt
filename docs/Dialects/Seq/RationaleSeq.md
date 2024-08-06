@@ -102,7 +102,7 @@ optimization) another op could be added.
 
 ## The FIRRTL register operation [Provisional]
 
-The `seq.firreg` carries all the information required to represent a FIRRTL
+The `seq.compreg` carries all the information required to represent a FIRRTL
 register and lower it to SystemVerilog.
 
 `FirReg` has the following operands:
@@ -124,7 +124,7 @@ asynchronous.
 attribute is present, the register is random-initialized.
 
 ```mlir
-%reg = seq.firreg %input clock %clk [ sym @sym ]
+%reg = seq.compreg %input clock %clk [ sym @sym ]
     [ reset (sync|async) %reset, %value ]
     [ preset value ] : $type(input)
 ```
@@ -132,15 +132,15 @@ attribute is present, the register is random-initialized.
 Examples of registers:
 
 ```mlir
-%reg_no_reset = seq.firreg %input clock %clk sym @sym : i32
+%reg_no_reset = seq.compreg %input clock %clk sym @sym : i32
 
-%reg_sync_reset_rand  = seq.firreg %input clock %clk sym @sym
-    reset sync %reset, %value : i64
+%reg_sync_reset_rand  = seq.compreg %input clock %clk sym @sym
+    reset %reset, %value : i64
 
-%reg_async_reset = seq.firreg %input clock %clk sym @sym
+%reg_async_reset = seq.compreg %input clock %clk sym @sym
     reset async %reset, %value : i1f
 
-%reg_preset = seq.firreg %next clock %clock preset 123 : i32
+%reg_preset = seq.compreg %next clock %clock preset 123 : i32
 ```
 
 A register without a reset lowers directly to an always block:
@@ -192,7 +192,7 @@ firrtl.matchingconnect %field, %value
 ```
 Is converted into a `hw.struct_inject` operation:
 ```mlir
-%reg = seq.firreg %value clock %clk sym @sym : i32
+%reg = seq.compreg %value clock %clk sym @sym : i32
 %value = hw.struct_inject %reg["x"], %value
 ```
 

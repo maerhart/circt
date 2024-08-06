@@ -953,10 +953,10 @@ firrtl.circuit "Simple"   attributes {annotations = [{class =
     // CHECK: %wireName = hw.wire %z_i42 sym @wireSym : i42
     %regName = firrtl.reg sym @regSym %clock : !firrtl.clock, !firrtl.uint<42>
 
-    // CHECK: %regName = seq.firreg %regName clock %clock sym @regSym : i42
+    // CHECK: %regName = seq.compreg sym @regSym %regName clock %clock : i42
     %regResetName = firrtl.regreset sym @regResetSym %clock, %reset, %value : !firrtl.clock, !firrtl.uint<1>, !firrtl.uint<42>, !firrtl.uint<42>
 
-    // CHECK: %regResetName = seq.firreg %regResetName clock %clock sym @regResetSym reset sync %reset, %value : i42
+    // CHECK: %regResetName = seq.compreg sym @regResetSym %regResetName clock %clock reset %reset, %value : i42
     %memName_port = firrtl.mem sym @memSym Undefined {depth = 12 : i64, name = "memName", portNames = ["port"], readLatency = 0 : i32, writeLatency = 1 : i32} : !firrtl.bundle<addr: uint<4>, en: uint<1>, clk: clock, data flip: uint<42>>
     %memName_port.clk = firrtl.subfield %memName_port[clk] : !firrtl.bundle<addr: uint<4>, en: uint<1>, clk: clock, data flip: uint<42>>
     %memName_port.en = firrtl.subfield %memName_port[en] : !firrtl.bundle<addr: uint<4>, en: uint<1>, clk: clock, data flip: uint<42>>
@@ -978,7 +978,7 @@ firrtl.circuit "Simple"   attributes {annotations = [{class =
     firrtl.connect %r1, %a : !firrtl.vector<uint<2>, 1>, !firrtl.vector<uint<1>, 1>
     firrtl.connect %b, %r1 : !firrtl.vector<uint<3>, 1>, !firrtl.vector<uint<2>, 1>
     // CHECK:      [[OUT:%.+]] = hw.wire [[T6:%.+]] : !hw.array<1xi3>
-    // CHECK-NEXT: %r1 = seq.firreg [[T3:%.+]] clock %clock : !hw.array<1xi2>
+    // CHECK-NEXT: %r1 = seq.compreg [[T3:%.+]] clock %clock : !hw.array<1xi2>
     // CHECK-NEXT: [[T1:%.+]] = hw.array_get %a[%false] : !hw.array<1xi1>
     // CHECK-NEXT: [[T2:%.+]] = comb.concat %false, [[T1]] : i1, i1
     // CHECK-NEXT: [[T3]] = hw.array_create [[T2]] : i2
@@ -994,7 +994,7 @@ firrtl.circuit "Simple"   attributes {annotations = [{class =
     firrtl.connect %r1, %a : !firrtl.vector<sint<2>, 1>, !firrtl.vector<sint<1>, 1>
     firrtl.connect %b, %r1 : !firrtl.vector<sint<3>, 1>, !firrtl.vector<sint<2>, 1>
     // CHECK:      [[OUT:%.+]] = hw.wire [[T7:%.+]] : !hw.array<1xi3>
-    // CHECK-NEXT: %r1 = seq.firreg [[T3:%.+]] clock %clock : !hw.array<1xi2>
+    // CHECK-NEXT: %r1 = seq.compreg [[T3:%.+]] clock %clock : !hw.array<1xi2>
     // CHECK-NEXT: [[T1:%.+]] = hw.array_get %a[%false] : !hw.array<1xi1>
     // CHECK-NEXT: [[T2:%.+]] = comb.concat [[T1]], [[T1]] : i1, i1
     // CHECK-NEXT: [[T3]] = hw.array_create [[T2]] : i2
@@ -1015,8 +1015,8 @@ firrtl.circuit "Simple"   attributes {annotations = [{class =
     firrtl.connect %r2, %0 : !firrtl.vector<uint<1>, 1>, !firrtl.vector<uint<1>, 1>
     firrtl.connect %o1, %r1 : !firrtl.uint<1>, !firrtl.uint<1>
     firrtl.connect %o2, %r2 : !firrtl.vector<uint<1>, 1>, !firrtl.vector<uint<1>, 1>
-    // CHECK:      %r1 = seq.firreg %1 clock %clock : i1
-    // CHECK-NEXT: %r2 = seq.firreg %0 clock %clock : !hw.array<1xi1>
+    // CHECK:      %r1 = seq.compreg %1 clock %clock : i1
+    // CHECK-NEXT: %r2 = seq.compreg %0 clock %clock : !hw.array<1xi1>
     // CHECK-NEXT: %0 = hw.array_get %a[%false] : !hw.array<1xarray<1xi1>>
     // CHECK-NEXT: %1 = hw.array_get %0[%false] : !hw.array<1xi1>
     // CHECK-NEXT: hw.output %r1, %r2 : i1, !hw.array<1xi1>
@@ -1032,8 +1032,8 @@ firrtl.circuit "Simple"   attributes {annotations = [{class =
     firrtl.connect %r2, %0 : !firrtl.vector<uint<1>, 1>, !firrtl.vector<uint<1>, 1>
     firrtl.connect %o1, %r1 : !firrtl.uint<1>, !firrtl.uint<1>
     firrtl.connect %o2, %r2 : !firrtl.vector<uint<1>, 1>, !firrtl.vector<uint<1>, 1>
-    // CHECK:      %r1 = seq.firreg %1 clock %clock : i1
-    // CHECK-NEXT: %r2 = seq.firreg %0 clock %clock : !hw.array<1xi1>
+    // CHECK:      %r1 = seq.compreg %1 clock %clock : i1
+    // CHECK-NEXT: %r2 = seq.compreg %0 clock %clock : !hw.array<1xi1>
     // CHECK-NEXT: %0 = hw.array_get %a[%x] : !hw.array<1xarray<1xi1>>, i1
     // CHECK-NEXT: %1 = hw.array_get %0[%y] : !hw.array<1xi1>, i1
     // CHECK-NEXT: hw.output %r1, %r2 : i1, !hw.array<1xi1>
@@ -1053,7 +1053,7 @@ firrtl.circuit "Simple"   attributes {annotations = [{class =
     // CHECK-NEXT: [[A:%.*]] = hw.struct_extract %init["a"] : !hw.struct<a: i2>
     // CHECK-NEXT: [[PADDED:%.*]] = comb.concat [[FALSE]], [[A]] : i1, i2
     // CHECK-NEXT: [[STRUCT:%.*]] = hw.struct_create ([[PADDED]]) : !hw.struct<a: i3>
-    // CHECK-NEXT: %reg = seq.firreg %reg clock %clock reset sync %reset, [[STRUCT]] : !hw.struct<a: i3>
+    // CHECK-NEXT: %reg = seq.compreg %reg clock %clock reset %reset, [[STRUCT]] : !hw.struct<a: i3>
     %reg = firrtl.regreset %clock, %reset, %init  : !firrtl.clock, !firrtl.uint<1>, !firrtl.bundle<a: uint<2>>, !firrtl.bundle<a: uint<3>>
   }
 
@@ -1063,7 +1063,7 @@ firrtl.circuit "Simple"   attributes {annotations = [{class =
     %reg = firrtl.regreset %clock, %reset, %invalid : !firrtl.clock, !firrtl.uint<1>, !firrtl.bundle<a: uint<1>, b: vector<uint<10>, 10>>, !firrtl.bundle<a: uint<1>, b: vector<uint<10>, 10>>
     // CHECK:      %c0_i101 = hw.constant 0 : i101
     // CHECK-NEXT: %0 = hw.bitcast %c0_i101 : (i101) -> !hw.struct<a: i1, b: !hw.array<10xi10>>
-    // CHECK-NEXT: %reg = seq.firreg %reg clock %clock reset sync %reset, %0 : !hw.struct<a: i1, b: !hw.array<10xi10>>
+    // CHECK-NEXT: %reg = seq.compreg %reg clock %clock reset %reset, %0 : !hw.struct<a: i1, b: !hw.array<10xi10>>
   }
 
   // CHECK-LABEL: hw.module private @ForceNameSubmodule
@@ -1177,18 +1177,24 @@ firrtl.circuit "Simple"   attributes {annotations = [{class =
     firrtl.matchingconnect %out, %b_inst : !firrtl.uint<1>
   }
 
-  // CHECK-LABEL: hw.module @LowerToFirReg(in %clock : !seq.clock, in %reset : i1, in %value : i2)
-  firrtl.module @LowerToFirReg(
+  // CHECK-LABEL: hw.module @LowerToCompReg(in %clock : !seq.clock, in %reset : i1, in %value : i2, out result0 : i2, out result1 : i2)
+  firrtl.module @LowerToCompReg(
     in %clock: !firrtl.clock,
     in %reset: !firrtl.uint<1>,
-    in %value: !firrtl.uint<2>
+    in %value: !firrtl.uint<2>,
+    out %result0: !firrtl.uint<2>,
+    out %result1: !firrtl.uint<2>
   ) {
     %regA = firrtl.reg %clock: !firrtl.clock, !firrtl.uint<2>
     %regB = firrtl.regreset %clock, %reset, %value: !firrtl.clock, !firrtl.uint<1>, !firrtl.uint<2>, !firrtl.uint<2>
     firrtl.matchingconnect %regA, %value : !firrtl.uint<2>
     firrtl.matchingconnect %regB, %value : !firrtl.uint<2>
-    // CHECK-NEXT: %regA = seq.firreg %value clock %clock : i2
-    // CHECK-NEXT: %regB = seq.firreg %value clock %clock reset sync %reset, %value : i2
+    // CHECK-NEXT: %regA = seq.compreg %value clock %clock : i2
+    // CHECK-NEXT: %regB = seq.compreg %value clock %clock reset %reset, %value : i2
+
+    // Connect to output ports such that registers are not optimized away
+    firrtl.matchingconnect %result0, %regA : !firrtl.uint<2>
+    firrtl.matchingconnect %result1, %regB : !firrtl.uint<2>
   }
 
   // CHECK-LABEL: hw.module @SyncReset(in %clock : !seq.clock, in %reset : i1, in %value : i2, out result : i2)
@@ -1198,7 +1204,7 @@ firrtl.circuit "Simple"   attributes {annotations = [{class =
                            out %result: !firrtl.uint<2>) {
     %count = firrtl.regreset %clock, %reset, %value : !firrtl.clock, !firrtl.uint<1>, !firrtl.uint<2>, !firrtl.uint<2>
 
-    // CHECK: %count = seq.firreg %count clock %clock reset sync %reset, %value : i2
+    // CHECK: %count = seq.compreg %count clock %clock reset %reset, %value : i2
     // CHECK: hw.output %count : i2
 
     firrtl.matchingconnect %result, %count : !firrtl.uint<2>
@@ -1211,7 +1217,7 @@ firrtl.circuit "Simple"   attributes {annotations = [{class =
                            out %result: !firrtl.uint<2>) {
     %count = firrtl.regreset %clock, %reset, %value : !firrtl.clock, !firrtl.asyncreset, !firrtl.uint<2>, !firrtl.uint<2>
 
-    // CHECK: %count = seq.firreg %value clock %clock reset async %reset, %value : i2
+    // CHECK: %count = seq.compreg %value clock %clock reset async %reset, %value : i2
     // CHECK: hw.output %count : i2
 
     firrtl.matchingconnect %count, %value : !firrtl.uint<2>
@@ -1223,7 +1229,7 @@ firrtl.circuit "Simple"   attributes {annotations = [{class =
                      in %reset: !firrtl.uint<1>,
                      out %result: !firrtl.uint<2>) {
     %count = firrtl.reg %clock: !firrtl.clock, !firrtl.uint<2>
-    // CHECK: %count = seq.firreg %count clock %clock : i2
+    // CHECK: %count = seq.compreg %count clock %clock : i2
 
     firrtl.matchingconnect %result, %count : !firrtl.uint<2>
 
@@ -1368,7 +1374,7 @@ firrtl.circuit "Simple"   attributes {annotations = [{class =
   firrtl.module private @ForceableToSym(in %in: !firrtl.uint<4>, in %clk: !firrtl.clock, out %out: !firrtl.uint<4>) {
     // CHECK-NEXT: %n = hw.wire %in sym @{{.+}} : i4
     // CHECK-NEXT: %w = hw.wire %n sym @{{.+}} : i4
-    // CHECK-NEXT: %r = seq.firreg %w clock %clk sym @{{.+}} : i4
+    // CHECK-NEXT: %r = seq.compreg sym @{{.+}} %w clock %clk : i4
     %n, %n_ref = firrtl.node %in forceable : !firrtl.uint<4>
     %w, %w_ref = firrtl.wire forceable : !firrtl.uint<4>, !firrtl.rwprobe<uint<4>>
     %r, %r_ref = firrtl.reg %clk forceable : !firrtl.clock, !firrtl.uint<4>, !firrtl.rwprobe<uint<4>>
@@ -1421,7 +1427,7 @@ firrtl.circuit "Simple"   attributes {annotations = [{class =
   // CHECK-SAME:  attributes {sv.attributes = [#sv.attribute<"keep_hierarchy = \22true\22">]}
   // CHECK-NEXT: %w = hw.wire %a {sv.attributes = [#sv.attribute<"mark_debug = \22yes\22">]}
   // CHECK-NEXT: %n = hw.wire %w {sv.attributes = [#sv.attribute<"mark_debug = \22yes\22">]}
-  // CHECK-NEXT: %r = seq.firreg %a clock %clock {firrtl.random_init_start = 0 : ui64, sv.attributes = [#sv.attribute<"keep = \22true\22", emitAsComment>]}
+  // CHECK-NEXT: %r = seq.compreg %a clock %clock {firrtl.random_init_start = 0 : ui64, sv.attributes = [#sv.attribute<"keep = \22true\22", emitAsComment>]}
   firrtl.module @SVAttr(in %a: !firrtl.uint<1>, in %clock: !firrtl.clock, out %b1: !firrtl.uint<1>, out %b2: !firrtl.uint<1>) attributes {convention = #firrtl<convention scalarized>, sv.attributes = [#sv.attribute<"keep_hierarchy = \22true\22">]} {
     %w = firrtl.wire {sv.attributes = [#sv.attribute<"mark_debug = \22yes\22">]} : !firrtl.uint<1>
     %n = firrtl.node %w {sv.attributes = [#sv.attribute<"mark_debug = \22yes\22">]} : !firrtl.uint<1>

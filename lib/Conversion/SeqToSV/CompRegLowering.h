@@ -1,4 +1,4 @@
-//===- FirRegLowering.h - FirReg lowering utilities ===========--*- C++ -*-===//
+//===- CompRegLowering.h - FirReg lowering utilities ===========--*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -7,8 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 // NOLINTNEXTLINE(llvm-header-guard)
-#ifndef CONVERSION_SEQTOSV_FIRREGLOWERING_H
-#define CONVERSION_SEQTOSV_FIRREGLOWERING_H
+#ifndef CONVERSION_SEQTOSV_COMPREGLOWERING_H
+#define CONVERSION_SEQTOSV_COMPREGLOWERING_H
 
 #include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWOps.h"
@@ -34,7 +34,7 @@ class ReachableMuxes {
 public:
   ReachableMuxes(HWModuleOp m) : module(m) {}
 
-  bool isMuxReachableFrom(seq::FirRegOp regOp, comb::MuxOp muxOp);
+  bool isMuxReachableFrom(seq::CompRegOp regOp, comb::MuxOp muxOp);
 
 private:
   void buildReachabilityFrom(Operation *startNode);
@@ -72,10 +72,10 @@ private:
   bool unvisited = true;
 };
 
-/// Lower FirRegOp to `sv.reg` and `sv.always`.
-class FirRegLowering {
+/// Lower CompRegOp to `sv.reg` and `sv.always`.
+class CompRegLowering {
 public:
-  FirRegLowering(TypeConverter &typeConverter, hw::HWModuleOp module,
+  CompRegLowering(TypeConverter &typeConverter, hw::HWModuleOp module,
                  bool disableRegRandomization = false,
                  bool emitSeparateAlwaysBlocks = false);
 
@@ -87,14 +87,14 @@ public:
 private:
   struct RegLowerInfo {
     sv::RegOp reg;
-    IntegerAttr preset;
+    Value powerOn;
     Value asyncResetSignal;
     Value asyncResetValue;
     int64_t randStart;
     size_t width;
   };
 
-  RegLowerInfo lower(seq::FirRegOp reg);
+  RegLowerInfo lower(seq::CompRegOp reg);
 
   void initialize(OpBuilder &builder, RegLowerInfo reg, ArrayRef<Value> rands);
   void initializeRegisterElements(Location loc, OpBuilder &builder, Value reg,
@@ -149,4 +149,4 @@ private:
 };
 } // namespace circt
 
-#endif // CONVERSION_SEQTOSV_FIRREGLOWERING_H
+#endif // CONVERSION_SEQTOSV_COMPREGLOWERING_H

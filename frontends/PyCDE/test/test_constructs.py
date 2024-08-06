@@ -13,10 +13,10 @@ from pycde.testing import unittestmodule
 # CHECK:         %in = sv.wire sym @in : !hw.inout<i8>
 # CHECK:         {{%.+}} = sv.read_inout %in {sv.namehint = "in"} : !hw.inout<i8>
 # CHECK:         sv.assign %in, %In : i8
-# CHECK:         [[r1:%.+]] = seq.compreg %In, %clk : i8
+# CHECK:         [[r1:%.+]] = seq.compreg %In clock %clk : i8
 # CHECK:         %c0_i8{{.*}} = hw.constant 0 : i8
-# CHECK:         [[r5:%.+]] = seq.compreg %In, %clk reset %rst, %c0_i8{{.*}}  : i8
-# CHECK:         [[r6:%.+]] = seq.compreg.ce %In, %clk, %InCE : i8
+# CHECK:         [[r5:%.+]] = seq.compreg %In clock %clk reset %rst, %c0_i8{{.*}}  : i8
+# CHECK:         [[r6:%.+]] = seq.compreg.ce %In clock %clk, %InCE : i8
 # CHECK:         hw.output [[r2]], [[r1]], [[r5]], [[r6]] : i8, i8, i8, i8
 
 
@@ -55,7 +55,7 @@ class WireAndRegTest(Module):
 
 # CHECK-LABEL: %{{.+}} = msft.systolic.array [%{{.+}} : 3 x i8] [%{{.+}} : 2 x i8] pe (%arg0, %arg1) -> (i8) {
 # CHECK:         [[SUM:%.+]] = comb.add bin %arg0, %arg1 {sv.namehint = "sum"} : i8
-# CHECK:         [[SUMR:%.+]] = seq.compreg sym @sum__reg1 [[SUM]], %clk : i8
+# CHECK:         [[SUMR:%.+]] = seq.compreg sym @sum__reg1 [[SUM]] clock %clk : i8
 # CHECK:         msft.pe.output [[SUMR]] : i8
 
 
@@ -92,7 +92,7 @@ class SystolicArrayTest(Module):
 # CHECK:          [[r2:%.+]] = comb.or bin [[r0]], [[r1]]
 # CHECK:          [[r3:%.+]] = hw.array_get %resets[%c0_i0]
 # CHECK:          [[r4:%.+]] = comb.or bin [[r3]]
-# CHECK:          %state = seq.compreg [[r6]], %clk reset %rst, %false{{.*}}
+# CHECK:          %state = seq.compreg [[r6]] clock %clk reset %rst, %false{{.*}}
 # CHECK:          [[r5:%.+]] = comb.mux bin [[r4]], %false{{.*}}, %state
 # CHECK:          [[r6:%.+]] = comb.mux bin [[r2]], %true{{.*}}, [[r5]]
 # CHECK:          hw.output %state

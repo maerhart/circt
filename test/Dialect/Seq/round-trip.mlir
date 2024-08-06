@@ -74,11 +74,11 @@ hw.module @fifo2(in %clk : !seq.clock, in %rst : i1, in %in : i32, in %rdEn : i1
 }
 
 
-hw.module @preset(in %clock : !seq.clock, in %reset : i1, in %next : i32) {
-  // CHECK: %a = seq.firreg %next clock %clock preset 0 : i32
-  %a = seq.firreg %next clock %clock preset 0 : i32
-  // CHECK: %b = seq.firreg %next clock %clock preset 0 {sv.namehint = "x"} : i32
-  %b = seq.firreg %next clock %clock preset 0 {sv.namehint = "x"} : i32
+hw.module @powerOn(in %clock : !seq.clock, in %reset : i1, in %next : i32) {
+  // CHECK: %a = seq.compreg %next clock %clock powerOn %next : i32
+  %a = seq.compreg %next clock %clock powerOn %next : i32
+  // CHECK: %b = seq.compreg %next clock %clock powerOn %next {sv.namehint = "x"} : i32
+  %b = seq.compreg %next clock %clock powerOn %next {sv.namehint = "x"} : i32
 }
 
 hw.module @clock_dividers(in %clock: !seq.clock) {

@@ -109,7 +109,6 @@ struct llvm::DOTGraphTraits<circt::hw::HWModuleOp>
           }
           llvm_unreachable("unhandled ICmp predicate");
         })
-        .Case<circt::seq::FirRegOp>([&](auto op) { return op.getName().str(); })
         .Case<circt::seq::CompRegOp>([&](auto op) -> std::string {
           if (auto name = op.getName())
             return name->str();

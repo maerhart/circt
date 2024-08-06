@@ -613,7 +613,7 @@ bool isInDesign(hw::HWSymbolCache &symCache, Operation *op,
   // For instances and regiseters, check by passed arguments.
   if (isa<hw::InstanceOp>(op))
     return disableInstanceExtraction;
-  if (isa<seq::FirRegOp>(op))
+  if (isa<seq::CompRegOp>(op))
     return disableRegisterExtraction;
 
   // Since we are not tracking dataflow through SV assignments, and we don't

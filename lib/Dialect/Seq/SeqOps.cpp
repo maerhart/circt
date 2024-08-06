@@ -42,34 +42,6 @@ bool circt::seq::isValidIndexValues(Value hlmemHandle, ValueRange addresses) {
   return true;
 }
 
-// If there was no name specified, check to see if there was a useful name
-// specified in the asm file.
-static void setNameFromResult(OpAsmParser &parser, OperationState &result) {
-  if (result.attributes.getNamed("name"))
-    return;
-  // If there is no explicit name attribute, get it from the SSA result name.
-  // If numeric, just use an empty name.
-  StringRef resultName = parser.getResultName(0).first;
-  if (!resultName.empty() && isdigit(resultName[0]))
-    resultName = "";
-  result.addAttribute("name", parser.getBuilder().getStringAttr(resultName));
-}
-
-static bool canElideName(OpAsmPrinter &p, Operation *op) {
-  if (!op->hasAttr("name"))
-    return true;
-
-  auto name = op->getAttrOfType<StringAttr>("name").getValue();
-  if (name.empty())
-    return true;
-
-  SmallString<32> resultNameStr;
-  llvm::raw_svector_ostream tmpStream(resultNameStr);
-  p.printOperand(op->getResult(0), tmpStream);
-  auto actualName = tmpStream.str().drop_front();
-  return actualName == name;
-}
-
 static ParseResult
 parseOptionalTypeMatch(OpAsmParser &parser, Type refType,
                        std::optional<OpAsmParser::UnresolvedOperand> operand,
@@ -301,10 +273,177 @@ LogicalResult CompRegOp::verify() {
   if ((getReset() == nullptr) ^ (getResetValue() == nullptr))
     return emitOpError(
         "either reset and resetValue or neither must be specified");
+
+  if (!getReset() && getIsAsync())
+    return emitOpError(
+        "register with no reset cannot be async");
   return success();
 }
 
 std::optional<size_t> CompRegOp::getTargetResultIndex() { return 0; }
+
+LogicalResult CompRegOp::canonicalize(CompRegOp op, PatternRewriter &rewriter) {
+
+  // If the register has a constant zero reset, drop the reset and reset value
+  // altogether (And preserve the PresetAttr).
+  if (auto reset = op.getReset()) {
+    if (auto constOp = reset.getDefiningOp<hw::ConstantOp>()) {
+      if (constOp.getValue().isZero()) {
+        rewriter.replaceOpWithNewOp<CompRegOp>(
+            op, op.getInput(), op.getClk(), op.getNameAttr(),
+            op.getInnerSymAttr(), op.getPowerOnValue());
+        return success();
+      }
+    }
+  }
+
+  // If the register has a symbol, we can't optimize it away.
+  if (op.getInnerSymAttr())
+    return failure();
+
+  // Replace a register with a trivial feedback or constant clock with a
+  // constant zero.
+  // TODO: Once HW aggregate constant values are supported, move this
+  // canonicalization to the folder.
+  auto isConstant = [&]() -> bool {
+    if (op.getInput() == op.getResult())
+      return true;
+    if (auto clk = op.getClk().getDefiningOp<seq::ToClockOp>())
+      return clk.getInput().getDefiningOp<hw::ConstantOp>();
+    return false;
+  };
+
+  // Preset can block canonicalization only if it is non-zero.
+  bool replaceWithConstZero = true;
+  if (op.getPowerOnValue()) 
+    if (auto constPowerOn = op.getPowerOnValue().getDefiningOp<hw::ConstantOp>())
+      if (!constPowerOn.getValue().isZero())
+        replaceWithConstZero = false;
+
+  if (isConstant() && !op.getResetValue() && replaceWithConstZero) {
+    if (isa<seq::ClockType>(op.getType())) {
+      rewriter.replaceOpWithNewOp<seq::ConstClockOp>(
+          op, seq::ClockConstAttr::get(rewriter.getContext(), ClockConst::Low));
+    } else {
+      auto constant = rewriter.create<hw::ConstantOp>(
+          op.getLoc(), APInt::getZero(hw::getBitWidth(op.getType())));
+      rewriter.replaceOpWithNewOp<hw::BitcastOp>(op, op.getType(), constant);
+    }
+    return success();
+  }
+
+  // For reset-less 1d array registers, replace an uninitialized element with
+  // constant zero. For example, let `r` be a 2xi1 register and its next value
+  // be `{foo, r[0]}`. `r[0]` is connected to itself so will never be
+  // initialized. If we don't enable aggregate preservation, `r_0` is replaced
+  // with `0`. Hence this canonicalization replaces 0th element of the next
+  // value with zero to match the behaviour.
+  if (!op.getReset() && !op.getPowerOnValue()) {
+    if (auto arrayCreate = op.getInput().getDefiningOp<hw::ArrayCreateOp>()) {
+      // For now only support 1d arrays.
+      // TODO: Support nested arrays and bundles.
+      if (isa<IntegerType>(
+              hw::type_cast<hw::ArrayType>(op.getResult().getType())
+                  .getElementType())) {
+        SmallVector<Value> nextOperands;
+        bool changed = false;
+        for (const auto &[i, value] :
+             llvm::enumerate(arrayCreate.getOperands())) {
+          auto index = arrayCreate.getOperands().size() - i - 1;
+          APInt elementIndex;
+          // Check that the corresponding operand is op's element.
+          if (auto arrayGet = value.getDefiningOp<hw::ArrayGetOp>())
+            if (arrayGet.getInput() == op.getResult() &&
+                matchPattern(arrayGet.getIndex(),
+                             m_ConstantInt(&elementIndex)) &&
+                elementIndex == index) {
+              nextOperands.push_back(rewriter.create<hw::ConstantOp>(
+                  op.getLoc(),
+                  APInt::getZero(hw::getBitWidth(arrayGet.getType()))));
+              changed = true;
+              continue;
+            }
+          nextOperands.push_back(value);
+        }
+        // If one of the operands is self loop, update the next value.
+        if (changed) {
+          auto newNextVal = rewriter.create<hw::ArrayCreateOp>(
+              arrayCreate.getLoc(), nextOperands);
+          if (arrayCreate->hasOneUse())
+            // If the original next value has a single use, we can replace the
+            // value directly.
+            rewriter.replaceOp(arrayCreate, newNextVal);
+          else {
+            // Otherwise, replace the entire firreg with a new one.
+            rewriter.replaceOpWithNewOp<CompRegOp>(op, newNextVal, op.getClk(),
+                                                  op.getNameAttr(),
+                                                  op.getInnerSymAttr());
+          }
+
+          return success();
+        }
+      }
+    }
+  }
+
+  return failure();
+}
+
+OpFoldResult CompRegOp::fold(FoldAdaptor adaptor) {
+  // If the register has a symbol or preset value, we can't optimize it away.
+  // TODO: Handle a preset value.
+  if (getInnerSymAttr())
+    return {};
+
+  auto presetAttr = getPowerOnValue();
+
+  // If the register is held in permanent reset, replace it with its reset
+  // value. This works trivially if the reset is asynchronous and therefore
+  // level-sensitive, in which case it will always immediately assume the reset
+  // value in silicon. If it is synchronous, the register value is undefined
+  // until the first clock edge at which point it becomes the reset value, in
+  // which case we simply define the initial value to already be the reset
+  // value. Works only if no preset.
+  if (!presetAttr)
+    if (auto reset = getReset())
+      if (auto constOp = reset.getDefiningOp<hw::ConstantOp>())
+        if (constOp.getValue().isOne())
+          return getResetValue();
+
+  // If the register's next value is trivially it's current value, or the
+  // register is never clocked, we can replace the register with a constant
+  // value.
+  bool isTrivialFeedback = (getInput() == getResult());
+  bool isNeverClocked =
+      adaptor.getClk() != nullptr; // clock operand is constant
+  if (!isTrivialFeedback && !isNeverClocked)
+    return {};
+
+  // If the register has a const reset value, and no preset, we can replace it
+  // with the const reset. We cannot replace it with a non-constant reset value.
+  if (auto resetValue = getResetValue()) {
+    if (auto *op = resetValue.getDefiningOp()) {
+      if (op->hasTrait<OpTrait::ConstantLike>() && !presetAttr)
+        return resetValue;
+      APInt powerOn;
+      if (auto constOp = dyn_cast<hw::ConstantOp>(op))
+        if (matchPattern(presetAttr, m_ConstantInt(&powerOn)))
+        if (powerOn == constOp.getValue())
+          return resetValue;
+    }
+    return {};
+  }
+
+  // Otherwise we want to replace the register with a constant 0. For now this
+  // only works with integer types.
+  auto intType = dyn_cast<IntegerType>(getType());
+  if (!intType)
+    return {};
+  // If preset present, then replace with preset.
+  if (presetAttr)
+    return presetAttr;
+  return IntegerAttr::get(intType, 0);
+}
 
 template <typename TOp>
 LogicalResult verifyResets(TOp op) {
@@ -352,360 +491,6 @@ LogicalResult ShiftRegOp::verify() {
   if (failed(verifyResets(*this)))
     return failure();
   return success();
-}
-
-//===----------------------------------------------------------------------===//
-// FirRegOp
-//===----------------------------------------------------------------------===//
-
-void FirRegOp::build(OpBuilder &builder, OperationState &result, Value input,
-                     Value clk, StringAttr name, hw::InnerSymAttr innerSym,
-                     Attribute preset) {
-
-  OpBuilder::InsertionGuard guard(builder);
-
-  result.addOperands(input);
-  result.addOperands(clk);
-
-  result.addAttribute(getNameAttrName(result.name), name);
-
-  if (innerSym)
-    result.addAttribute(getInnerSymAttrName(result.name), innerSym);
-
-  if (preset)
-    result.addAttribute(getPresetAttrName(result.name), preset);
-
-  result.addTypes(input.getType());
-}
-
-void FirRegOp::build(OpBuilder &builder, OperationState &result, Value input,
-                     Value clk, StringAttr name, Value reset, Value resetValue,
-                     hw::InnerSymAttr innerSym, bool isAsync) {
-
-  OpBuilder::InsertionGuard guard(builder);
-
-  result.addOperands(input);
-  result.addOperands(clk);
-  result.addOperands(reset);
-  result.addOperands(resetValue);
-
-  result.addAttribute(getNameAttrName(result.name), name);
-  if (isAsync)
-    result.addAttribute(getIsAsyncAttrName(result.name), builder.getUnitAttr());
-
-  if (innerSym)
-    result.addAttribute(getInnerSymAttrName(result.name), innerSym);
-
-  result.addTypes(input.getType());
-}
-
-ParseResult FirRegOp::parse(OpAsmParser &parser, OperationState &result) {
-  auto &builder = parser.getBuilder();
-  llvm::SMLoc loc = parser.getCurrentLocation();
-
-  using Op = OpAsmParser::UnresolvedOperand;
-
-  Op next, clk;
-  if (parser.parseOperand(next) || parser.parseKeyword("clock") ||
-      parser.parseOperand(clk))
-    return failure();
-
-  if (succeeded(parser.parseOptionalKeyword("sym"))) {
-    hw::InnerSymAttr innerSym;
-    if (parser.parseCustomAttributeWithFallback(innerSym, /*type=*/nullptr,
-                                                "inner_sym", result.attributes))
-      return failure();
-  }
-
-  // Parse reset [sync|async] %reset, %value
-  std::optional<std::pair<Op, Op>> resetAndValue;
-  if (succeeded(parser.parseOptionalKeyword("reset"))) {
-    bool isAsync;
-    if (succeeded(parser.parseOptionalKeyword("async")))
-      isAsync = true;
-    else if (succeeded(parser.parseOptionalKeyword("sync")))
-      isAsync = false;
-    else
-      return parser.emitError(loc, "invalid reset, expected 'sync' or 'async'");
-    if (isAsync)
-      result.attributes.append("isAsync", builder.getUnitAttr());
-
-    resetAndValue = {{}, {}};
-    if (parser.parseOperand(resetAndValue->first) || parser.parseComma() ||
-        parser.parseOperand(resetAndValue->second))
-      return failure();
-  }
-
-  std::optional<APInt> presetValue;
-  llvm::SMLoc presetValueLoc;
-  if (succeeded(parser.parseOptionalKeyword("preset"))) {
-    presetValueLoc = parser.getCurrentLocation();
-    OptionalParseResult presetIntResult =
-        parser.parseOptionalInteger(presetValue.emplace());
-    if (!presetIntResult.has_value() || failed(*presetIntResult))
-      return parser.emitError(loc, "expected integer value");
-  }
-
-  Type ty;
-  if (parser.parseOptionalAttrDict(result.attributes) || parser.parseColon() ||
-      parser.parseType(ty))
-    return failure();
-  result.addTypes({ty});
-
-  if (presetValue) {
-    uint64_t width = 0;
-    if (hw::type_isa<seq::ClockType>(ty)) {
-      width = 1;
-    } else {
-      int64_t maybeWidth = hw::getBitWidth(ty);
-      if (maybeWidth < 0)
-        return parser.emitError(presetValueLoc,
-                                "cannot preset register of unknown width");
-      width = maybeWidth;
-    }
-
-    APInt presetResult = presetValue->sextOrTrunc(width);
-    if (presetResult.zextOrTrunc(presetValue->getBitWidth()) != *presetValue)
-      return parser.emitError(loc, "preset value too large");
-
-    auto builder = parser.getBuilder();
-    auto presetTy = builder.getIntegerType(width);
-    auto resultAttr = builder.getIntegerAttr(presetTy, presetResult);
-    result.addAttribute("preset", resultAttr);
-  }
-
-  setNameFromResult(parser, result);
-
-  if (parser.resolveOperand(next, ty, result.operands))
-    return failure();
-
-  Type clkTy = ClockType::get(result.getContext());
-  if (parser.resolveOperand(clk, clkTy, result.operands))
-    return failure();
-
-  if (resetAndValue) {
-    Type i1 = IntegerType::get(result.getContext(), 1);
-    if (parser.resolveOperand(resetAndValue->first, i1, result.operands) ||
-        parser.resolveOperand(resetAndValue->second, ty, result.operands))
-      return failure();
-  }
-
-  return success();
-}
-
-void FirRegOp::print(::mlir::OpAsmPrinter &p) {
-  SmallVector<StringRef> elidedAttrs = {
-      getInnerSymAttrName(), getIsAsyncAttrName(), getPresetAttrName()};
-
-  p << ' ' << getNext() << " clock " << getClk();
-
-  if (auto sym = getInnerSymAttr()) {
-    p << " sym ";
-    sym.print(p);
-  }
-
-  if (hasReset()) {
-    p << " reset " << (getIsAsync() ? "async" : "sync") << ' ';
-    p << getReset() << ", " << getResetValue();
-  }
-
-  if (auto preset = getPresetAttr()) {
-    p << " preset " << preset.getValue();
-  }
-
-  if (canElideName(p, *this))
-    elidedAttrs.push_back("name");
-
-  p.printOptionalAttrDict((*this)->getAttrs(), elidedAttrs);
-  p << " : " << getNext().getType();
-}
-
-/// Verifier for the FIR register op.
-LogicalResult FirRegOp::verify() {
-  if (getReset() || getResetValue() || getIsAsync()) {
-    if (!getReset() || !getResetValue())
-      return emitOpError("must specify reset and reset value");
-  } else {
-    if (getIsAsync())
-      return emitOpError("register with no reset cannot be async");
-  }
-  if (auto preset = getPresetAttr()) {
-    int64_t presetWidth = hw::getBitWidth(preset.getType());
-    int64_t width = hw::getBitWidth(getType());
-    if (preset.getType() != getType() && presetWidth != width)
-      return emitOpError("preset type width must match register type");
-  }
-  return success();
-}
-
-/// Suggest a name for each result value based on the saved result names
-/// attribute.
-void FirRegOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
-  // If the register has an optional 'name' attribute, use it.
-  if (!getName().empty())
-    setNameFn(getResult(), getName());
-}
-
-std::optional<size_t> FirRegOp::getTargetResultIndex() { return 0; }
-
-LogicalResult FirRegOp::canonicalize(FirRegOp op, PatternRewriter &rewriter) {
-
-  // If the register has a constant zero reset, drop the reset and reset value
-  // altogether (And preserve the PresetAttr).
-  if (auto reset = op.getReset()) {
-    if (auto constOp = reset.getDefiningOp<hw::ConstantOp>()) {
-      if (constOp.getValue().isZero()) {
-        rewriter.replaceOpWithNewOp<FirRegOp>(
-            op, op.getNext(), op.getClk(), op.getNameAttr(),
-            op.getInnerSymAttr(), op.getPresetAttr());
-        return success();
-      }
-    }
-  }
-
-  // If the register has a symbol, we can't optimize it away.
-  if (op.getInnerSymAttr())
-    return failure();
-
-  // Replace a register with a trivial feedback or constant clock with a
-  // constant zero.
-  // TODO: Once HW aggregate constant values are supported, move this
-  // canonicalization to the folder.
-  auto isConstant = [&]() -> bool {
-    if (op.getNext() == op.getResult())
-      return true;
-    if (auto clk = op.getClk().getDefiningOp<seq::ToClockOp>())
-      return clk.getInput().getDefiningOp<hw::ConstantOp>();
-    return false;
-  };
-
-  // Preset can block canonicalization only if it is non-zero.
-  bool replaceWithConstZero = true;
-  if (auto preset = op.getPresetAttr())
-    if (!preset.getValue().isZero())
-      replaceWithConstZero = false;
-
-  if (isConstant() && !op.getResetValue() && replaceWithConstZero) {
-    if (isa<seq::ClockType>(op.getType())) {
-      rewriter.replaceOpWithNewOp<seq::ConstClockOp>(
-          op, seq::ClockConstAttr::get(rewriter.getContext(), ClockConst::Low));
-    } else {
-      auto constant = rewriter.create<hw::ConstantOp>(
-          op.getLoc(), APInt::getZero(hw::getBitWidth(op.getType())));
-      rewriter.replaceOpWithNewOp<hw::BitcastOp>(op, op.getType(), constant);
-    }
-    return success();
-  }
-
-  // For reset-less 1d array registers, replace an uninitialized element with
-  // constant zero. For example, let `r` be a 2xi1 register and its next value
-  // be `{foo, r[0]}`. `r[0]` is connected to itself so will never be
-  // initialized. If we don't enable aggregate preservation, `r_0` is replaced
-  // with `0`. Hence this canonicalization replaces 0th element of the next
-  // value with zero to match the behaviour.
-  if (!op.getReset() && !op.getPresetAttr()) {
-    if (auto arrayCreate = op.getNext().getDefiningOp<hw::ArrayCreateOp>()) {
-      // For now only support 1d arrays.
-      // TODO: Support nested arrays and bundles.
-      if (isa<IntegerType>(
-              hw::type_cast<hw::ArrayType>(op.getResult().getType())
-                  .getElementType())) {
-        SmallVector<Value> nextOperands;
-        bool changed = false;
-        for (const auto &[i, value] :
-             llvm::enumerate(arrayCreate.getOperands())) {
-          auto index = arrayCreate.getOperands().size() - i - 1;
-          APInt elementIndex;
-          // Check that the corresponding operand is op's element.
-          if (auto arrayGet = value.getDefiningOp<hw::ArrayGetOp>())
-            if (arrayGet.getInput() == op.getResult() &&
-                matchPattern(arrayGet.getIndex(),
-                             m_ConstantInt(&elementIndex)) &&
-                elementIndex == index) {
-              nextOperands.push_back(rewriter.create<hw::ConstantOp>(
-                  op.getLoc(),
-                  APInt::getZero(hw::getBitWidth(arrayGet.getType()))));
-              changed = true;
-              continue;
-            }
-          nextOperands.push_back(value);
-        }
-        // If one of the operands is self loop, update the next value.
-        if (changed) {
-          auto newNextVal = rewriter.create<hw::ArrayCreateOp>(
-              arrayCreate.getLoc(), nextOperands);
-          if (arrayCreate->hasOneUse())
-            // If the original next value has a single use, we can replace the
-            // value directly.
-            rewriter.replaceOp(arrayCreate, newNextVal);
-          else {
-            // Otherwise, replace the entire firreg with a new one.
-            rewriter.replaceOpWithNewOp<FirRegOp>(op, newNextVal, op.getClk(),
-                                                  op.getNameAttr(),
-                                                  op.getInnerSymAttr());
-          }
-
-          return success();
-        }
-      }
-    }
-  }
-
-  return failure();
-}
-
-OpFoldResult FirRegOp::fold(FoldAdaptor adaptor) {
-  // If the register has a symbol or preset value, we can't optimize it away.
-  // TODO: Handle a preset value.
-  if (getInnerSymAttr())
-    return {};
-
-  auto presetAttr = getPresetAttr();
-
-  // If the register is held in permanent reset, replace it with its reset
-  // value. This works trivially if the reset is asynchronous and therefore
-  // level-sensitive, in which case it will always immediately assume the reset
-  // value in silicon. If it is synchronous, the register value is undefined
-  // until the first clock edge at which point it becomes the reset value, in
-  // which case we simply define the initial value to already be the reset
-  // value. Works only if no preset.
-  if (!presetAttr)
-    if (auto reset = getReset())
-      if (auto constOp = reset.getDefiningOp<hw::ConstantOp>())
-        if (constOp.getValue().isOne())
-          return getResetValue();
-
-  // If the register's next value is trivially it's current value, or the
-  // register is never clocked, we can replace the register with a constant
-  // value.
-  bool isTrivialFeedback = (getNext() == getResult());
-  bool isNeverClocked =
-      adaptor.getClk() != nullptr; // clock operand is constant
-  if (!isTrivialFeedback && !isNeverClocked)
-    return {};
-
-  // If the register has a const reset value, and no preset, we can replace it
-  // with the const reset. We cannot replace it with a non-constant reset value.
-  if (auto resetValue = getResetValue()) {
-    if (auto *op = resetValue.getDefiningOp()) {
-      if (op->hasTrait<OpTrait::ConstantLike>() && !presetAttr)
-        return resetValue;
-      if (auto constOp = dyn_cast<hw::ConstantOp>(op))
-        if (presetAttr.getValue() == constOp.getValue())
-          return resetValue;
-    }
-    return {};
-  }
-
-  // Otherwise we want to replace the register with a constant 0. For now this
-  // only works with integer types.
-  auto intType = dyn_cast<IntegerType>(getType());
-  if (!intType)
-    return {};
-  // If preset present, then replace with preset.
-  if (presetAttr)
-    return presetAttr;
-  return IntegerAttr::get(intType, 0);
 }
 
 //===----------------------------------------------------------------------===//

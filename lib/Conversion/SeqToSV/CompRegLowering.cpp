@@ -1,4 +1,4 @@
-//===- FirRegLowering.cpp - FirReg lowering utilities ---------------------===//
+//===- CompRegLowering.cpp - FirReg lowering utilities ---------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "FirRegLowering.h"
+#include "CompRegLowering.h"
 #include "circt/Dialect/Comb/CombOps.h"
 #include "mlir/IR/Threading.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -25,7 +25,7 @@ std::function<bool(const Operation *op)> OpUserInfo::opAllowsReachability =
   return (isa<comb::MuxOp, ArrayGetOp, ArrayCreateOp>(op));
 };
 
-bool ReachableMuxes::isMuxReachableFrom(seq::FirRegOp regOp,
+bool ReachableMuxes::isMuxReachableFrom(seq::CompRegOp regOp,
                                         comb::MuxOp muxOp) {
   return llvm::any_of(regOp.getResult().getUsers(), [&](Operation *user) {
     if (!OpUserInfo::opAllowsReachability(user))
@@ -86,7 +86,7 @@ void ReachableMuxes::buildReachabilityFrom(Operation *startNode) {
   }
 }
 
-void FirRegLowering::addToIfBlock(OpBuilder &builder, Value cond,
+void CompRegLowering::addToIfBlock(OpBuilder &builder, Value cond,
                                   const std::function<void()> &trueSide,
                                   const std::function<void()> &falseSide) {
   auto op = ifCache.lookup({builder.getBlock(), cond});
@@ -105,7 +105,7 @@ void FirRegLowering::addToIfBlock(OpBuilder &builder, Value cond,
   }
 }
 
-FirRegLowering::FirRegLowering(TypeConverter &typeConverter,
+CompRegLowering::CompRegLowering(TypeConverter &typeConverter,
                                hw::HWModuleOp module,
                                bool disableRegRandomization,
                                bool emitSeparateAlwaysBlocks)
@@ -116,19 +116,19 @@ FirRegLowering::FirRegLowering(TypeConverter &typeConverter,
   reachableMuxes = std::make_unique<ReachableMuxes>(module);
 }
 
-void FirRegLowering::lower() {
+void CompRegLowering::lower() {
   // Find all registers to lower in the module.
-  auto regs = module.getOps<seq::FirRegOp>();
+  auto regs = module.getOps<seq::CompRegOp>();
   if (regs.empty())
     return;
 
   // Lower the regs to SV regs. Group them by initializer and reset kind.
-  SmallVector<RegLowerInfo> randomInit, presetInit;
+  SmallVector<RegLowerInfo> randomInit, powerOnInit;
   llvm::MapVector<Value, SmallVector<RegLowerInfo>> asyncResets;
   for (auto reg : llvm::make_early_inc_range(regs)) {
     auto svReg = lower(reg);
-    if (svReg.preset)
-      presetInit.push_back(svReg);
+    if (svReg.powerOn)
+      powerOnInit.push_back(svReg);
     else if (!disableRegRandomization)
       randomInit.push_back(svReg);
 
@@ -164,7 +164,7 @@ void FirRegLowering::lower() {
   //     `INIT_RANDOM_PROLOG_
   //     ... initBuilder ..
   // `endif
-  if (randomInit.empty() && presetInit.empty() && asyncResets.empty())
+  if (randomInit.empty() && powerOnInit.empty() && asyncResets.empty())
     return;
 
   needsRandom = true;
@@ -232,11 +232,11 @@ void FirRegLowering::lower() {
           });
         }
 
-        if (!presetInit.empty()) {
-          for (auto &svReg : presetInit) {
+        if (!powerOnInit.empty()) {
+          for (auto &svReg : powerOnInit) {
             auto loc = svReg.reg.getLoc();
             auto elemTy = svReg.reg.getType().getElementType();
-            auto cst = getOrCreateConstant(loc, svReg.preset.getValue());
+            auto cst = svReg.powerOn;
 
             Value rhs;
             if (cst.getType() == elemTy)
@@ -321,7 +321,7 @@ static std::optional<APInt> getConstantValue(Value value) {
 //   reg[idx] <= val;
 //
 std::optional<std::tuple<Value, Value, Value>>
-FirRegLowering::tryRestoringSubaccess(OpBuilder &builder, Value reg, Value term,
+CompRegLowering::tryRestoringSubaccess(OpBuilder &builder, Value reg, Value term,
                                       hw::ArrayCreateOp nextRegValue) {
   Value trueVal;
   SmallVector<Value> muxConditions;
@@ -394,7 +394,7 @@ FirRegLowering::tryRestoringSubaccess(OpBuilder &builder, Value reg, Value term,
   return std::make_tuple(commonConditionValue, indexValue, trueVal);
 }
 
-void FirRegLowering::createTree(OpBuilder &builder, Value reg, Value term,
+void CompRegLowering::createTree(OpBuilder &builder, Value reg, Value term,
                                 Value next) {
   // Get the fanout from this register before we build the tree. While we are
   // creating the tree of if/else statements from muxes, we only want to turn
@@ -403,7 +403,7 @@ void FirRegLowering::createTree(OpBuilder &builder, Value reg, Value term,
   // should be left as ternary operators. This is desirable because we don't
   // want to create if/else structure for logic unrelated to the register's
   // enable.
-  auto firReg = term.getDefiningOp<seq::FirRegOp>();
+  auto firReg = term.getDefiningOp<seq::CompRegOp>();
 
   SmallVector<std::tuple<Block *, Value, Value, Value>> worklist;
   auto addToWorklist = [&](Value reg, Value term, Value next) {
@@ -499,12 +499,12 @@ void FirRegLowering::createTree(OpBuilder &builder, Value reg, Value term,
   }
 }
 
-FirRegLowering::RegLowerInfo FirRegLowering::lower(FirRegOp reg) {
+CompRegLowering::RegLowerInfo CompRegLowering::lower(CompRegOp reg) {
   Location loc = reg.getLoc();
   Type regTy = typeConverter.convertType(reg.getType());
 
   ImplicitLocOpBuilder builder(reg.getLoc(), reg);
-  RegLowerInfo svReg{nullptr, reg.getPresetAttr(), nullptr, nullptr, -1, 0};
+  RegLowerInfo svReg{nullptr, reg.getPowerOnValue(), nullptr, nullptr, -1, 0};
   svReg.reg = builder.create<sv::RegOp>(loc, regTy, reg.getNameAttr());
   svReg.width = hw::getBitWidth(regTy);
 
@@ -522,16 +522,16 @@ FirRegLowering::RegLowerInfo FirRegLowering::lower(FirRegOp reg) {
 
   auto regVal = builder.create<sv::ReadInOutOp>(loc, svReg.reg);
 
-  if (reg.hasReset()) {
+  if (reg.getReset()) {
     addToAlwaysBlock(
         module.getBodyBlock(), sv::EventControl::AtPosEdge, reg.getClk(),
         [&](OpBuilder &b) {
           // If this is an AsyncReset, ensure that we emit a self connect to
           // avoid erroneously creating a latch construct.
-          if (reg.getIsAsync() && areEquivalentValues(reg, reg.getNext()))
+          if (reg.getIsAsync() && areEquivalentValues(reg, reg.getInput()))
             b.create<sv::PAssignOp>(reg.getLoc(), svReg.reg, reg);
           else
-            createTree(b, svReg.reg, reg, reg.getNext());
+            createTree(b, svReg.reg, reg, reg.getInput());
         },
         reg.getIsAsync() ? sv::ResetType::AsyncReset : sv::ResetType::SyncReset,
         sv::EventControl::AtPosEdge, reg.getReset(),
@@ -545,7 +545,7 @@ FirRegLowering::RegLowerInfo FirRegLowering::lower(FirRegOp reg) {
   } else {
     addToAlwaysBlock(
         module.getBodyBlock(), sv::EventControl::AtPosEdge, reg.getClk(),
-        [&](OpBuilder &b) { createTree(b, svReg.reg, reg, reg.getNext()); });
+        [&](OpBuilder &b) { createTree(b, svReg.reg, reg, reg.getInput()); });
   }
 
   reg.replaceAllUsesWith(regVal.getResult());
@@ -558,7 +558,7 @@ FirRegLowering::RegLowerInfo FirRegLowering::lower(FirRegOp reg) {
 // initializing entire registers. This is necessary as a workaround for
 // verilator which allocates many local variables for concat op.
 // NOLINTBEGIN(misc-no-recursion)
-void FirRegLowering::initializeRegisterElements(Location loc,
+void CompRegLowering::initializeRegisterElements(Location loc,
                                                 OpBuilder &builder, Value reg,
                                                 Value randomSource,
                                                 unsigned &pos) {
@@ -588,7 +588,7 @@ void FirRegLowering::initializeRegisterElements(Location loc,
 }
 // NOLINTEND(misc-no-recursion)
 
-void FirRegLowering::initialize(OpBuilder &builder, RegLowerInfo reg,
+void CompRegLowering::initialize(OpBuilder &builder, RegLowerInfo reg,
                                 ArrayRef<Value> rands) {
   auto loc = reg.reg.getLoc();
   SmallVector<Value> nibbles;
@@ -614,7 +614,7 @@ void FirRegLowering::initialize(OpBuilder &builder, RegLowerInfo reg,
   initializeRegisterElements(loc, builder, reg.reg, concat, pos);
 }
 
-void FirRegLowering::addToAlwaysBlock(
+void CompRegLowering::addToAlwaysBlock(
     Block *block, sv::EventControl clockEdge, Value clock,
     const std::function<void(OpBuilder &)> &body, sv::ResetType resetStyle,
     sv::EventControl resetEdge, Value reset,

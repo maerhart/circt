@@ -28,7 +28,7 @@ with Context() as ctx, Location.unknown():
       poweron_value = hw.ConstantOp.create(i32, 42).result
       # CHECK: %[[INPUT_VAL:.+]] = hw.constant 45
       reg_input = hw.ConstantOp.create(i32, 45).result
-      # CHECK: %[[DATA_VAL:.+]] = seq.compreg %[[INPUT_VAL]], %clk reset %rst, %[[RESET_VAL]] powerOn %[[POWERON_VAL]]
+      # CHECK: %[[DATA_VAL:.+]] = seq.compreg %[[INPUT_VAL]] clock %clk reset %rst, %[[RESET_VAL]] powerOn %[[POWERON_VAL]]
       reg = seq.CompRegOp(i32,
                           reg_input,
                           module.clk,
@@ -37,12 +37,12 @@ with Context() as ctx, Location.unknown():
                           power_on_value=poweron_value,
                           name="my_reg")
 
-      # CHECK: seq.compreg %[[INPUT_VAL]], %clk
+      # CHECK: seq.compreg %[[INPUT_VAL]] clock %clk
       seq.reg(reg_input, module.clk)
-      # CHECK: seq.compreg %[[INPUT_VAL]], %clk reset %rst, %{{.+}}
+      # CHECK: seq.compreg %[[INPUT_VAL]] clock %clk reset %rst, %{{.+}}
       seq.reg(reg_input, module.clk, reset=module.rst)
       # CHECK: %[[RESET_VALUE:.+]] = hw.constant 123
-      # CHECK: seq.compreg %[[INPUT_VAL]], %clk reset %rst, %[[RESET_VALUE]]
+      # CHECK: seq.compreg %[[INPUT_VAL]] clock %clk reset %rst, %[[RESET_VALUE]]
       custom_reset = hw.ConstantOp.create(i32, 123).result
       seq.reg(reg_input, module.clk, reset=module.rst, reset_value=custom_reset)
       # CHECK: %FuBar = seq.compreg {{.+}}
@@ -50,14 +50,14 @@ with Context() as ctx, Location.unknown():
       # CHECK: seq.compreg sym @FuBar
       seq.reg(reg_input, module.clk, sym_name="FuBar")
 
-      # CHECK: %reg1 = seq.compreg %[[INPUT_VAL]], %clk {sv.attributes = [#sv.attribute<"no_merge">]} : i32
+      # CHECK: %reg1 = seq.compreg %[[INPUT_VAL]] clock %clk {sv.attributes = [#sv.attribute<"no_merge">]} : i32
       sv_attr = sv.SVAttributeAttr.get("no_merge")
       reg1 = seq.CompRegOp.create(i32, clk=module.clk, name="reg1")
 
       reg1.attributes["sv.attributes"] = ArrayAttr.get([sv_attr])
       connect(reg1.input, reg_input)
 
-      # CHECK: %reg2 = seq.compreg %[[INPUT_VAL]], %clk
+      # CHECK: %reg2 = seq.compreg %[[INPUT_VAL]] clock %clk
       reg2 = seq.CompRegOp.create(i32, name="reg2")
       connect(reg2.input, reg_input)
       connect(reg2.clk, module.clk)

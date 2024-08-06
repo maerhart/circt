@@ -139,26 +139,6 @@ void StripSVPass::runOnOperation() {
         continue;
       }
 
-      // Canonicalize registers.
-      if (auto reg = dyn_cast<seq::FirRegOp>(&op)) {
-        OpBuilder builder(reg);
-        Value next;
-        // Note: this register will have an sync reset regardless.
-        if (reg.hasReset())
-          next = builder.create<comb::MuxOp>(reg.getLoc(), reg.getReset(),
-                                             reg.getResetValue(), reg.getNext(),
-                                             false);
-        else
-          next = reg.getNext();
-
-        Value compReg = builder.create<seq::CompRegOp>(
-            reg.getLoc(), next.getType(), next, reg.getClk(), reg.getNameAttr(),
-            Value{}, Value{}, Value{}, reg.getInnerSymAttr());
-        reg.replaceAllUsesWith(compReg);
-        opsToDelete.push_back(reg);
-        continue;
-      }
-
       // Replace clock gate instances with the dedicated `seq.clock_gate` op and
       // stub out other external modules.
       if (auto instOp = dyn_cast<hw::InstanceOp>(&op)) {

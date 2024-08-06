@@ -60,6 +60,6 @@ hw.module @regions() {
 
 // TCL-LABEL: proc reg_0_config
 hw.module @reg(in %input : i8, in %clk : !seq.clock) {
-  %reg = seq.compreg sym @reg %input, %clk : i8
+  %reg = seq.compreg sym @reg %input clock %clk : i8
   // TCL: set_location_assignment FF_X0_Y0_N0 -to $parent|reg_0
 }

@@ -9,9 +9,9 @@ from pycde.types import Bits
 # CHECK-LABEL: hw.module @ComplexMux(in %Clk : !seq.clock, in %In : !hw.array<5xarray<4xi3>>, in %Sel : i1, out Out : !hw.array<4xi3>, out OutArr : !hw.array<2xarray<4xi3>>, out OutInt : i1, out OutSlice : !hw.array<3xarray<4xi3>>)
 # CHECK:         %c3_i3 = hw.constant 3 : i3
 # CHECK:         %0 = hw.array_get %In[%c3_i3] {sv.namehint = "In__3"} : !hw.array<5xarray<4xi3>>
-# CHECK:         %In__3__reg1 = seq.compreg sym @In__3__reg1 %0, %Clk : !hw.array<4xi3>
-# CHECK:         %In__3__reg2 = seq.compreg sym @In__3__reg2 %In__3__reg1, %Clk : !hw.array<4xi3>
-# CHECK:         %In__3__reg3 = seq.compreg sym @In__3__reg3 %In__3__reg2, %Clk : !hw.array<4xi3>
+# CHECK:         %In__3__reg1 = seq.compreg sym @In__3__reg1 %0 clock %Clk : !hw.array<4xi3>
+# CHECK:         %In__3__reg2 = seq.compreg sym @In__3__reg2 %In__3__reg1 clock %Clk : !hw.array<4xi3>
+# CHECK:         %In__3__reg3 = seq.compreg sym @In__3__reg3 %In__3__reg2 clock %Clk : !hw.array<4xi3>
 # CHECK:         %c1_i3 = hw.constant 1 : i3
 # CHECK:         [[R1:%.+]] = hw.array_get %In[%c1_i3] {sv.namehint = "In__1"} : !hw.array<5xarray<4xi3>>
 # CHECK:         [[R3:%.+]] = comb.mux bin %Sel, [[R1]], %In__3__reg3 {sv.namehint = "mux_Sel_In__3__reg3_In__1"} : !hw.array<4xi3>

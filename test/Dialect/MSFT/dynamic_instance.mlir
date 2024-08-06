@@ -79,8 +79,8 @@ hw.module @deeper () {
 }
 
 hw.module @reg (in %input : i4, in %clk : !seq.clock) {
-  %reg = seq.compreg sym @reg %input, %clk  : i4
-  %reg2 = seq.compreg sym @reg2 %input, %clk  : i4
+  %reg = seq.compreg sym @reg %input clock %clk  : i4
+  %reg2 = seq.compreg sym @reg2 %input clock %clk  : i4
 }
 // TCL-LABEL: proc reg_0_foo_config
 // TCL: set_location_assignment FF_X1_Y2_N3 -to $parent|reg_0[1]
