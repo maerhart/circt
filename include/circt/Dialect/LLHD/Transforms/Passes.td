@@ -115,6 +115,11 @@ def Sig2Reg : Pass<"llhd-sig2reg", "hw::HWModuleOp"> {
   let summary = "promote LLHD signals to SSA values";
 }
 
+def Unroll : Pass<"llhd-unroll", "hw::HWModuleOp"> {
+  let summary = "unrolls CFG loops inside processes";
+  let dependentDialects = ["mlir::ub::UBDialect", "mlir::cf::ControlFlowDialect", "mlir::scf::SCFDialect", "mlir::arith::ArithDialect"];
+}
+
 def TemporalCodeMotion : Pass<"llhd-temporal-code-motion", "hw::HWModuleOp"> {
   let summary = "move drive operations to the exit basic block in processes";
   let description = [{

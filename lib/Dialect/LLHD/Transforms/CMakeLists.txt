@@ -7,6 +7,7 @@ add_circt_dialect_library(CIRCTLLHDTransforms
   Sig2RegPass.cpp
   TemporalCodeMotionPass.cpp
   TemporalRegions.cpp
+  UnrollPass.cpp
 
   DEPENDS
   CIRCTLLHDTransformsIncGen
@@ -20,4 +21,5 @@ add_circt_dialect_library(CIRCTLLHDTransforms
   MLIRControlFlowDialect
   MLIRFuncDialect
   MLIRTransformUtils
+  MLIRControlFlowToSCF
 )

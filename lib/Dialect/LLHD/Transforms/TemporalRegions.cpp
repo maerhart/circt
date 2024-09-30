@@ -91,12 +91,12 @@ void llhd::TemporalRegionAnalysis::recalculate(Operation *operation) {
       // If at least one predecessor has a wait terminator or at least one
       // predecessor has an unknown temporal region or not all predecessors have
       // the same TR, create a new TR
-    } else if (!allPredecessorTRsKnown(block, workDone) ||
-               anyPredecessorHasWait(block) ||
-               !(std::adjacent_find(block->pred_begin(), block->pred_end(),
-                                    [&](Block *pred1, Block *pred2) {
-                                      return blockMap[pred1] != blockMap[pred2];
-                                    }) == block->pred_end())) {
+    } else if ( //! allPredecessorTRsKnown(block, workDone) ||
+        anyPredecessorHasWait(block) ||
+        !(std::adjacent_find(block->pred_begin(), block->pred_end(),
+                             [&](Block *pred1, Block *pred2) {
+                               return blockMap[pred1] != blockMap[pred2];
+                             }) == block->pred_end())) {
       addBlockToTR(block, ++nextTRnum, blockMap, trMap);
       // If all predecessors have the same TR and none has a wait terminator,
       // inherit the TR
@@ -121,7 +121,7 @@ int llhd::TemporalRegionAnalysis::getBlockTR(Block *block) const {
 SmallVector<Block *, 8>
 llhd::TemporalRegionAnalysis::getBlocksInTR(int tr) const {
   if (!trMap.count(tr))
-    return SmallVector<Block *, 8>();
+    return {};
   return trMap.at(tr);
 }
 
