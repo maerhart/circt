@@ -5,6 +5,7 @@ add_circt_dialect_library(CIRCTLLHDTransforms
   FunctionEliminationPass.cpp
   MemoryToBlockArgumentPass.cpp
   ProcessLoweringPass.cpp
+  ResolveDynamicSignalAliasesPass.cpp
   Sig2RegPass.cpp
   TemporalCodeMotionPass.cpp
   TemporalRegions.cpp

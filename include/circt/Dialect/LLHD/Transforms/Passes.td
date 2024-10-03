@@ -166,4 +166,9 @@ def BlockArgumentToMux : Pass<"llhd-block-argument-to-mux", "hw::HWModuleOp"> {
   let dependentDialects = ["hw::HWDialect", "comb::CombDialect"];
 }
 
+def ResolveDynamicSignalAliases : Pass<"llhd-resolve-dynamic-signal-aliases",
+                                       "hw::HWModuleOp"> {
+  let summary = "convert dynamic signal accessors to static variants";
+}
+
 #endif // CIRCT_DIALECT_LLHD_TRANSFORMS_PASSES
