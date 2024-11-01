@@ -26,9 +26,14 @@
 #include "mlir/Interfaces/MemorySlotInterfaces.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
+namespace mlir {
+class DialectRegistry;
+} // namespace mlir
+
 namespace circt {
 namespace llhd {
 
+void registerDestructableIntegerExternalModel(mlir::DialectRegistry &registry);
 unsigned getLLHDTypeWidth(Type type);
 Type getLLHDElementType(Type type);
 

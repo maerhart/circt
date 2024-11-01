@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "circt/Dialect/LLHD/IR/LLHDOps.h"
 #include "circt/InitAllDialects.h"
 #include "circt/InitAllPasses.h"
 #include "circt/Support/LoweringOptions.h"
@@ -74,6 +75,7 @@ int main(int argc, char **argv) {
 
   // Register test passes
   circt::test::registerAnalysisTestPasses();
+  circt::llhd::registerDestructableIntegerExternalModel(registry);
   mlir::registerSROA();
   mlir::registerMem2RegPass();
 

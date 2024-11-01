@@ -11,9 +11,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "circt/Dialect/LLHD/IR/LLHDOps.h"
+#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Support/CustomDirectiveImpl.h"
 #include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
@@ -83,6 +85,9 @@ static Value getValueAtIndex(OpBuilder &builder, Location loc, Value val,
             builder.getIntegerType(llvm::Log2_64_Ceil(ty.getNumElements())),
             index);
         return builder.create<hw::ArrayGetOp>(loc, val, idx);
+      })
+      .Case<IntegerType>([&](IntegerType ty) -> Value {
+        return builder.create<comb::ExtractOp>(loc, val, index, 1);
       });
 }
 
@@ -169,6 +174,49 @@ OpFoldResult llhd::SigExtractOp::fold(FoldAdaptor adaptor) {
 
 OpFoldResult llhd::PtrExtractOp::fold(FoldAdaptor adaptor) {
   return foldSigPtrExtractOp(*this, adaptor.getOperands());
+}
+
+bool SigExtractOp::canRewire(const DestructurableMemorySlot &slot,
+                             SmallPtrSetImpl<Attribute> &usedIndices,
+                             SmallVectorImpl<MemorySlot> &mustBeSafelyUsed,
+                             const DataLayout &dataLayout) {
+  if (slot.ptr != getInput())
+    return false;
+  APInt idx;
+  if (!getResult().getType().isSignlessInteger(1))
+    return false;
+  if (!matchPattern(getLowBit(), m_ConstantInt(&idx)))
+    return false;
+  auto index =
+      IntegerAttr::get(IndexType::get(getContext()), idx.getZExtValue());
+  if (!slot.subelementTypes.contains(index))
+    return false;
+  usedIndices.insert(index);
+  mustBeSafelyUsed.emplace_back<MemorySlot>(
+      {getResult(),
+       cast<hw::InOutType>(getResult().getType()).getElementType()});
+  return true;
+}
+
+DeletionKind SigExtractOp::rewire(const DestructurableMemorySlot &slot,
+                                  DenseMap<Attribute, MemorySlot> &subslots,
+                                  OpBuilder &builder,
+                                  const DataLayout &dataLayout) {
+  APInt idx;
+  bool result = matchPattern(getLowBit(), m_ConstantInt(&idx));
+  assert(result);
+  auto index =
+      IntegerAttr::get(IndexType::get(getContext()), idx.getZExtValue());
+  auto it = subslots.find(index);
+  assert(it != subslots.end());
+  replaceAllUsesWith(it->getSecond().ptr);
+  return DeletionKind::Delete;
+}
+
+LogicalResult SigExtractOp::ensureOnlySafeAccesses(
+    const MemorySlot &slot, SmallVectorImpl<MemorySlot> &mustBeSafelyUsed,
+    const DataLayout &dataLayout) {
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -384,7 +432,10 @@ bool PrbOp::canRewire(const DestructurableMemorySlot &slot,
   for (auto [key, _] : slot.subelementTypes)
     usedIndices.insert(key);
 
-  return isa<hw::StructType, hw::ArrayType>(slot.elemType);
+  // if (isa<IntegerType>(slot.elemType))
+  //   return slot.elemType.getIntOrFloatBitWidth() > 1;
+
+  return isa<hw::StructType, hw::ArrayType, IntegerType>(slot.elemType);
 }
 
 DeletionKind PrbOp::rewire(const DestructurableMemorySlot &slot,
@@ -403,6 +454,9 @@ DeletionKind PrbOp::rewire(const DestructurableMemorySlot &slot,
                    })
                    .Case<hw::ArrayType>([&](auto ty) {
                      return builder.create<hw::ArrayCreateOp>(getLoc(), probed);
+                   })
+                   .Case<IntegerType>([&](auto ty) {
+                     return builder.create<comb::ConcatOp>(getLoc(), probed);
                    });
 
   replaceAllUsesWith(repl);
@@ -453,7 +507,10 @@ bool DrvOp::canRewire(const DestructurableMemorySlot &slot,
   for (auto [key, _] : slot.subelementTypes)
     usedIndices.insert(key);
 
-  return isa<hw::StructType, hw::ArrayType>(slot.elemType);
+  // if (isa<IntegerType>(slot.elemType))
+  //   return slot.elemType.getIntOrFloatBitWidth() > 1;
+
+  return isa<hw::StructType, hw::ArrayType, IntegerType>(slot.elemType);
 }
 
 DeletionKind DrvOp::rewire(const DestructurableMemorySlot &slot,
@@ -496,6 +553,37 @@ LogicalResult llhd::ConnectOp::canonicalize(llhd::ConnectOp op,
   if (op.getLhs() == op.getRhs())
     rewriter.eraseOp(op);
   return success();
+}
+
+namespace {
+
+struct IntegerTypeInterface
+    : public DestructurableTypeInterface::ExternalModel<IntegerTypeInterface,
+                                                        IntegerType> {
+
+  std::optional<DenseMap<Attribute, Type>>
+  getSubelementIndexMap(Type type) const {
+    if (type.getIntOrFloatBitWidth() <= 1)
+      return {};
+    DenseMap<Attribute, Type> destructured;
+    for (unsigned i = 0; i < type.getIntOrFloatBitWidth(); ++i)
+      destructured.insert(
+          {IntegerAttr::get(IndexType::get(type.getContext()), i),
+           IntegerType::get(type.getContext(), 1)});
+    return destructured;
+  }
+
+  Type getTypeAtIndex(Type type, Attribute index) const {
+    return IntegerType::get(index.getContext(), 1);
+  }
+};
+
+} // namespace
+
+void llhd::registerDestructableIntegerExternalModel(DialectRegistry &registry) {
+  registry.addExtension(+[](MLIRContext *ctx, BuiltinDialect *dialect) {
+    IntegerType::attachInterface<IntegerTypeInterface>(*ctx);
+  });
 }
 
 #include "circt/Dialect/LLHD/IR/LLHDEnums.cpp.inc"

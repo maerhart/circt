@@ -49,6 +49,8 @@ class SmallerOrEqualResultTypeWidthConstraint<string result, string input>
 
 def SigExtractOp : LLHDOp<"sig.extract",
     [Pure,
+     DeclareOpInterfaceMethods<DestructurableAccessorOpInterface>,
+     DeclareOpInterfaceMethods<SafeMemorySlotAccessOpInterface>,
      SmallerOrEqualResultTypeWidthConstraint<"result", "input">,
      SigPtrIndexBitWidthConstraint<"lowBit", "input">]> {
 

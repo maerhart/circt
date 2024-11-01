@@ -2040,6 +2040,9 @@ LogicalResult ConcatOp::canonicalize(ConcatOp op, PatternRewriter &rewriter) {
 //===----------------------------------------------------------------------===//
 
 OpFoldResult MuxOp::fold(FoldAdaptor adaptor) {
+  if (getResult().getType().isSignlessInteger(0))
+    return IntegerAttr::get(IntegerType::get(getContext(), 0), 0);
+
   if (hasOperandsOutsideOfBlock(getOperation()))
     return {};
 
