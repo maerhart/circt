@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "TemporalRegions.h"
+#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/LLHD/IR/LLHDOps.h"
 #include "circt/Dialect/LLHD/Transforms/Passes.h"
@@ -20,6 +21,7 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Dominance.h"
+#include "llvm/Analysis/DominanceFrontier.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "llhd-unroll"
@@ -41,6 +43,25 @@ struct UnrollPass : public circt::llhd::impl::UnrollBase<UnrollPass> {
   LogicalResult runOnProcess(llhd::ProcessOp procOp);
 };
 } // namespace
+
+/// Takes the condition value from the cond_br as input
+static int getTripCount(Value val) {
+  auto icmpOp = val.getDefiningOp<comb::ICmpOp>();
+  if (!icmpOp)
+    return -1;
+
+  if (!isa<BlockArgument>(icmpOp.getLhs()))
+    return -1;
+
+  Value boundVal = icmpOp.getRhs();
+  if (auto wireOp = boundVal.getDefiningOp<hw::WireOp>())
+    boundVal = wireOp.getInput();
+
+  if (auto constOp = boundVal.getDefiningOp<hw::ConstantOp>())
+    return constOp.getValue().getZExtValue();
+
+  return -1;
+}
 
 LogicalResult UnrollPass::runOnProcess(llhd::ProcessOp procOp) {
   llhd::TemporalRegionAnalysis trAnalysis(procOp);
@@ -106,6 +127,7 @@ LogicalResult UnrollPass::runOnProcess(llhd::ProcessOp procOp) {
 
   trAnalysis = llhd::TemporalRegionAnalysis(procOp);
   numTRs = trAnalysis.getNumTemporalRegions();
+  DominanceInfo dom(getOperation());
 
   for (unsigned i = 0; i < numTRs; ++i) {
     if (trAnalysis.getExitingBlocksInTR(i).size() != 1)
@@ -114,81 +136,133 @@ LogicalResult UnrollPass::runOnProcess(llhd::ProcessOp procOp) {
     if (trAnalysis.getBlocksInTR(i).size() <= 1)
       continue;
 
-    Block *preExit = trAnalysis.getExitingBlocksInTR(i)[0];
-    Block *entryBlock = trAnalysis.getTREntryBlock(i);
-
-    // Collect values that are defined in this temporal region and used outside
-    // of it or in the TR exit block terminator.
-    SmallVector<Value> yieldValues;
-    SmallVector<Block *> trBlocksVec(trAnalysis.getBlocksInTR(i));
-    DenseSet<Block *> trBlocks;
-    DenseMap<Block *, size_t> test;
-    test[preExit]++;
-    llvm::outs() << test[preExit];
-    SmallVector<std::pair<Block *, size_t>> b(test.begin(), test.end());
-    for (auto *bb : trBlocksVec)
-      trBlocks.insert(bb);
-
-    for (auto *bb : trBlocksVec) {
-      for (auto &op : bb->getOperations()) {
-        for (auto res : op.getResults()) {
-          for (auto *user : res.getUsers()) {
-            if (!trBlocks.contains(user->getBlock()) ||
-                user == preExit->getTerminator()) {
-              yieldValues.push_back(res);
-              break;
-            }
-          }
+    for (auto *block : trAnalysis.getBlocksInTR(i)) {
+      SmallVector<Block *> worklist;
+      bool foundLoop = false;
+      for (auto *pred : block->getPredecessors()) {
+        if (dom.dominates(block, pred)) {
+          foundLoop = true;
+          if (pred != block)
+            worklist.push_back(pred);
         }
       }
-    }
 
-    Block *exitBlock = preExit->splitBlock(preExit->getTerminator());
-    Block *postEntry = entryBlock->splitBlock(entryBlock->begin());
-
-    OpBuilder builder(exitBlock->getTerminator());
-    Location loc = procOp->getLoc();
-
-    auto execRegion = builder.create<scf::ExecuteRegionOp>(
-        loc, ValueRange(yieldValues).getTypes());
-
-    preExit->moveBefore(&execRegion.getRegion(),
-                        execRegion.getRegion().begin());
-    for (auto *block : trBlocks) {
-      if (block == exitBlock || block == entryBlock)
+      if (!foundLoop)
         continue;
 
-      block->moveBefore(&execRegion.getRegion(),
-                        execRegion.getRegion().begin());
+      auto condBr = dyn_cast<cf::CondBranchOp>(block->getTerminator());
+      if (!condBr)
+        continue;
+      // return block->getTerminator()->emitError("expected cond_br");
+
+      int tripCount = getTripCount(condBr.getCondition());
+      if (tripCount == -1)
+        continue;
+      // return condBr->emitError("could not determine trip count");
+
+      DenseSet<Block *> seen;
+      SmallVector<Block *> blocksInLoop;
+      while (!worklist.empty()) {
+        auto *curr = worklist.pop_back_val();
+        if (!seen.contains(curr)) {
+          seen.insert(curr);
+          blocksInLoop.push_back(curr);
+          for (auto *pred : curr->getPredecessors())
+            if (pred != block)
+              worklist.push_back(pred);
+        }
+      }
+
+      // TODO: handle tripCount == 0
+
+      OpBuilder builder(condBr);
+      // FIXME: don't just assume that the false branch exits the loop
+
+      IRMapping mapping;
+      // mapping.map(block, block);
+      // for (auto operand : exitOperands)
+      //   mapping.map(operand, operand);
+
+      // Clone the header block once
+      auto *exitBlock = builder.createBlock(
+          block, block->getArgumentTypes(),
+          SmallVector<Location>(block->getNumArguments(), procOp->getLoc()));
+      for (auto [oldArg, newArg] :
+           llvm::zip(block->getArguments(), exitBlock->getArguments()))
+        mapping.map(oldArg, newArg);
+      mapping.map(block, exitBlock);
+      builder.setInsertionPointToStart(exitBlock);
+      for (auto &op : block->getOperations())
+        builder.clone(op, mapping);
+
+      SmallVector<Block *> preds(block->getPredecessors());
+
+      for (auto *b : blocksInLoop)
+        for (auto [i, succ] :
+             llvm::enumerate(b->getTerminator()->getSuccessors()))
+          if (succ == block)
+            b->getTerminator()->setSuccessor(exitBlock, i);
+
+      for (auto [i, succ] :
+           llvm::enumerate(block->getTerminator()->getSuccessors()))
+        if (succ == block)
+          block->getTerminator()->setSuccessor(exitBlock, i);
+
+      // mapping.map(clonedBlock, block);
+
+      builder.setInsertionPoint(condBr);
+      builder.create<cf::BranchOp>(condBr.getLoc(), condBr.getTrueDest(),
+                                   condBr.getTrueDestOperands());
+
+      auto clonedCondBr = cast<cf::CondBranchOp>(mapping.lookup(condBr));
+      builder.setInsertionPoint(clonedCondBr);
+      builder.create<cf::BranchOp>(clonedCondBr.getLoc(),
+                                   clonedCondBr.getFalseDest(),
+                                   clonedCondBr.getFalseDestOperands());
+      condBr->erase();
+      clonedCondBr->erase();
+
+      // mapping.clear();
+
+      Block *prevHeader = block;
+      for (int i = 1; i < tripCount; ++i) {
+        // mapping.clear();
+        auto *clonedBlock = builder.createBlock(
+            block, block->getArgumentTypes(),
+            SmallVector<Location>(block->getNumArguments(), procOp->getLoc()));
+        for (auto [oldArg, newArg] :
+             llvm::zip(block->getArguments(), clonedBlock->getArguments()))
+          mapping.map(oldArg, newArg);
+        // mapping.map(block, clonedBlock);
+        mapping.map(exitBlock, prevHeader);
+        prevHeader = clonedBlock;
+        for (auto *b : blocksInLoop) {
+          auto *clonedBlock = builder.createBlock(
+              b, b->getArgumentTypes(),
+              SmallVector<Location>(b->getNumArguments(), procOp->getLoc()));
+          mapping.map(b, clonedBlock);
+          for (auto [oldArg, newArg] :
+               llvm::zip(b->getArguments(), clonedBlock->getArguments()))
+            mapping.map(oldArg, newArg);
+        }
+
+        builder.setInsertionPointToStart(clonedBlock);
+        for (auto &op : block->getOperations())
+          builder.clone(op, mapping);
+
+        for (auto *b : blocksInLoop) {
+          builder.setInsertionPointToStart(mapping.lookup(b));
+          for (auto &op : b->getOperations())
+            builder.clone(op, mapping);
+        }
+      }
+
+      for (auto *b : preds)
+        for (auto [i, succ] :
+             llvm::enumerate(b->getTerminator()->getSuccessors()))
+          if (succ == block)
+            b->getTerminator()->setSuccessor(prevHeader, i);
     }
-    postEntry->moveBefore(&execRegion.getRegion(),
-                          execRegion.getRegion().begin());
-
-    // Insert scf.yield at end of execute region
-    builder.setInsertionPointToEnd(preExit);
-    builder.create<scf::YieldOp>(loc, yieldValues);
-
-    // Replace yielded values
-    for (auto [val, res] : llvm::zip(yieldValues, execRegion->getResults()))
-      val.replaceUsesWithIf(res, [&](OpOperand &operand) {
-        return !execRegion->isAncestor(operand.getOwner());
-      });
-
-    // Merge entry and exit blocks.
-    IRRewriter rewriter(builder);
-    rewriter.mergeBlocks(exitBlock, entryBlock);
-
-    ControlFlowToSCFTransformation transformation;
-    auto &domInfo = getAnalysis<DominanceInfo>();
-    FailureOr<bool> changed =
-        transformCFGToSCF(execRegion.getRegion(), transformation, domInfo);
-    if (failed(changed))
-      return failure();
-
-    // NOTE: we could use a combination of split block and merge block for
-    // easier handling
-    // TODO: redirect TR predecessors to TR exit block now
-    // TODO: fixup block arguments of TR entry and exit blocks
   }
 
   return success();
