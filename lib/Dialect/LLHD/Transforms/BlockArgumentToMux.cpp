@@ -19,6 +19,7 @@
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/Support/LLVM.h"
+#include <mlir/IR/PatternMatch.h>
 
 namespace circt {
 #define GEN_PASS_DEF_BLOCKARGUMENTTOMUX
@@ -92,6 +93,22 @@ void BlockArgumentToMuxPass::runOnProcess(llhd::ProcessOp proc) {
   for (Block &block : proc.getBody().getBlocks()) {
     if (block.getNumArguments() == 0 || block.isEntryBlock())
       continue;
+
+    // If all predecessors pass the same SSA value, just use it directly
+    SmallVector<MutableOperandRange> args;
+    for (Block *pred : block.getPredecessors())
+      args.push_back(getDestOperands(*pred, block));
+
+    IRRewriter rewriter(proc);
+    if (llvm::all_equal(llvm::map_range(
+            args, [](auto range) { return range.getAsOperandRange(); }))) {
+      rewriter.replaceAllUsesWith(block.getArguments(),
+                                  args[0].getAsOperandRange());
+      block.eraseArguments(0, block.getNumArguments());
+      for (auto arg : args)
+        arg.clear();
+      continue;
+    }
 
     // Find the nearest common dominator of all predecessors.
     // If a block dominates all predecessors of a block, it also dominates this

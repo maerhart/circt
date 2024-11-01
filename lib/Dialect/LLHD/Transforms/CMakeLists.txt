@@ -9,6 +9,7 @@ add_circt_dialect_library(CIRCTLLHDTransforms
   TemporalCodeMotionPass.cpp
   TemporalRegions.cpp
   UnrollPass.cpp
+  LLHDTransformsUtil.cpp
 
   DEPENDS
   CIRCTLLHDTransformsIncGen

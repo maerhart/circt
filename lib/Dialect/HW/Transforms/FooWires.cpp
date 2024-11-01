@@ -35,7 +35,8 @@ void FooWiresPass::runOnOperation() {
   size_t nWires = 0; // Counts the number of wires modified
   getOperation().walk(
       [&](hw::WireOp wire) { // Walk over every wire in the module
-        wire.setName("foo_" + std::to_string(nWires++)); // Rename said wire
+        wire.getResult().replaceAllUsesWith(wire.getInput());
+        // wire.setName("foo_" + std::to_string(nWires++)); // Rename said wire
       });
 }
 
