@@ -107,6 +107,21 @@ SmallVector<DestructurableMemorySlot> SignalOp::getDestructurableSlots() {
   if (!destructuredType)
     return {};
 
+  if (type.isSignlessInteger(1))
+    return {};
+
+  bool mustDeconstruct = false;
+  for (auto *user : getResult().getUsers()) {
+    if (isa<llhd::SigExtractOp, llhd::SigArrayGetOp, llhd::SigStructExtractOp>(
+            user)) {
+      mustDeconstruct = true;
+      break;
+    }
+  }
+
+  if (!mustDeconstruct)
+    return {};
+
   return {DestructurableMemorySlot{{getResult(), type}, *destructuredType}};
 }
 
@@ -183,7 +198,9 @@ bool SigExtractOp::canRewire(const DestructurableMemorySlot &slot,
   if (slot.ptr != getInput())
     return false;
   APInt idx;
-  if (!getResult().getType().isSignlessInteger(1))
+  if (!cast<hw::InOutType>(getResult().getType())
+           .getElementType()
+           .isSignlessInteger(1))
     return false;
   if (!matchPattern(getLowBit(), m_ConstantInt(&idx)))
     return false;
@@ -453,10 +470,12 @@ DeletionKind PrbOp::rewire(const DestructurableMemorySlot &slot,
                          getLoc(), getType(), probed);
                    })
                    .Case<hw::ArrayType>([&](auto ty) {
-                     return builder.create<hw::ArrayCreateOp>(getLoc(), probed);
+                     SmallVector<Value> rev(llvm::reverse(probed));
+                     return builder.create<hw::ArrayCreateOp>(getLoc(), rev);
                    })
                    .Case<IntegerType>([&](auto ty) {
-                     return builder.create<comb::ConcatOp>(getLoc(), probed);
+                     SmallVector<Value> rev(llvm::reverse(probed));
+                     return builder.create<comb::ConcatOp>(getLoc(), rev);
                    });
 
   replaceAllUsesWith(repl);
@@ -506,6 +525,8 @@ bool DrvOp::canRewire(const DestructurableMemorySlot &slot,
                       const DataLayout &dataLayout) {
   for (auto [key, _] : slot.subelementTypes)
     usedIndices.insert(key);
+
+  // if (slot.ptr.getDefiningOp<SignalOp>()) return false;
 
   // if (isa<IntegerType>(slot.elemType))
   //   return slot.elemType.getIntOrFloatBitWidth() > 1;
@@ -563,8 +584,8 @@ struct IntegerTypeInterface
 
   std::optional<DenseMap<Attribute, Type>>
   getSubelementIndexMap(Type type) const {
-    if (type.getIntOrFloatBitWidth() <= 1)
-      return {};
+    // if (type.getIntOrFloatBitWidth() <= 1)
+    //   return {};
     DenseMap<Attribute, Type> destructured;
     for (unsigned i = 0; i < type.getIntOrFloatBitWidth(); ++i)
       destructured.insert(

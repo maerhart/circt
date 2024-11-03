@@ -78,11 +78,12 @@ static LogicalResult promote(llhd::SignalOp sigOp) {
       return failure();
 
     OpBuilder builder(driveOp);
-    if (timeOp.getValue().getTime() == 0 && timeOp.getValue().getDelta() == 0)
-      replacement = driveOp.getValue();
-    else
-      replacement = builder.create<llhd::DelayOp>(
-          driveOp.getLoc(), driveOp.getValue(), timeOp.getValue());
+    // if (timeOp.getValue().getTime() == 0 && timeOp.getValue().getDelta() ==
+    // 0)
+    replacement = driveOp.getValue();
+    // else
+    // replacement = builder.create<llhd::DelayOp>(
+    // driveOp.getLoc(), driveOp.getValue(), timeOp.getValue());
   } else {
     replacement = sigOp.getInit();
   }

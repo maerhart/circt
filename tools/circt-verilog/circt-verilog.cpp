@@ -14,7 +14,15 @@
 
 #include "circt/Conversion/ImportVerilog.h"
 #include "circt/Conversion/MooreToCore.h"
+#include "circt/Dialect/Comb/CombDialect.h"
+#include "circt/Dialect/Debug/DebugDialect.h"
+#include "circt/Dialect/HW/HWOps.h"
+#include "circt/Dialect/HW/HWPasses.h"
+#include "circt/Dialect/LLHD/IR/LLHDDialect.h"
+#include "circt/Dialect/LLHD/IR/LLHDOps.h"
+#include "circt/Dialect/LLHD/Transforms/Passes.h"
 #include "circt/Dialect/Moore/MoorePasses.h"
+#include "circt/Dialect/Seq/SeqOps.h"
 #include "circt/Support/Passes.h"
 #include "circt/Support/Version.h"
 #include "mlir/IR/AsmState.h"
@@ -26,6 +34,9 @@
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ToolOutputFile.h"
+#include <mlir/Dialect/ControlFlow/IR/ControlFlow.h>
+#include <mlir/Dialect/Func/Extensions/InlinerExtension.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 
 using namespace llvm;
 using namespace mlir;
@@ -41,6 +52,7 @@ enum class LoweringMode {
   OnlyLint,
   OnlyParse,
   OutputIRMoore,
+  OutputIRLLHD,
   OutputIRHW,
   Full
 };
@@ -76,6 +88,10 @@ struct CLOptions {
           clEnumValN(LoweringMode::OutputIRMoore, "ir-moore",
                      "Run the entire pass manager to just before MooreToCore "
                      "conversion, and emit the resulting Moore dialect IR"),
+          clEnumValN(
+              LoweringMode::OutputIRLLHD, "ir-llhd",
+              "Run the entire pass manager to just before the LLHD pipeline "
+              ", and emit the resulting LLHD+Core dialect IR"),
           clEnumValN(LoweringMode::OutputIRHW, "ir-hw",
                      "Run the MooreToCore conversion and emit the resulting "
                      "core dialect IR")),
@@ -270,6 +286,39 @@ static void populateMooreToCoreLowering(PassManager &pm) {
   }
 }
 
+/// Convert LLHD dialect IR into core dialect IR
+static void populateLLHDLowering(PassManager &pm) {
+  pm.addPass(createInlinerPass());
+  pm.addPass(hw::createFooWiresPass());
+  {
+    auto &anyPM = pm.nestAny();
+    anyPM.addPass(mlir::createCSEPass());
+    anyPM.addPass(mlir::createCanonicalizerPass());
+  }
+  pm.addNestedPass<hw::HWModuleOp>(llhd::createUnroll());
+  pm.addNestedPass<hw::HWModuleOp>(llhd::createBlockArgumentToMux());
+  pm.addNestedPass<hw::HWModuleOp>(llhd::createResolveDynamicSignalAliases());
+  {
+    auto &anyPM = pm.nestAny();
+    anyPM.addPass(mlir::createSROA());
+  }
+  pm.addNestedPass<hw::HWModuleOp>(llhd::createEarlyCodeMotionPass());
+  pm.addNestedPass<hw::HWModuleOp>(llhd::createTemporalCodeMotionPass());
+  {
+    auto &anyPM = pm.nestAny();
+    anyPM.addPass(mlir::createCSEPass());
+    anyPM.addPass(mlir::createCanonicalizerPass());
+  }
+  pm.addNestedPass<hw::HWModuleOp>(llhd::createDesequentialization());
+  pm.addPass(llhd::createProcessLoweringPass());
+  pm.addNestedPass<hw::HWModuleOp>(llhd::createSig2Reg());
+  {
+    auto &anyPM = pm.nestAny();
+    anyPM.addPass(mlir::createCSEPass());
+    anyPM.addPass(mlir::createCanonicalizerPass());
+  }
+}
+
 /// Populate the given pass manager with transformations as configured by the
 /// command line options.
 static void populatePasses(PassManager &pm) {
@@ -277,6 +326,9 @@ static void populatePasses(PassManager &pm) {
   if (opts.loweringMode == LoweringMode::OutputIRMoore)
     return;
   populateMooreToCoreLowering(pm);
+  if (opts.loweringMode == LoweringMode::OutputIRLLHD)
+    return;
+  populateLLHDLowering(pm);
 }
 
 //===----------------------------------------------------------------------===//
@@ -359,6 +411,7 @@ static LogicalResult executeWithSources(MLIRContext *context,
   if (opts.loweringMode != LoweringMode::OnlyParse) {
     PassManager pm(context);
     pm.enableVerifier(true);
+    pm.enableTiming(ts);
     if (failed(applyPassManagerCLOptions(pm)))
       return failure();
     populatePasses(pm);
@@ -421,6 +474,9 @@ int main(int argc, char **argv) {
                               "Verilog and SystemVerilog frontend\n");
 
   // Perform the actual work and use "exit" to avoid slow context teardown.
-  MLIRContext context;
+  DialectRegistry registry;
+  mlir::func::registerInlinerExtension(registry);
+  llhd::registerDestructableIntegerExternalModel(registry);
+  MLIRContext context(registry);
   exit(failed(execute(&context)));
 }

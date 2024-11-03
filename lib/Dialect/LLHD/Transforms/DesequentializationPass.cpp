@@ -268,7 +268,8 @@ public:
   LogicalResult
   computeTriggers(OpBuilder &builder, Location loc,
                   function_ref<bool(Value, Value)> sampledFromSameSignal,
-                  SmallVectorImpl<Trigger> &triggers, unsigned maxPrimitives) {
+                  SmallVectorImpl<Trigger> &triggers,
+                  bool &isUnconditionalDrive, unsigned maxPrimitives) {
     if (primitives.size() > maxPrimitives) {
       LLVM_DEBUG({ llvm::dbgs() << "  Too many primitives, skipping...\n"; });
       return failure();
@@ -276,6 +277,13 @@ public:
 
     // Populate the truth table and the result APInt.
     computeTruthTable();
+    isUnconditionalDrive = result.isAllOnes();
+
+    // If it's unconditional, we can just remove it and do not need to
+    // materialize a register, thus we can conveniently skip the trigger list
+    // computation.
+    if (isUnconditionalDrive)
+      return success();
 
     // Detect primitive variable pairs that form a clock and mark them as such.
     // If a variable sampled in the past cannot be matched with a sample in the
@@ -525,13 +533,13 @@ LogicalResult DesequentializationPass::isSupportedSequentialProcess(
     LLVM_DEBUG({
       llvm::dbgs() << "  Combinational process -> no need to desequentialize\n";
     });
-    return failure();
+    // return failure();
   }
 
   if (numTRs > 2 || procOp.getBody().getBlocks().size() != 3) {
     LLVM_DEBUG(
         { llvm::dbgs() << "  Complex sequential process -> not supported\n"; });
-    return failure();
+    // return failure();
   }
 
   bool seenWait = false;
@@ -620,14 +628,23 @@ void DesequentializationPass::runOnProcess(llhd::ProcessOp procOp) const {
       return false;
     };
 
+    bool isUnconditionalDrive;
     if (failed(DnfAnalyzer(op.getEnable(), sampledInPast)
                    .computeTriggers(builder, loc, sampledFromSameSignal,
-                                    triggers, maxPrimitives))) {
+                                    triggers, isUnconditionalDrive,
+                                    maxPrimitives))) {
       LLVM_DEBUG({
         llvm::dbgs() << "  Unable to compute trigger list for drive condition, "
                         "skipping...\n";
       });
       return WalkResult::interrupt();
+    }
+
+    if (isUnconditionalDrive) {
+      op.getEnableMutable().clear();
+      LLVM_DEBUG(
+          { llvm::dbgs() << "  Lowered Drive Operation successfully!\n\n"; });
+      return WalkResult::advance();
     }
 
     LLVM_DEBUG({

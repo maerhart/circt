@@ -259,8 +259,20 @@ struct ClockGateOpLowering : public OpConversionPattern<seq::ClockGateOp> {
   LogicalResult
   matchAndRewrite(seq::ClockGateOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<comb::AndOp>(op, adaptor.getInput(),
-                                             adaptor.getEnable(), true);
+    rewriter.replaceOpWithNewOp<arith::AndIOp>(op, adaptor.getInput(),
+                                               adaptor.getEnable());
+    return success();
+  }
+};
+
+struct ClockInvOpLowering : public OpConversionPattern<seq::ClockInverterOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(seq::ClockInverterOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto constTrue = rewriter.create<hw::ConstantOp>(op->getLoc(), APInt(1, 1));
+    rewriter.replaceOpWithNewOp<arith::XOrIOp>(op, adaptor.getInput(),
+                                               constTrue);
     return success();
   }
 };
@@ -646,6 +658,7 @@ void LowerArcToLLVMPass::runOnOperation() {
     AllocStateLikeOpLowering<arc::RootOutputOp>,
     AllocStorageOpLowering,
     ClockGateOpLowering,
+    ClockInvOpLowering,
     MemoryReadOpLowering,
     MemoryWriteOpLowering,
     ModelOpLowering,

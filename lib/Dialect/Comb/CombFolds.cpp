@@ -1147,6 +1147,26 @@ OpFoldResult OrOp::fold(FoldAdaptor adaptor) {
 
   auto value = APInt::getZero(cast<IntegerType>(getType()).getWidth());
   auto inputs = adaptor.getInputs();
+  // or(and(a, b), and(a, ~b)) -> a
+  if (getInputs().size() == 2) {
+    if (auto aandB = getInputs()[0].getDefiningOp<comb::AndOp>();
+        aandB && aandB.getInputs().size() == 2) {
+      if (auto aandNotB = getInputs()[1].getDefiningOp<comb::AndOp>();
+          aandNotB && aandNotB.getInputs().size() == 2) {
+        if (auto xorOp = aandNotB.getInputs()[1].getDefiningOp<comb::XorOp>();
+            xorOp && xorOp.isBinaryNot())
+          if (aandB.getInputs()[0] == aandNotB.getInputs()[0] &&
+              aandB.getInputs()[1] == xorOp.getInputs()[0])
+            return aandB.getInputs()[0];
+        if (auto xorOp = aandB.getInputs()[1].getDefiningOp<comb::XorOp>();
+            xorOp && xorOp.isBinaryNot())
+          if (aandB.getInputs()[0] == aandNotB.getInputs()[0] &&
+              aandNotB.getInputs()[1] == xorOp.getInputs()[0])
+            return aandB.getInputs()[0];
+      }
+    }
+  }
+
   // or(x, 10, 01) -> 11
   for (auto operand : inputs) {
     if (!operand)

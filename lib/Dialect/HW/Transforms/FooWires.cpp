@@ -13,6 +13,7 @@
 #include "circt/Dialect/HW/HWPasses.h"
 #include "circt/Dialect/HW/HWTypes.h"
 #include "mlir/Pass/Pass.h"
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 
 namespace circt {
 namespace hw {
@@ -32,12 +33,12 @@ struct FooWiresPass : circt::hw::impl::FooWiresBase<FooWiresPass> {
 } // namespace
 
 void FooWiresPass::runOnOperation() {
-  size_t nWires = 0; // Counts the number of wires modified
   getOperation().walk(
       [&](hw::WireOp wire) { // Walk over every wire in the module
         wire.getResult().replaceAllUsesWith(wire.getInput());
-        // wire.setName("foo_" + std::to_string(nWires++)); // Rename said wire
+        wire->erase();
       });
+  getOperation().walk([&](mlir::func::FuncOp wire) { wire->erase(); });
 }
 
 std::unique_ptr<mlir::Pass> circt::hw::createFooWiresPass() {
