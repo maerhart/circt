@@ -324,6 +324,33 @@ public:
     return success();
   }
 
+  LogicalResult replacePastClockSamplesWithConstants(
+      ArrayRef<Trigger> triggers,
+      SmallVectorImpl<std::pair<Value, Value>> &replacements) {
+    DenseMap<Value, Value> presentToPast;
+    for (auto [a, b] : clockPairs)
+      presentToPast[primitives[b]] = primitives[a];
+
+    for (auto trigger : triggers) {
+      for (auto [i, clk] : llvm::enumerate(trigger.clocks)) {
+        if (trigger.kinds[i] == Trigger::Kind::Edge)
+          return failure();
+
+        auto *defOp = presentToPast[clk].getDefiningOp();
+        if (!defOp)
+          return failure();
+
+        OpBuilder builder(defOp);
+        Value repl = builder.create<hw::ConstantOp>(
+            defOp->getLoc(),
+            APInt(1, trigger.kinds[i] == Trigger::Kind::NegEdge));
+        replacements.emplace_back(presentToPast[clk], repl);
+      }
+    }
+
+    return success();
+  }
+
 private:
   FVInt computeEnableKey(unsigned tableRow) {
     FVInt key = FVInt::getAllX(primitives.size());
@@ -592,6 +619,7 @@ void DesequentializationPass::runOnProcess(llhd::ProcessOp procOp) const {
     return;
 
   OpBuilder builder(procOp);
+  SmallVector<std::pair<Value, Value>> replacements;
   WalkResult result = procOp.walk([&](llhd::DrvOp op) {
     LLVM_DEBUG({ llvm::dbgs() << "\n  Lowering Drive Operation\n"; });
 
@@ -629,10 +657,10 @@ void DesequentializationPass::runOnProcess(llhd::ProcessOp procOp) const {
     };
 
     bool isUnconditionalDrive;
-    if (failed(DnfAnalyzer(op.getEnable(), sampledInPast)
-                   .computeTriggers(builder, loc, sampledFromSameSignal,
-                                    triggers, isUnconditionalDrive,
-                                    maxPrimitives))) {
+    DnfAnalyzer analyzer(op.getEnable(), sampledInPast);
+    if (failed(analyzer.computeTriggers(builder, loc, sampledFromSameSignal,
+                                        triggers, isUnconditionalDrive,
+                                        maxPrimitives))) {
       LLVM_DEBUG({
         llvm::dbgs() << "  Unable to compute trigger list for drive condition, "
                         "skipping...\n";
@@ -642,6 +670,11 @@ void DesequentializationPass::runOnProcess(llhd::ProcessOp procOp) const {
 
     if (isUnconditionalDrive) {
       op.getEnableMutable().clear();
+
+      if (failed(analyzer.replacePastClockSamplesWithConstants(triggers,
+                                                               replacements)))
+        return WalkResult::interrupt();
+
       LLVM_DEBUG(
           { llvm::dbgs() << "  Lowered Drive Operation successfully!\n\n"; });
       return WalkResult::advance();
@@ -728,6 +761,10 @@ void DesequentializationPass::runOnProcess(llhd::ProcessOp procOp) const {
     op.getEnableMutable().clear();
     op.getValueMutable().assign(regOut);
 
+    if (failed(analyzer.replacePastClockSamplesWithConstants(triggers,
+                                                             replacements)))
+      return WalkResult::interrupt();
+
     LLVM_DEBUG(
         { llvm::dbgs() << "  Lowered Drive Operation successfully!\n\n"; });
 
@@ -736,6 +773,14 @@ void DesequentializationPass::runOnProcess(llhd::ProcessOp procOp) const {
 
   if (result.wasInterrupted())
     return;
+
+  DenseSet<Value> alreadyReplaced;
+  for (auto [from, to] : replacements) {
+    if (!alreadyReplaced.contains(from)) {
+      alreadyReplaced.insert(from);
+      from.replaceAllUsesWith(to);
+    }
+  }
 
   IRRewriter rewriter(builder);
   auto &entryBlock = procOp.getBody().getBlocks().front();

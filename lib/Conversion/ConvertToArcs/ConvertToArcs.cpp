@@ -9,6 +9,7 @@
 #include "circt/Conversion/ConvertToArcs.h"
 #include "circt/Dialect/Arc/ArcOps.h"
 #include "circt/Dialect/HW/HWOps.h"
+#include "circt/Dialect/LLHD/IR/LLHDOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
 #include "circt/Dialect/Sim/SimOps.h"
 #include "circt/Support/Namespace.h"
@@ -27,7 +28,7 @@ static bool isArcBreakingOp(Operation *op) {
   return op->hasTrait<OpTrait::ConstantLike>() ||
          isa<hw::InstanceOp, seq::CompRegOp, MemoryOp, MemoryReadPortOp,
              ClockedOpInterface, seq::InitialOp, seq::ClockGateOp,
-             sim::DPICallOp>(op) ||
+             sim::DPICallOp, llhd::DelayOp>(op) ||
          op->getNumResults() > 1;
 }
 
