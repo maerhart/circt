@@ -755,8 +755,10 @@ void DesequentializationPass::runOnProcess(llhd::ProcessOp procOp) const {
 
     // FIXME: this adds async resets as sync resets and might also add the reset
     // as clock and clock as reset.
-    Value regOut = builder.create<seq::CompRegOp>(loc, op.getValue(), clock,
-                                                  reset, resetValue);
+    auto regOut = builder.create<seq::CompRegOp>(loc, op.getValue(), clock,
+                                                 reset, resetValue);
+    if (auto sigOp = op.getSignal().getDefiningOp<llhd::SignalOp>())
+      regOut.setNameAttr(sigOp.getNameAttr());
 
     op.getEnableMutable().clear();
     op.getValueMutable().assign(regOut);
