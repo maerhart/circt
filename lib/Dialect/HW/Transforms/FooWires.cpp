@@ -36,6 +36,9 @@ void FooWiresPass::runOnOperation() {
   getOperation().walk(
       [&](hw::WireOp wire) { // Walk over every wire in the module
         wire.getResult().replaceAllUsesWith(wire.getInput());
+        if (auto *defOp = wire.getInput().getDefiningOp())
+          if (!defOp->hasAttr("sv.namehint"))
+            defOp->setAttr("sv.namehint", wire.getNameAttr());
         wire->erase();
       });
   getOperation().walk([&](mlir::func::FuncOp wire) { wire->erase(); });

@@ -88,8 +88,11 @@ static LogicalResult promote(llhd::SignalOp sigOp) {
     replacement = sigOp.getInit();
   }
   OpBuilder builder(sigOp);
-  replacement = builder.create<hw::WireOp>(sigOp.getLoc(), replacement,
-                                           sigOp.getNameAttr());
+  // replacement = builder.create<hw::WireOp>(sigOp.getLoc(), replacement,
+  //                                          sigOp.getNameAttr());
+  replacement = builder.create<hw::WireOp>(
+      sigOp.getLoc(), replacement, sigOp.getNameAttr(),
+      hw::InnerSymAttr::get(sigOp.getNameAttr()));
 
   for (auto prb : probes) {
     prb.getResult().replaceAllUsesWith(replacement);

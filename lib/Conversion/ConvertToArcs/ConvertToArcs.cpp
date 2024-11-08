@@ -164,7 +164,9 @@ LogicalResult Converter::analyzeFanIn() {
         finished.contains(definingOp))
       continue;
     if (!seen.insert(definingOp).second) {
-      definingOp->emitError("combinational loop detected");
+      auto d = definingOp->emitError("combinational loop detected");
+      for (auto [op, operand] : worklist)
+        d.attachNote(op->getLoc()) << "through operand " << operand << " here";
       return failure();
     }
     worklist.push_back({definingOp, 0});
