@@ -30,10 +30,11 @@ using namespace circt;
 namespace {
 struct Sig2RegPass : public circt::llhd::impl::Sig2RegBase<Sig2RegPass> {
   void runOnOperation() override;
+  unsigned hackyCounter = 0;
 };
 } // namespace
 
-static LogicalResult promote(llhd::SignalOp sigOp) {
+static LogicalResult promote(llhd::SignalOp sigOp, unsigned &hackyCounter) {
   SmallVector<llhd::PrbOp> probes;
   llhd::DrvOp driveOp;
   for (auto *user : sigOp.getResult().getUsers()) {
@@ -92,7 +93,8 @@ static LogicalResult promote(llhd::SignalOp sigOp) {
   //                                          sigOp.getNameAttr());
   replacement = builder.create<hw::WireOp>(
       sigOp.getLoc(), replacement, sigOp.getNameAttr(),
-      hw::InnerSymAttr::get(sigOp.getNameAttr()));
+      hw::InnerSymAttr::get(
+          builder.getStringAttr("obs" + Twine(hackyCounter++))));
 
   for (auto prb : probes) {
     prb.getResult().replaceAllUsesWith(replacement);
@@ -112,7 +114,7 @@ void Sig2RegPass::runOnOperation() {
        llvm::make_early_inc_range(moduleOp.getOps<llhd::SignalOp>())) {
     LLVM_DEBUG(
         { llvm::dbgs() << "\nAttempting to promote " << sigOp << "\n"; });
-    if (failed(promote(sigOp)))
+    if (failed(promote(sigOp, hackyCounter)))
       continue;
 
     LLVM_DEBUG({ llvm::dbgs() << "Successfully promoted!\n"; });

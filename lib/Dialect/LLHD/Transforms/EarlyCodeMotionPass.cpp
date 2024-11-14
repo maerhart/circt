@@ -54,6 +54,25 @@ void EarlyCodeMotionPass::runOnProcess(llhd::ProcessOp proc) {
   llhd::TemporalRegionAnalysis trAnalysis = llhd::TemporalRegionAnalysis(proc);
   mlir::DominanceInfo dom(proc);
 
+  // Error out if the process contains immediate assignments to signals that it
+  // also reads.
+  SmallPtrSet<Value, 32> blockingAssignedSigs;
+  proc.walk([&](llhd::DrvOp drvOp) {
+    if (auto timeOp = drvOp.getTime().getDefiningOp<llhd::ConstantTimeOp>())
+      if (timeOp.getValue().getTime() == 0 && timeOp.getValue().getDelta() == 0)
+        blockingAssignedSigs.insert(drvOp.getSignal());
+  });
+  auto probeResult = proc.walk([&](llhd::PrbOp prbOp) {
+    if (blockingAssignedSigs.contains(prbOp.getSignal())) {
+      prbOp.emitError("blocking assignments and reads of the same signal in "
+                      "the same process not supported");
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  if (probeResult.wasInterrupted())
+    return signalPassFailure();
+
   DenseMap<Block *, unsigned> entryDistance;
   SmallPtrSet<Block *, 32> workDone;
   SmallPtrSet<Block *, 32> workPending;
