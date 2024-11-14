@@ -702,7 +702,7 @@ void DesequentializationPass::runOnProcess(llhd::ProcessOp procOp) const {
       return WalkResult::interrupt();
 
     // TODO: add support
-    if (triggers[0].clocks.size() != 1 || triggers[0].clocks.size() != 1)
+    if (triggers[0].clocks.size() != 1)
       return WalkResult::interrupt();
 
     // TODO: add support
@@ -714,6 +714,25 @@ void DesequentializationPass::runOnProcess(llhd::ProcessOp procOp) const {
                  val.getParentRegion() != procOp.getBody();
         }))
       return WalkResult::interrupt();
+
+    // HACK: negedge is more common for resets, so if we detect a negedge assume it's the reset
+    if (triggers[0].kinds[0] == Trigger::Kind::NegEdge && triggers.size() > 1) {
+      triggers[1] = std::exchange(triggers[0], triggers[1]);
+
+      // TODO: add support
+      if (triggers[0].clocks.size() != 1)
+        return WalkResult::interrupt();
+
+      // TODO: add support
+      if (triggers[0].kinds[0] == Trigger::Kind::Edge)
+        return WalkResult::interrupt();
+
+      if (!llvm::any_of(observed, [&](Value val) {
+            return sampledFromSameSignal(val, triggers[0].clocks[0]) &&
+                  val.getParentRegion() != procOp.getBody();
+          }))
+        return WalkResult::interrupt();
+    }
 
     Value clock = builder.create<seq::ToClockOp>(loc, triggers[0].clocks[0]);
     Value reset, resetValue;
