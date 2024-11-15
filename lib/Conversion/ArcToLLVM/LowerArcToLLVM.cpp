@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "circt/Conversion/ArcToLLVM.h"
+#include "circt/Conversion/CombToArith.h"
 #include "circt/Conversion/CombToLLVM.h"
 #include "circt/Conversion/HWToLLVM.h"
 #include "circt/Dialect/Arc/ArcOps.h"
@@ -648,6 +649,7 @@ void LowerArcToLLVMPass::runOnOperation() {
                                      constAggregateGlobalsMap);
   populateHWToLLVMTypeConversions(converter);
   populateCombToLLVMConversionPatterns(converter, patterns);
+  populateCombToArithConversionPatterns(converter, patterns);
 
   // Arc patterns.
   // clang-format off

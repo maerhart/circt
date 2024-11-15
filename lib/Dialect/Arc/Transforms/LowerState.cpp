@@ -102,6 +102,7 @@ struct OpLowering {
   LogicalResult lower(hw::OutputOp op);
   LogicalResult lower(seq::InitialOp op);
   LogicalResult lower(llhd::FinalOp op);
+  LogicalResult lower(seq::ClockGateOp op);
 
   scf::IfOp createIfClockOp(Value clock);
 
@@ -413,7 +414,8 @@ LogicalResult OpLowering::lower() {
   return TypeSwitch<Operation *, LogicalResult>(op)
       // Operations with special lowering.
       .Case<StateOp, sim::DPICallOp, MemoryOp, TapOp, InstanceOp, hw::OutputOp,
-            seq::InitialOp, llhd::FinalOp>([&](auto op) { return lower(op); })
+            seq::InitialOp, llhd::FinalOp, seq::ClockGateOp>(
+          [&](auto op) { return lower(op); })
 
       // Operations that should be skipped entirely and never land on the
       // worklist to be lowered.
@@ -956,6 +958,40 @@ LogicalResult OpLowering::lower(llhd::FinalOp op) {
     op.erase();
   });
 
+  return success();
+}
+
+/// Lower `seq.clock_gate` ops.
+LogicalResult OpLowering::lower(seq::ClockGateOp op) {
+  assert(phase == Phase::New);
+  auto loc = op.getLoc();
+  auto clock = lowerValue(op.getInput(), Phase::New);
+  auto enable = lowerValue(op.getEnable(), Phase::Old);
+  if (initial)
+    return success();
+  if (!clock || !enable)
+    return failure();
+  auto &builder = module.getBuilder(Phase::New);
+  auto clockHigh = builder.create<seq::FromClockOp>(loc, clock);
+
+  // Allocate storage to store the enable value when the clock was low.
+  auto oldStorage = module.allocBuilder.create<AllocStateOp>(
+      loc, StateType::get(builder.getI1Type()), module.storageArg);
+
+  // If the clock is low, update the stored value.
+  auto allOnes = builder.create<hw::ConstantOp>(loc, builder.getI1Type(), -1);
+  auto clockLow = builder.create<comb::XorOp>(loc, clockHigh, allOnes, true);
+  auto ifOp = builder.create<scf::IfOp>(loc, clockLow, false);
+  auto ip = builder.saveInsertionPoint();
+  builder.setInsertionPointToStart(ifOp.thenBlock());
+  builder.create<StateWriteOp>(loc, oldStorage, enable, Value{});
+  builder.restoreInsertionPoint(ip);
+
+  // Produce a gated clock.
+  auto latchedEnable = builder.create<StateReadOp>(loc, oldStorage);
+  auto gatedClock = builder.create<comb::AndOp>(loc, clockHigh, latchedEnable);
+  module.loweredValues[{op.getResult(), Phase::New}] =
+      builder.create<seq::ToClockOp>(loc, gatedClock);
   return success();
 }
 
