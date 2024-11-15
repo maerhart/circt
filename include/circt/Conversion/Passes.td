@@ -536,7 +536,7 @@ def ConvertHWToLLVM : Pass<"convert-hw-to-llvm", "mlir::ModuleOp"> {
     This pass translates HW to LLVM.
   }];
   let constructor = "circt::createConvertHWToLLVMPass()";
-  let dependentDialects = ["mlir::LLVM::LLVMDialect"];
+  let dependentDialects = ["mlir::LLVM::LLVMDialect", "comb::CombDialect"];
 }
 
 //===----------------------------------------------------------------------===//

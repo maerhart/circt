@@ -21,18 +21,32 @@ using namespace mlir;
 #define GET_TYPEDEF_CLASSES
 #include "circt/Dialect/Arc/ArcTypes.cpp.inc"
 
-unsigned StateType::getBitWidth() {
-  if (llvm::isa<seq::ClockType>(getType()))
+static int guessLLVMBitWidth(Type type) {
+  if (llvm::isa<seq::ClockType>(type))
     return 1;
-  return hw::getBitWidth(getType());
+  if (auto arrayType = dyn_cast<hw::ArrayType>(type)) {
+    unsigned width = guessLLVMBitWidth(arrayType.getElementType());
+    width = llvm::alignToPowerOf2(width, llvm::bit_ceil(std::min(width, 16U)));
+    return width * arrayType.getNumElements();
+  }
+  if (auto structType = dyn_cast<hw::StructType>(type)) {
+    unsigned width = 0;
+    for (auto element : structType.getElements()) {
+      unsigned elementWidth = guessLLVMBitWidth(element.type);
+      elementWidth = (elementWidth + 7) / 8 * 8;
+      width += elementWidth;
+    }
+    return width;
+  }
+  return hw::getBitWidth(type);
 }
+
+unsigned StateType::getBitWidth() { return guessLLVMBitWidth(getType()); }
 
 LogicalResult
 StateType::verify(llvm::function_ref<InFlightDiagnostic()> emitError,
                   Type innerType) {
-  if (llvm::isa<seq::ClockType>(innerType))
-    return success();
-  if (hw::getBitWidth(innerType) < 0)
+  if (guessLLVMBitWidth(innerType) < 0)
     return emitError() << "state type must have a known bit width; got "
                        << innerType;
   return success();

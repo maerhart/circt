@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "circt/Conversion/HWToLLVM.h"
+#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Support/LLVM.h"
 #include "circt/Support/Namespace.h"
@@ -292,30 +293,90 @@ struct ArrayConcatOpConversion
 //===----------------------------------------------------------------------===//
 
 namespace {
-/// Lower an ArrayConcatOp operation to the LLVM dialect.
-/// Pattern: hw.bitcast(input) ==> load(bitcast_ptr(store(input, alloca)))
-/// This is necessary because we cannot bitcast aggregate types directly in
-/// LLVMIR.
 struct BitcastOpConversion : public ConvertOpToLLVMPattern<hw::BitcastOp> {
   using ConvertOpToLLVMPattern<hw::BitcastOp>::ConvertOpToLLVMPattern;
 
   LogicalResult
   matchAndRewrite(hw::BitcastOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // Determine the size of the intermediate packed integer.
+    auto loc = op.getLoc();
+    auto fromType = op.getInput().getType();
+    auto toType = op.getType();
+    auto numBits = hw::getBitWidth(op.getInput().getType());
 
-    Type resultTy = typeConverter->convertType(op.getResult().getType());
+    // Pack the input into a dense integer.
+    SmallVector<Value> elements;
 
-    auto oneC = rewriter.createOrFold<LLVM::ConstantOp>(
-        op->getLoc(), rewriter.getI32Type(), rewriter.getI32IntegerAttr(1));
+    std::function<LogicalResult(Value)> packValue = [&](auto value) {
+      if (auto intType = dyn_cast<IntegerType>(value.getType())) {
+        elements.push_back(value);
+        return success();
+      } else if (auto arrayType = dyn_cast<hw::ArrayType>(value.getType())) {
+        auto idxType = rewriter.getIntegerType(
+            llvm::Log2_64_Ceil(arrayType.getNumElements()));
+        for (unsigned idx = 0; idx < arrayType.getNumElements(); ++idx) {
+          auto idxConst = rewriter.create<hw::ConstantOp>(loc, idxType, idx);
+          auto element = rewriter.create<hw::ArrayGetOp>(loc, value, idxConst);
+          if (failed(packValue(element)))
+            return failure();
+        }
+        return success();
+      } else if (auto structType = dyn_cast<hw::StructType>(value.getType())) {
+        auto exploded = rewriter.create<hw::StructExplodeOp>(loc, value);
+        for (auto result : exploded.getResults())
+          if (failed(packValue(result)))
+            return failure();
+        return success();
+      }
+      return failure();
+    };
 
-    auto ptr = rewriter.create<LLVM::AllocaOp>(
-        op->getLoc(), LLVM::LLVMPointerType::get(rewriter.getContext()),
-        adaptor.getInput().getType(), oneC,
-        /*alignment=*/4);
+    if (failed(packValue(op.getInput())))
+      return failure();
+    std::reverse(elements.begin(), elements.end());
+    auto packed = rewriter.create<comb::ConcatOp>(loc, elements);
 
-    rewriter.create<LLVM::StoreOp>(op->getLoc(), adaptor.getInput(), ptr);
+    // Unpack the dense integer into the output type.
+    unsigned offset = 0;
 
-    rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, resultTy, ptr);
+    std::function<Value(Type)> unpackValue = [&](Type type) -> Value {
+      if (auto intType = dyn_cast<IntegerType>(type)) {
+        auto value =
+            rewriter.create<comb::ExtractOp>(loc, intType, packed, offset);
+        offset += intType.getWidth();
+        return value;
+      }
+      if (auto arrayType = dyn_cast<hw::ArrayType>(type)) {
+        SmallVector<Value> elements;
+        elements.reserve(arrayType.getNumElements());
+        for (unsigned idx = 0; idx < arrayType.getNumElements(); ++idx) {
+          auto element = unpackValue(arrayType.getElementType());
+          if (!element)
+            return {};
+          elements.push_back(element);
+        }
+        std::reverse(elements.begin(), elements.end());
+        return rewriter.create<hw::ArrayCreateOp>(loc, arrayType, elements);
+      }
+      if (auto structType = dyn_cast<hw::StructType>(type)) {
+        SmallVector<Value> elements;
+        elements.reserve(structType.getElements().size());
+        for (auto elementInfo : structType.getElements()) {
+          auto element = unpackValue(elementInfo.type);
+          if (!element)
+            return {};
+          elements.push_back(element);
+        }
+        return rewriter.create<hw::StructCreateOp>(loc, structType, elements);
+      }
+      return {};
+    };
+
+    auto unpacked = unpackValue(op.getType());
+    if (!unpacked)
+      return failure();
+    rewriter.replaceOp(op, unpacked);
 
     return success();
   }
@@ -619,7 +680,8 @@ static Type convertStructType(hw::StructType type,
     elements.push_back(converter.convertType(
         types[HWToLLVMEndianessConverter::convertToLLVMEndianess(type, i)]));
 
-  return LLVM::LLVMStructType::getLiteral(&converter.getContext(), elements);
+  return LLVM::LLVMStructType::getLiteral(&converter.getContext(), elements,
+                                          /*isPacked=*/true);
 }
 
 //===----------------------------------------------------------------------===//
