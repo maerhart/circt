@@ -1,3 +1,4 @@
 add_subdirectory(DebugInfo)
+add_subdirectory(EmitRTGAssembly)
 add_subdirectory(ExportSMTLIB)
 add_subdirectory(ExportSystemC)

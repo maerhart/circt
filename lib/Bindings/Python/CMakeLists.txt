@@ -18,6 +18,7 @@ declare_mlir_python_extension(CIRCTBindingsPythonExtension
     ESIModule.cpp
     HWModule.cpp
     OMModule.cpp
+    RTGModule.cpp
     MSFTModule.cpp
     SeqModule.cpp
     SupportModule.cpp
@@ -35,11 +36,15 @@ declare_mlir_python_extension(CIRCTBindingsPythonExtension
     CIRCTCAPILTL
     CIRCTCAPIMSFT
     CIRCTCAPIOM
+    CIRCTCAPIRTG
+    CIRCTCAPIRTGTest
     CIRCTCAPISV
     CIRCTCAPISeq
     CIRCTCAPIVerif
     CIRCTCAPIConversion
+    CIRCTCAPIRTGPipeline
     MLIRCAPITransforms
+    MLIRCAPIArith
   PRIVATE_LINK_LIBS
     LLVMSupport
 )
@@ -52,8 +57,17 @@ add_dependencies(CIRCTBindingsPythonExtension circt-headers)
 
 declare_mlir_python_sources(CIRCTBindingsPythonSources
   ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
+declare_mlir_python_sources(CIRCTBindingsPythonSources.Init
+  ADD_TO_PARENT CIRCTBindingsPythonSources
   SOURCES
     __init__.py
+)
+
+declare_mlir_python_sources(CIRCTBindingsPythonSources.Support
+  ADD_TO_PARENT CIRCTBindingsPythonSources
+  SOURCES
     support.py
 )
 
@@ -115,6 +129,14 @@ declare_mlir_dialect_python_bindings(
   SOURCES
     dialects/om.py
   DIALECT_NAME om)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+  TD_FILE dialects/RTGOps.td
+  SOURCES
+    dialects/rtg.py
+  DIALECT_NAME rtg)
 
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
