@@ -13,6 +13,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "circt/Dialect/RTG/IR/ArithVisitors.h"
 #include "circt/Dialect/RTG/IR/RTGOps.h"
 #include "circt/Dialect/RTG/IR/RTGVisitors.h"
 #include "circt/Dialect/RTG/Transforms/RTGPasses.h"
@@ -20,6 +21,7 @@
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/ADT/FoldingSet.h"
 #include <deque>
 #include <random>
 
@@ -82,24 +84,291 @@ static uint32_t getUniformlyInRange(std::mt19937 &rng, uint32_t a, uint32_t b) {
 namespace {
 
 /// The abstract base class for elaborated values.
-struct ElaboratorValue {
+class ElaboratorValue {
 public:
-  enum class ValueKind { Attribute, Set, Bag };
+  enum class ValueKind { Attribute, Set, Bag, Integer, Index, NullValue };
 
-  ElaboratorValue(ValueKind kind) : kind(kind) {}
-  virtual ~ElaboratorValue() {}
+  union StorageTy {
+    const void * ptr;
+    size_t index;
+   };
 
-  virtual llvm::hash_code getHashValue() const = 0;
-  virtual bool isEqual(const ElaboratorValue &other) const = 0;
+  ElaboratorValue() : ElaboratorValue(ValueKind::NullValue, nullptr) { }
+  ElaboratorValue(std::nullptr_t storage) : ElaboratorValue() { }
+  // ElaboratorValue &operator=(const ElaboratorValue &other) = default;
+  // ~ElaboratorValue() = default;
+  // {
+  //   kind = other.kind;
+  //   storage = other.storage;
+  //   return *this;
+  // }
 
-#ifndef NDEBUG
-  virtual void print(llvm::raw_ostream &os) const = 0;
-#endif
+  llvm::hash_code getHashValue() const {
+    return llvm::hash_value(storage.ptr);
+    // ArrayRef<const uint8_t> data(reinterpret_cast<const uint8_t *>(&storage), sizeof(storage));
+    // return llvm::hash_combine(kind, llvm::hash_combine_range(data.begin(), data.end()));
+  }
 
-  ValueKind getKind() const { return kind; }
+  bool operator ==(const ElaboratorValue &other) const {
+    return kind == other.kind && storage.ptr == other.storage.ptr;// && std::memcmp(&storage, &other.storage, sizeof(storage));
+  }
+
+  operator bool() const {
+    return kind != ValueKind::NullValue;
+  }
+
+  ValueKind kind = ValueKind::NullValue;
+
+  friend struct llvm::DenseMapInfo<ElaboratorValue>;
+  
+// protected:
+  ElaboratorValue(ValueKind kind, const void *storagePtr) : kind(kind) {
+    std::memset(&storage, 0, sizeof(storage));
+    storage.ptr = storagePtr;
+  }
+  ElaboratorValue(ValueKind kind, uint64_t index) : kind(kind) {
+    std::memset(&storage, 0, sizeof(storage));
+    storage.index = index;
+  }
+  ElaboratorValue(ValueKind kind, StorageTy storage) : kind(kind), storage(storage) { }
+
+  StorageTy storage;
+};
+
+// NOLINTNEXTLINE(readability-identifier-naming)
+llvm::hash_code hash_value(const ElaboratorValue &val) {
+  return val.getHashValue();
+}
+} // namespace
+
+namespace llvm {
+
+/// Add support for llvm style casts. We provide a cast between To and From if
+/// From is mlir::Attribute or derives from it.
+template <typename To, typename From>
+struct CastInfo<To, From,
+                std::enable_if_t<std::is_same_v<ElaboratorValue,
+                                                std::remove_const_t<From>> ||
+                                 std::is_base_of_v<ElaboratorValue, From>>>
+    : NullableValueCastFailed<To>,
+      DefaultDoCastIfPossible<To, From, CastInfo<To, From>> {
+  /// Arguments are taken as mlir::Attribute here and not as `From`, because
+  /// when casting from an intermediate type of the hierarchy to one of its
+  /// children, the val.getTypeID() inside T::classof will use the static
+  /// getTypeID of the parent instead of the non-static Type::getTypeID that
+  /// returns the dynamic ID. This means that T::classof would end up comparing
+  /// the static TypeID of the children to the static TypeID of its parent,
+  /// making it impossible to downcast from the parent to the child.
+  static inline bool isPossible(ElaboratorValue ty) {
+    /// Return a constant true instead of a dynamic true when casting to self or
+    /// up the hierarchy.
+    if constexpr (std::is_base_of_v<To, From>) {
+      return true;
+    } else {
+      return To::classof(ty);
+    }
+  }
+  static inline To doCast(ElaboratorValue value) { return To(value.storage); }
+};
+
+template<>
+struct DenseMapInfo<ElaboratorValue> {
+  static inline ElaboratorValue getEmptyKey() { return ElaboratorValue(); }
+
+  static inline ElaboratorValue getTombstoneKey() { return ElaboratorValue(ElaboratorValue::ValueKind::NullValue, reinterpret_cast<const void *>(~0ULL)); }
+
+  static unsigned getHashValue(const ElaboratorValue &value) {
+    return value.getHashValue();
+  }
+
+  static bool isEqual(const ElaboratorValue &lhs, const ElaboratorValue &rhs) {
+    return lhs == rhs;
+  }
+};
+} // namespace llvm
+
+namespace {
+struct SetStorage : public llvm::FoldingSetNode {
+  SetStorage(SetVector<ElaboratorValue> &&set, Type type)
+      : cachedHash(llvm::hash_combine(
+            llvm::hash_combine_range(set.begin(), set.end()), type)), set(std::move(set)), type(type) { }
+  // SetStorage &operator=(const SetStorage &other) {
+  //   set = other.set;
+  //   type
+  //   return *this;
+  // }
+
+  bool operator==(const SetStorage &other) const {
+    // Compare against the hash first and short circuit if it doesn't match.
+    return cachedHash == other.cachedHash && set == other.set && type == other.type;
+  }
+
+  // NOLINTNEXTLINE(readability-identifier-naming)
+  void Profile(llvm::FoldingSetNodeID &ID) const {
+    for (auto el : set) {
+      ID.AddPointer(el.storage.ptr);
+    }
+    ID.AddPointer(type.getAsOpaquePointer());
+  }
+
+  // Compute the hash only once at constructor time.
+  llvm::hash_code cachedHash;
+
+  // Stores the elaborated values of the set.
+  SetVector<ElaboratorValue> set;
+
+  // Store the set type such that we can materialize this evaluated value
+  // also in the case where the set is empty.
+  Type type;
+};
+
+struct BagStorage : public llvm::FoldingSetNode {
+  BagStorage(MapVector<ElaboratorValue, uint64_t> &&bag, Type type)
+      : cachedHash(llvm::hash_combine(
+            llvm::hash_combine_range(bag.begin(), bag.end()), type)), bag(std::move(bag)), type(type) {}
+  // BagStorage &operator=(const BagStorage &other) = default;
+
+  bool operator==(const BagStorage &other) const {
+    // Compare against the hash first and short circuit if it doesn't match.
+    return cachedHash == other.cachedHash && llvm::equal(bag, other.bag) && type == other.type;
+  }
+
+  // NOLINTNEXTLINE(readability-identifier-naming)
+  void Profile(llvm::FoldingSetNodeID &ID) const {
+    // ID.AddInteger(bag.size());
+    for (auto el : bag) {
+      ID.AddPointer(el.first.storage.ptr);
+      ID.AddInteger(el.second);
+    }
+    ID.AddPointer(type.getAsOpaquePointer());
+  }
+
+  // Compute the hash only once at constructor time.
+  llvm::hash_code cachedHash;
+
+  // Stores the elaborated values of the bag.
+  MapVector<ElaboratorValue, uint64_t> bag;
+
+  // Store the bag type such that we can materialize this evaluated value
+  // also in the case where the bag is empty.
+  Type type;
+};
+
+} // namespace
+
+namespace llvm {
+template<>
+struct DenseMapInfo<SetStorage> {
+  static inline SetStorage getEmptyKey() { return SetStorage({}, llvm::DenseMapInfo<Type>::getEmptyKey()); }
+
+  static inline SetStorage getTombstoneKey() { return SetStorage({}, llvm::DenseMapInfo<Type>::getTombstoneKey()); }
+
+  static unsigned getHashValue(const SetStorage &value) {
+    return value.cachedHash;
+  }
+
+  static bool isEqual(const SetStorage &lhs, const SetStorage &rhs) {
+    return lhs == rhs;
+  }
+};
+
+template<>
+struct DenseMapInfo<BagStorage> {
+  static inline BagStorage getEmptyKey() { return BagStorage({}, llvm::DenseMapInfo<Type>::getEmptyKey()); }
+
+  static inline BagStorage getTombstoneKey() { return BagStorage({}, llvm::DenseMapInfo<Type>::getTombstoneKey()); }
+
+  static unsigned getHashValue(const BagStorage &value) {
+    return value.cachedHash;
+  }
+
+  static bool isEqual(const BagStorage &lhs, const BagStorage &rhs) {
+    return lhs == rhs;
+  }
+};
+} // namespace llvm
+
+// struct StorageBase {
+//   virtual ~StorageBase() {}
+//   virtual llvm::hash_code getHashValue() const;
+//   virtual bool isEqual(const StorageBase &other) const;
+// };
+namespace {
+class Internalizer {
+public:
+  Internalizer() = default;
+
+  // template<typename StorageAdaptor>
+  // StorageBase *internalize(const StorageAdaptor &adaptor) {
+  //   // If such an object is already interned, don't actually construct it and just return the interned version.
+  //   if (auto iter = interned.find(adaptor); iter != interned.end())
+  //     return *iter;
+
+  //   // Otherwise we must allocate memory and construct the object.
+  //   // Unfortunately this means we need to do another lookup.
+  //   return interned.insert(adaptor.allocateAndGetOwnership()).second;
+  // }
+
+  // ~Internalizer() {
+  //   for (auto *el : interned)
+  //     delete el;
+  // }
+
+  SetStorage *internalize(SetStorage &&storage) {
+    llvm::FoldingSetNodeID profile;
+    storage.Profile(profile);
+    void *insertPos = nullptr;
+    if (auto *set = internedSets.FindNodeOrInsertPos(profile, insertPos))
+      return set;
+
+    auto *storagePtr = new SetStorage(std::move(storage));
+    internedSets.InsertNode(storagePtr, insertPos);
+    return storagePtr;
+  }
+
+  BagStorage *internalize(BagStorage &&storage) {
+    llvm::FoldingSetNodeID profile;
+    storage.Profile(profile);
+    void *insertPos = nullptr;
+    if (auto *bag = internedBags.FindNodeOrInsertPos(profile, insertPos))
+      return bag;
+
+    auto *storagePtr = new BagStorage(std::move(storage));
+    internedBags.InsertNode(storagePtr, insertPos);
+    return storagePtr;
+  }
+
+  // SetStorage *internalize(SetStorage &&storage) {
+  //   return &*internedSets.insert(std::move(storage)).first;
+  // }
+
+  // BagStorage *internalize(BagStorage &&storage) {
+  //   return &*internedBags.insert(std::move(storage)).first;
+  // }
+
+  ~Internalizer() {
+    // for (const auto &el : internedSets)
+    //   delete &el;
+    // internedSets.clear();
+
+    // for (const auto &el : internedBags)
+    //   delete &el;
+    // internedBags.clear();
+  }
 
 private:
-  const ValueKind kind;
+  // A map used to intern elaborator values. We do this such that we can
+  // compare pointers when, e.g., computing set differences, uniquing the
+  // elements in a set, etc. Otherwise, we'd need to do a deep value comparison
+  // in those situations.
+  // Use a pointer as the key with custom MapInfo because of object slicing when
+  // inserting an object of a derived class of ElaboratorValue.
+  // The custom MapInfo makes sure that we do a value comparison instead of
+  // comparing the pointers.
+  llvm::FoldingSet<SetStorage> internedSets;
+  llvm::FoldingSet<BagStorage> internedBags;
+  // DenseSet<SetStorage> internedSets;
+  // DenseSet<BagStorage> internedBags;
 };
 
 /// Holds any typed attribute. Wrapping around an MLIR `Attribute` allows us to
@@ -110,185 +379,150 @@ private:
 class AttributeValue : public ElaboratorValue {
 public:
   AttributeValue(TypedAttr attr)
-      : ElaboratorValue(ValueKind::Attribute), attr(attr) {
+      : ElaboratorValue(ValueKind::Attribute, attr.getAsOpaquePointer()) {
     assert(attr && "null attributes not allowed");
+    assert(!isa<IndexType>(attr.getType()) && "IndexValue should be used for constant indices");
   }
+
+  AttributeValue(StorageTy storage) : ElaboratorValue(ValueKind::Attribute, storage) {}
+  AttributeValue(std::nullptr_t storage) : ElaboratorValue() { }
+  // AttributeValue &operator=(const AttributeValue &other) = default;
 
   // Implement LLVMs RTTI
-  static bool classof(const ElaboratorValue *val) {
-    return val->getKind() == ValueKind::Attribute;
+  static bool classof(const ElaboratorValue &val) {
+    return val.kind == ValueKind::Attribute;
   }
 
-  llvm::hash_code getHashValue() const override {
-    return llvm::hash_combine(attr);
-  }
-
-  bool isEqual(const ElaboratorValue &other) const override {
-    auto *attrValue = dyn_cast<AttributeValue>(&other);
-    if (!attrValue)
-      return false;
-
-    return attr == attrValue->attr;
-  }
-
-#ifndef NDEBUG
-  void print(llvm::raw_ostream &os) const override {
-    os << "<attr " << attr << " at " << this << ">";
-  }
-#endif
-
-  TypedAttr getAttr() const { return attr; }
-
-private:
-  const TypedAttr attr;
+  TypedAttr getAttr() const { return cast<TypedAttr>(Attribute::getFromOpaquePointer(storage.ptr)); }
 };
 
 /// Holds an evaluated value of a `SetType`'d value.
-class SetValue : public ElaboratorValue {
-public:
-  SetValue(SetVector<ElaboratorValue *> &&set, Type type)
-      : ElaboratorValue(ValueKind::Set), set(std::move(set)), type(type),
-        cachedHash(llvm::hash_combine(
-            llvm::hash_combine_range(set.begin(), set.end()), type)) {}
+struct SetValue : public ElaboratorValue {
+  SetValue(Internalizer &internalizer, SetVector<ElaboratorValue> &&set, Type type)
+      : ElaboratorValue(ValueKind::Set, internalizer.internalize(SetStorage(std::move(set), type))) {
+      }
+
+  SetValue(StorageTy storage) : ElaboratorValue(ValueKind::Set, storage) {}
+  SetValue(std::nullptr_t storage) : ElaboratorValue() { }
+  // SetValue &operator=(const SetValue &other) = default;
 
   // Implement LLVMs RTTI
-  static bool classof(const ElaboratorValue *val) {
-    return val->getKind() == ValueKind::Set;
+  static bool classof(const ElaboratorValue &val) {
+    return val.kind == ValueKind::Set;
   }
 
-  llvm::hash_code getHashValue() const override { return cachedHash; }
+  const SetVector<ElaboratorValue> &getSet() const { return static_cast<const SetStorage*>(storage.ptr)->set; }
 
-  bool isEqual(const ElaboratorValue &other) const override {
-    auto *otherSet = dyn_cast<SetValue>(&other);
-    if (!otherSet)
-      return false;
-
-    if (cachedHash != otherSet->cachedHash)
-      return false;
-
-    // Make sure empty sets of different types are not considered equal
-    return set == otherSet->set && type == otherSet->type;
-  }
-
-#ifndef NDEBUG
-  void print(llvm::raw_ostream &os) const override {
-    os << "<set {";
-    llvm::interleaveComma(set, os, [&](ElaboratorValue *el) { el->print(os); });
-    os << "} at " << this << ">";
-  }
-#endif
-
-  const SetVector<ElaboratorValue *> &getSet() const { return set; }
-
-  Type getType() const { return type; }
-
-private:
-  // We currently use a sorted vector to represent sets. Note that it is sorted
-  // by the pointer value and thus non-deterministic.
-  // We probably want to do some profiling in the future to see if a DenseSet or
-  // other representation is better suited.
-  const SetVector<ElaboratorValue *> set;
-
-  // Store the set type such that we can materialize this evaluated value
-  // also in the case where the set is empty.
-  const Type type;
-
-  // Compute the hash only once at constructor time.
-  const llvm::hash_code cachedHash;
+  Type getType() const { return static_cast<const SetStorage*>(storage.ptr)->type; }
 };
-} // namespace
 
 /// Holds an evaluated value of a `BagType`'d value.
-class BagValue : public ElaboratorValue {
-public:
-  BagValue(MapVector<ElaboratorValue *, uint64_t> &&bag, Type type)
-      : ElaboratorValue(ValueKind::Bag), bag(std::move(bag)), type(type),
-        cachedHash(llvm::hash_combine(
-            llvm::hash_combine_range(bag.begin(), bag.end()), type)) {}
+struct BagValue : public ElaboratorValue {
+  BagValue(Internalizer &internalizer, MapVector<ElaboratorValue, uint64_t> &&bag, Type type)
+      : ElaboratorValue(ValueKind::Bag, internalizer.internalize(BagStorage(std::move(bag), type))) {}
+
+  BagValue(StorageTy storage) : ElaboratorValue(ValueKind::Bag, storage) {}
+  BagValue(std::nullptr_t storage) : ElaboratorValue() { }
+  // BagValue &operator=(const BagValue &other) = default;
+  //   kind = other.kind;
+  //   storage = other.storage;
+  //   return *this;
+  // }
 
   // Implement LLVMs RTTI
-  static bool classof(const ElaboratorValue *val) {
-    return val->getKind() == ValueKind::Bag;
+  static bool classof(const ElaboratorValue &val) {
+    return val.kind == ValueKind::Bag;
   }
 
-  llvm::hash_code getHashValue() const override { return cachedHash; }
+  const MapVector<ElaboratorValue, uint64_t> &getBag() const { return static_cast<const BagStorage*>(storage.ptr)->bag; }
 
-  bool isEqual(const ElaboratorValue &other) const override {
-    auto *otherBag = dyn_cast<BagValue>(&other);
-    if (!otherBag)
-      return false;
-
-    if (cachedHash != otherBag->cachedHash)
-      return false;
-
-    return llvm::equal(bag, otherBag->bag) && type == otherBag->type;
-  }
-
-#ifndef NDEBUG
-  void print(llvm::raw_ostream &os) const override {
-    os << "<bag {";
-    llvm::interleaveComma(bag, os,
-                          [&](std::pair<ElaboratorValue *, uint64_t> el) {
-                            el.first->print(os);
-                            os << " -> " << el.second;
-                          });
-    os << "} at " << this << ">";
-  }
-#endif
-
-  const MapVector<ElaboratorValue *, uint64_t> &getBag() const { return bag; }
-
-  Type getType() const { return type; }
-
-private:
-  // Stores the elaborated values of the bag.
-  const MapVector<ElaboratorValue *, uint64_t> bag;
-
-  // Store the type of the bag such that we can materialize this evaluated value
-  // also in the case where the bag is empty.
-  const Type type;
-
-  // Compute the hash only once at constructor time.
-  const llvm::hash_code cachedHash;
+  Type getType() const { return static_cast<const BagStorage*>(storage.ptr)->type; }
 };
+
+/// Holds an evaluated index value.
+struct IndexValue : public ElaboratorValue {
+  IndexValue(size_t value)
+      : ElaboratorValue(ValueKind::Index, value) {}
+
+  IndexValue(StorageTy storage) : ElaboratorValue(ValueKind::Index, storage) {}
+  IndexValue(std::nullptr_t storage) : ElaboratorValue() { }
+  // IndexValue &operator=(const IndexValue &other) = default;
+
+  // Implement LLVMs RTTI
+  static bool classof(const ElaboratorValue &val) {
+    return val.kind == ValueKind::Index;
+  }
+
+  size_t getIndex() const { return storage.index; }
+};
+
+} // namespace
+
+// /// Holds an evaluated integer value of a specific type.
+// class IntegerValue : public ElaboratorValue {
+// public:
+//   IntegerValue(const APInt &value, Type type)
+//       : ElaboratorValue(ValueKind::Integer, nullptr), value(value), type(type) {}
+
+//   // Implement LLVMs RTTI
+//   static bool classof(const ElaboratorValue &val) {
+//     return val.kind == ValueKind::Integer;
+//   }
+
+//   llvm::hash_code getHashValue() const override {
+//     return llvm::hash_combine(value, getType());
+//   }
+
+//   bool operator ==(const ElaboratorValue &other) const override {
+//     if (auto intVal = dyn_cast<IntegerValue>(other))
+//       return type == intVal.type && value == intVal.value;
+
+//     return false;
+//   }
+
+//   const APInt &getValue() const { return value; }
+
+//   Type getType() const { return type; }
+
+// private:
+//   APInt value;
+//   Type type;
+// };
 
 #ifndef NDEBUG
 static llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
                                      const ElaboratorValue &value) {
-  value.print(os);
+  TypeSwitch<ElaboratorValue>(value)
+      .Case<AttributeValue>(
+          [&](auto val) { 
+            os << "<attr " << val.getAttr() << ">";
+            })
+      .Case<SetValue>(
+          [&](auto val) { 
+              os << "<set {";
+              llvm::interleaveComma(val.getSet(), os);
+              os << "} at " << val.storage.ptr << ">";
+            })
+      .Case<BagValue>(
+          [&](auto val) { 
+              os << "<bag {";
+              llvm::interleaveComma(val.getBag(), os,
+                                    [&](const std::pair<ElaboratorValue, uint64_t> &el) {
+                                      os << el.first << " -> " << el.second;
+                                    });
+              os << "} at " << val.storage.ptr << ">";
+            })
+      .Case<IndexValue>(
+          [&](auto val) { 
+          os << "<index " << val.getIndex() << ">";
+            })
+      .Default([](auto val) {
+        assert(false && "all cases must be covered above");
+        return Value();
+      });
   return os;
 }
 #endif
-
-//===----------------------------------------------------------------------===//
-// Hash Map Helpers
-//===----------------------------------------------------------------------===//
-
-// NOLINTNEXTLINE(readability-identifier-naming)
-static llvm::hash_code hash_value(const ElaboratorValue &val) {
-  return val.getHashValue();
-}
-
-namespace {
-struct InternMapInfo : public DenseMapInfo<ElaboratorValue *> {
-  static unsigned getHashValue(const ElaboratorValue *value) {
-    assert(value != getTombstoneKey() && value != getEmptyKey());
-    return hash_value(*value);
-  }
-
-  static bool isEqual(const ElaboratorValue *lhs, const ElaboratorValue *rhs) {
-    if (lhs == rhs)
-      return true;
-
-    auto *tk = getTombstoneKey();
-    auto *ek = getEmptyKey();
-    if (lhs == tk || rhs == tk || lhs == ek || rhs == ek)
-      return false;
-
-    return lhs->isEqual(*rhs);
-  }
-};
-} // namespace
 
 //===----------------------------------------------------------------------===//
 // Main Elaborator Implementation
@@ -299,7 +533,7 @@ namespace {
 /// Construct an SSA value from a given elaborated value.
 class Materializer {
 public:
-  Value materialize(ElaboratorValue *val, Block *block, Location loc,
+  Value materialize(const ElaboratorValue &val, Block *block, Location loc,
                     function_ref<InFlightDiagnostic()> emitError) {
     auto iter = materializedValues.find({val, block});
     if (iter != materializedValues.end())
@@ -309,8 +543,8 @@ public:
         builderPerBlock.insert({block, OpBuilder::atBlockBegin(block)});
     OpBuilder builder = builderIter->second;
 
-    return TypeSwitch<ElaboratorValue *, Value>(val)
-        .Case<AttributeValue, SetValue, BagValue>(
+    return TypeSwitch<ElaboratorValue, Value>(val)
+        .Case<AttributeValue, SetValue, BagValue, IndexValue>(
             [&](auto val) { return visit(val, builder, loc, emitError); })
         .Default([](auto val) {
           assert(false && "all cases must be covered above");
@@ -318,24 +552,23 @@ public:
         });
   }
 
-private:
-  Value visit(AttributeValue *val, OpBuilder &builder, Location loc,
-              function_ref<InFlightDiagnostic()> emitError) {
-    auto attr = val->getAttr();
+  void clear() {
+    materializedValues.clear();
+    builderPerBlock.clear();
+  }
 
-    // For integer attributes (and arithmetic operations on them) we use the
-    // arith dialect.
+private:
+  Value visit(const AttributeValue &val, OpBuilder &builder, Location loc,
+              function_ref<InFlightDiagnostic()> emitError) {
+    // Call the materializer of the dialect defining that attribute.
+    auto attr = val.getAttr();
+
     if (isa<IntegerAttr>(attr)) {
-      Value res = builder.getContext()
-                      ->getLoadedDialect<arith::ArithDialect>()
-                      ->materializeConstant(builder, attr, attr.getType(), loc)
-                      ->getResult(0);
+      Value res = builder.create<arith::ConstantOp>(loc, attr);
       materializedValues[{val, builder.getBlock()}] = res;
       return res;
     }
 
-    // For any other attribute, we just call the materializer of the dialect
-    // defining that attribute.
     auto *op = attr.getDialect().materializeConstant(builder, attr,
                                                      attr.getType(), loc);
     if (!op) {
@@ -351,11 +584,11 @@ private:
     return res;
   }
 
-  Value visit(SetValue *val, OpBuilder &builder, Location loc,
+  Value visit(const SetValue &val, OpBuilder &builder, Location loc,
               function_ref<InFlightDiagnostic()> emitError) {
     SmallVector<Value> elements;
-    elements.reserve(val->getSet().size());
-    for (auto *el : val->getSet()) {
+    elements.reserve(val.getSet().size());
+    for (const auto &el : val.getSet()) {
       auto materialized = materialize(el, builder.getBlock(), loc, emitError);
       if (!materialized)
         return Value();
@@ -363,38 +596,38 @@ private:
       elements.push_back(materialized);
     }
 
-    auto res = builder.create<SetCreateOp>(loc, val->getType(), elements);
+    auto res = builder.create<SetCreateOp>(loc, val.getType(), elements);
     materializedValues[{val, builder.getBlock()}] = res;
     return res;
   }
 
-  Value visit(BagValue *val, OpBuilder &builder, Location loc,
+  Value visit(const BagValue &val, OpBuilder &builder, Location loc,
               function_ref<InFlightDiagnostic()> emitError) {
     SmallVector<Value> values, weights;
-    values.reserve(val->getBag().size());
-    weights.reserve(val->getBag().size());
-    for (auto [val, weight] : val->getBag()) {
+    values.reserve(val.getBag().size());
+    weights.reserve(val.getBag().size());
+    for (auto [val, weight] : val.getBag()) {
       auto materializedVal =
           materialize(val, builder.getBlock(), loc, emitError);
-      if (!materializedVal)
+      auto materializedWeight =
+          materialize(IndexValue(weight), builder.getBlock(), loc, emitError);
+      if (!materializedVal || !materializedWeight)
         return Value();
-
-      auto iter = integerValues.find({weight, builder.getBlock()});
-      Value materializedWeight;
-      if (iter != integerValues.end()) {
-        materializedWeight = iter->second;
-      } else {
-        materializedWeight = builder.create<arith::ConstantOp>(
-            loc, builder.getIndexAttr(weight));
-        integerValues[{weight, builder.getBlock()}] = materializedWeight;
-      }
 
       values.push_back(materializedVal);
       weights.push_back(materializedWeight);
     }
 
     auto res =
-        builder.create<BagCreateOp>(loc, val->getType(), values, weights);
+        builder.create<BagCreateOp>(loc, val.getType(), values, weights);
+    materializedValues[{val, builder.getBlock()}] = res;
+    return res;
+  }
+
+  Value visit(const IndexValue &val, OpBuilder &builder, Location loc,
+              function_ref<InFlightDiagnostic()> emitError) {
+    auto attr = IntegerAttr::get(builder.getIndexType(), val.getIndex());
+    Value res = builder.create<arith::ConstantOp>(loc, attr);
     materializedValues[{val, builder.getBlock()}] = res;
     return res;
   }
@@ -405,8 +638,7 @@ private:
   /// insertion point such that future materializations can also reuse previous
   /// materializations without running into dominance issues (or requiring
   /// additional checks to avoid them).
-  DenseMap<std::pair<ElaboratorValue *, Block *>, Value> materializedValues;
-  DenseMap<std::pair<uint64_t, Block *>, Value> integerValues;
+  DenseMap<std::pair<ElaboratorValue, Block *>, Value> materializedValues;
 
   /// Cache the builders to continue insertions at their current insertion point
   /// for the reason stated above.
@@ -418,25 +650,41 @@ private:
 enum class DeletionKind { Keep, Delete };
 
 /// Interprets the IR to perform and lower the represented randomizations.
-class Elaborator : public RTGOpVisitor<Elaborator, FailureOr<DeletionKind>,
-                                       function_ref<void(Operation *)>> {
+class Elaborator
+    : public RTGOpVisitor<Elaborator, FailureOr<DeletionKind>,
+                          function_ref<void(Operation *)>>,
+      public mlir::arith::ArithOpVisitor<Elaborator, FailureOr<DeletionKind>,
+                                         function_ref<void(Operation *)>> {
 public:
   using RTGBase = RTGOpVisitor<Elaborator, FailureOr<DeletionKind>,
                                function_ref<void(Operation *)>>;
+  using ArithBase = ArithOpVisitor<Elaborator, FailureOr<DeletionKind>,
+                                   function_ref<void(Operation *)>>;
+
+  using ArithBase::visitOp;
   using RTGBase::visitOp;
   using RTGBase::visitRegisterOp;
 
   Elaborator(SymbolTable &table, std::mt19937 &rng) : rng(rng) {}
 
-  /// Helper to perform internalization and keep track of interpreted value for
-  /// the given SSA value.
-  template <typename ValueTy, typename... Args>
-  void internalizeResult(Value val, Args &&...args) {
-    // TODO: this isn't the most efficient way to internalize
-    auto ptr = std::make_unique<ValueTy>(std::forward<Args>(args)...);
-    auto *e = ptr.get();
-    auto [iter, _] = interned.insert({e, std::move(ptr)});
-    state[val] = iter->second.get();
+  inline void store(Value val, const ElaboratorValue &eval) {
+    if (!val.hasOneUse() || *val.getUsers().begin() != nextOp)
+      state[val] = eval;
+    stateCache = {val, eval};
+  }
+
+  template<typename ValueTy>
+  inline ValueTy get(Value val) {
+    if (stateCache.first == val)
+      return cast<ValueTy>(stateCache.second);
+
+    return cast<ValueTy>(state.at(val));
+  }
+  inline ElaboratorValue get(Value val) {
+    if (stateCache.first == val)
+      return stateCache.second;
+
+    return state.at(val);
   }
 
   /// Print a nice error message for operations we don't support yet.
@@ -462,7 +710,7 @@ public:
           return diag;
         };
         Value val = materializer.materialize(
-            state.at(operand.get()), op->getBlock(), op->getLoc(), emitError);
+            get(operand.get()), op->getBlock(), op->getLoc(), emitError);
         if (!val)
           return failure();
         operand.set(val);
@@ -474,159 +722,161 @@ public:
   }
 
   FailureOr<DeletionKind>
-  visitOp(SetCreateOp op, function_ref<void(Operation *)> addToWorklist) {
-    SetVector<ElaboratorValue *> set;
-    for (auto val : op.getElements())
-      set.insert(state.at(val));
-
-    internalizeResult<SetValue>(op.getSet(), std::move(set),
-                                op.getSet().getType());
+  visitOp(arith::AddIOp op, function_ref<void(Operation *)> addToWorklist) {
+    store(op.getResult(), IndexValue(get<IndexValue>(op.getLhs()).getIndex() + get<IndexValue>(op.getRhs()).getIndex()));
     return DeletionKind::Delete;
   }
 
-  FailureOr<DeletionKind>
-  visitOp(SetSelectRandomOp op, function_ref<void(Operation *)> addToWorklist) {
-    auto *set = cast<SetValue>(state.at(op.getSet()));
+  // FailureOr<DeletionKind>
+  // visitOp(SetCreateOp op, function_ref<void(Operation *)> addToWorklist) {
+  //   SetVector<ElaboratorValue> set;
+  //   for (auto val : op.getElements())
+  //     set.insert(state.at(val));
 
-    size_t selected;
-    if (auto intAttr =
-            op->getAttrOfType<IntegerAttr>("rtg.elaboration_custom_seed")) {
-      std::mt19937 customRng(intAttr.getInt());
-      selected = getUniformlyInRange(customRng, 0, set->getSet().size() - 1);
-    } else {
-      selected = getUniformlyInRange(rng, 0, set->getSet().size() - 1);
-    }
+  //   state[op.getSet()] = SetValue(internalizer, std::move(set), op.getSet().getType());
+  //   return DeletionKind::Delete;
+  // }
 
-    state[op.getResult()] = set->getSet()[selected];
-    return DeletionKind::Delete;
-  }
+  // FailureOr<DeletionKind>
+  // visitOp(SetSelectRandomOp op, function_ref<void(Operation *)> addToWorklist) {
+  //   auto set = cast<SetValue>(state.at(op.getSet()));
 
-  FailureOr<DeletionKind>
-  visitOp(SetDifferenceOp op, function_ref<void(Operation *)> addToWorklist) {
-    auto original = cast<SetValue>(state.at(op.getOriginal()))->getSet();
-    auto diff = cast<SetValue>(state.at(op.getDiff()))->getSet();
+  //   size_t selected;
+  //   if (auto intAttr =
+  //           op->getAttrOfType<IntegerAttr>("rtg.elaboration_custom_seed")) {
+  //     std::mt19937 customRng(intAttr.getInt());
+  //     selected = getUniformlyInRange(customRng, 0, set.getSet().size() - 1);
+  //   } else {
+  //     selected = getUniformlyInRange(rng, 0, set.getSet().size() - 1);
+  //   }
 
-    SetVector<ElaboratorValue *> result(original);
-    result.set_subtract(diff);
+  //   state[op.getResult()] = set.getSet()[selected];
+  //   return DeletionKind::Delete;
+  // }
 
-    internalizeResult<SetValue>(op.getResult(), std::move(result),
-                                op.getResult().getType());
-    return DeletionKind::Delete;
-  }
+  // FailureOr<DeletionKind>
+  // visitOp(SetDifferenceOp op, function_ref<void(Operation *)> addToWorklist) {
+  //   auto original = cast<SetValue>(state.at(op.getOriginal())).getSet();
+  //   auto diff = cast<SetValue>(state.at(op.getDiff())).getSet();
 
-  FailureOr<DeletionKind>
-  visitOp(SetUnionOp op, function_ref<void(Operation *)> addToWorklist) {
-    SetVector<ElaboratorValue *> result;
-    for (auto set : op.getSets())
-      result.set_union(cast<SetValue>(state.at(set))->getSet());
+  //   SetVector<ElaboratorValue> result(original);
+  //   result.set_subtract(diff);
 
-    internalizeResult<SetValue>(op.getResult(), std::move(result),
-                                op.getType());
-    return DeletionKind::Delete;
-  }
+  //   state[op.getResult()] = SetValue(internalizer, std::move(result),
+  //                               op.getResult().getType());
+  //   return DeletionKind::Delete;
+  // }
 
-  FailureOr<DeletionKind>
-  visitOp(SetSizeOp op, function_ref<void(Operation *)> addToWorklist) {
-    auto size = cast<SetValue>(state.at(op.getSet()))->getSet().size();
-    auto sizeAttr = IntegerAttr::get(IndexType::get(op->getContext()), size);
-    internalizeResult<AttributeValue>(op.getResult(), sizeAttr);
-    return DeletionKind::Delete;
-  }
+  // FailureOr<DeletionKind>
+  // visitOp(SetUnionOp op, function_ref<void(Operation *)> addToWorklist) {
+  //   SetVector<ElaboratorValue> result;
+  //   for (auto set : op.getSets())
+  //     result.set_union(cast<SetValue>(state.at(set)).getSet());
 
-  FailureOr<DeletionKind>
-  visitOp(BagCreateOp op, function_ref<void(Operation *)> addToWorklist) {
-    MapVector<ElaboratorValue *, uint64_t> bag;
-    for (auto [val, multiple] :
-         llvm::zip(op.getElements(), op.getMultiples())) {
-      auto *interpValue = state.at(val);
-      // If the multiple is not stored as an AttributeValue, the elaboration
-      // must have already failed earlier (since we don't have
-      // unevaluated/opaque values).
-      auto *interpMultiple = cast<AttributeValue>(state.at(multiple));
-      uint64_t m = cast<IntegerAttr>(interpMultiple->getAttr()).getInt();
-      bag[interpValue] += m;
-    }
+  //   state[op.getResult()] = SetValue(internalizer, std::move(result),
+  //                               op.getType());
+  //   return DeletionKind::Delete;
+  // }
 
-    internalizeResult<BagValue>(op.getBag(), std::move(bag), op.getType());
-    return DeletionKind::Delete;
-  }
+  // FailureOr<DeletionKind>
+  // visitOp(SetSizeOp op, function_ref<void(Operation *)> addToWorklist) {
+  //   auto size = cast<SetValue>(state.at(op.getSet())).getSet().size();
+  //   state[op.getResult()] = IndexValue(size);
+  //   return DeletionKind::Delete;
+  // }
 
-  FailureOr<DeletionKind>
-  visitOp(BagSelectRandomOp op, function_ref<void(Operation *)> addToWorklist) {
-    auto *bag = cast<BagValue>(state.at(op.getBag()));
+  // FailureOr<DeletionKind>
+  // visitOp(BagCreateOp op, function_ref<void(Operation *)> addToWorklist) {
+  //   MapVector<ElaboratorValue, uint64_t> bag;
+  //   for (auto [val, multiple] :
+  //        llvm::zip(op.getElements(), op.getMultiples())) {
+  //     auto interpValue = state.at(val);
+  //     // If the multiple is not stored as an AttributeValue, the elaboration
+  //     // must have already failed earlier (since we don't have
+  //     // unevaluated/opaque values).
+  //     auto interpMultiple = cast<IndexValue>(state.at(multiple));
+  //     bag[interpValue] += interpMultiple.getIndex();
+  //   }
 
-    SmallVector<std::pair<ElaboratorValue *, uint32_t>> prefixSum;
-    prefixSum.reserve(bag->getBag().size());
-    uint32_t accumulator = 0;
-    for (auto [val, weight] : bag->getBag()) {
-      accumulator += weight;
-      prefixSum.push_back({val, accumulator});
-    }
+  //   state[op.getBag()] = BagValue(internalizer, std::move(bag), op.getType());
+  //   return DeletionKind::Delete;
+  // }
 
-    auto customRng = rng;
-    if (auto intAttr =
-            op->getAttrOfType<IntegerAttr>("rtg.elaboration_custom_seed")) {
-      customRng = std::mt19937(intAttr.getInt());
-    }
+  // FailureOr<DeletionKind>
+  // visitOp(BagSelectRandomOp op, function_ref<void(Operation *)> addToWorklist) {
+  //   auto bag = cast<BagValue>(state.at(op.getBag()));
 
-    auto idx = getUniformlyInRange(customRng, 0, accumulator - 1);
-    auto *iter = llvm::upper_bound(
-        prefixSum, idx,
-        [](uint32_t a, const std::pair<ElaboratorValue *, uint32_t> &b) {
-          return a < b.second;
-        });
-    state[op.getResult()] = iter->first;
-    return DeletionKind::Delete;
-  }
+  //   SmallVector<std::pair<ElaboratorValue, uint32_t>> prefixSum;
+  //   prefixSum.reserve(bag.getBag().size());
+  //   uint32_t accumulator = 0;
+  //   for (auto [val, weight] : bag.getBag()) {
+  //     accumulator += weight;
+  //     prefixSum.push_back({val, accumulator});
+  //   }
 
-  FailureOr<DeletionKind>
-  visitOp(BagDifferenceOp op, function_ref<void(Operation *)> addToWorklist) {
-    auto *original = cast<BagValue>(state.at(op.getOriginal()));
-    auto *diff = cast<BagValue>(state.at(op.getDiff()));
+  //   auto customRng = rng;
+  //   if (auto intAttr =
+  //           op->getAttrOfType<IntegerAttr>("rtg.elaboration_custom_seed")) {
+  //     customRng = std::mt19937(intAttr.getInt());
+  //   }
 
-    MapVector<ElaboratorValue *, uint64_t> result;
-    for (const auto &el : original->getBag()) {
-      if (!diff->getBag().contains(el.first)) {
-        result.insert(el);
-        continue;
-      }
+  //   auto idx = getUniformlyInRange(customRng, 0, accumulator - 1);
+  //   auto *iter = llvm::upper_bound(
+  //       prefixSum, idx,
+  //       [](uint32_t a, const std::pair<ElaboratorValue, uint32_t> &b) {
+  //         return a < b.second;
+  //       });
+  //   state[op.getResult()] = iter->first;
+  //   return DeletionKind::Delete;
+  // }
 
-      if (op.getInf())
-        continue;
+  // FailureOr<DeletionKind>
+  // visitOp(BagDifferenceOp op, function_ref<void(Operation *)> addToWorklist) {
+  //   auto original = cast<BagValue>(state.at(op.getOriginal()));
+  //   auto diff = cast<BagValue>(state.at(op.getDiff()));
 
-      auto toDiff = diff->getBag().lookup(el.first);
-      if (el.second <= toDiff)
-        continue;
+  //   MapVector<ElaboratorValue, uint64_t> result;
+  //   for (const auto &el : original.getBag()) {
+  //     if (!diff.getBag().contains(el.first)) {
+  //       result.insert(el);
+  //       continue;
+  //     }
 
-      result.insert({el.first, el.second - toDiff});
-    }
+  //     if (op.getInf())
+  //       continue;
 
-    internalizeResult<BagValue>(op.getResult(), std::move(result),
-                                op.getType());
-    return DeletionKind::Delete;
-  }
+  //     auto toDiff = diff.getBag().lookup(el.first);
+  //     if (el.second <= toDiff)
+  //       continue;
 
-  FailureOr<DeletionKind>
-  visitOp(BagUnionOp op, function_ref<void(Operation *)> addToWorklist) {
-    MapVector<ElaboratorValue *, uint64_t> result;
-    for (auto bag : op.getBags()) {
-      auto *val = cast<BagValue>(state.at(bag));
-      for (auto [el, multiple] : val->getBag())
-        result[el] += multiple;
-    }
+  //     result.insert({el.first, el.second - toDiff});
+  //   }
 
-    internalizeResult<BagValue>(op.getResult(), std::move(result),
-                                op.getType());
-    return DeletionKind::Delete;
-  }
+  //   state[op.getResult()] = BagValue(internalizer, std::move(result),
+  //                               op.getType());
+  //   return DeletionKind::Delete;
+  // }
 
-  FailureOr<DeletionKind>
-  visitOp(BagUniqueSizeOp op, function_ref<void(Operation *)> addToWorklist) {
-    auto size = cast<BagValue>(state.at(op.getBag()))->getBag().size();
-    auto sizeAttr = IntegerAttr::get(IndexType::get(op->getContext()), size);
-    internalizeResult<AttributeValue>(op.getResult(), sizeAttr);
-    return DeletionKind::Delete;
-  }
+  // FailureOr<DeletionKind>
+  // visitOp(BagUnionOp op, function_ref<void(Operation *)> addToWorklist) {
+  //   MapVector<ElaboratorValue, uint64_t> result;
+  //   for (auto bag : op.getBags()) {
+  //     auto val = cast<BagValue>(state.at(bag));
+  //     for (auto [el, multiple] : val.getBag())
+  //       result[el] += multiple;
+  //   }
+
+  //   state[op.getResult()] = BagValue(internalizer, std::move(result),
+  //                               op.getType());
+  //   return DeletionKind::Delete;
+  // }
+
+  // FailureOr<DeletionKind>
+  // visitOp(BagUniqueSizeOp op, function_ref<void(Operation *)> addToWorklist) {
+  //   auto size = cast<BagValue>(state.at(op.getBag())).getBag().size();
+  //   state[op.getResult()] = IndexValue(size);
+  //   return DeletionKind::Delete;
+  // }
 
   FailureOr<DeletionKind>
   dispatchOpVisitor(Operation *op,
@@ -637,114 +887,199 @@ public:
       (void)foldResult; // Make sure there is a user when assertions are off.
       assert(succeeded(foldResult) &&
              "constant folder of a constant-like must always succeed");
+
+      // We have a special elaboration value for integers for better performance.
+      if (auto intAttr = dyn_cast<IntegerAttr>(result[0].dyn_cast<Attribute>()); intAttr && isa<IndexType>(intAttr.getType())) {
+        store(op->getResult(0), IndexValue(intAttr.getInt()));
+        return DeletionKind::Delete;
+      }
+
       auto attr = dyn_cast<TypedAttr>(result[0].dyn_cast<Attribute>());
       if (!attr)
         return op->emitError(
             "only typed attributes supported for constant-like operations");
 
-      internalizeResult<AttributeValue>(op->getResult(0), attr);
+      store(op->getResult(0), AttributeValue(attr));
       return DeletionKind::Delete;
     }
 
-    return RTGBase::dispatchOpVisitor(op, addToWorklist);
+    if (op->getDialect()->getNamespace() == "rtg")
+      return RTGBase::dispatchOpVisitor(op, addToWorklist);
+
+    return ArithBase::dispatchOpVisitor(op, addToWorklist);
   }
 
   LogicalResult elaborate(TestOp testOp) {
     LLVM_DEBUG(llvm::dbgs()
                << "\n=== Elaborating Test @" << testOp.getSymName() << "\n\n");
 
-    DenseSet<Operation *> visited;
-    std::deque<Operation *> worklist;
-    DenseSet<Operation *> toDelete;
-    for (auto &op : *testOp.getBody())
-      if (op.use_empty())
-        worklist.push_back(&op);
+    // SmallVector<Node> visited;
+    // std::deque<Node> worklist;
+    SmallVector<Operation *> toDelete;
 
-    while (!worklist.empty()) {
-      auto *curr = worklist.back();
-      if (visited.contains(curr)) {
-        worklist.pop_back();
-        continue;
-      }
+    // SmallVector<Node> nodes;
+    // nodes.reserve(testOp.getBody()->getOperations().size());
+    // for (auto [i, op] : llvm::enumerate(*testOp.getBody())) {
+    //   auto node = nodes.emplace_back(op);
+    //   if (op.use_empty())
+    //     worklist.push_back(node);
+    // }
+    for (auto &op : *testOp.getBody()) {
+      // auto *curr = worklist.back();
+      // if (visited.contains(curr)) {
+      //   worklist.pop_back();
+      //   continue;
+      // }
+      nextOp = op.getNextNode();
 
-      if (curr->getNumRegions() != 0)
-        return curr->emitOpError("nested regions not supported");
+      if (op.getNumRegions() != 0)
+        return op.emitOpError("nested regions not supported");
 
-      bool addedSomething = false;
-      for (auto val : curr->getOperands()) {
-        if (state.contains(val))
-          continue;
+      // bool addedSomething = false;
+      // for (auto val : curr->getOperands()) {
+      //   if (state.contains(val))
+      //     continue;
 
-        auto *defOp = val.getDefiningOp();
-        assert(defOp && "cannot be a BlockArgument here");
-        if (!visited.contains(defOp)) {
-          worklist.push_back(defOp);
-          addedSomething = true;
-        }
-      }
+      //   auto *defOp = val.getDefiningOp();
+      //   assert(defOp && "cannot be a BlockArgument here");
+      //   if (!visited.contains(defOp)) {
+      //     worklist.push_back(defOp);
+      //     addedSomething = true;
+      //   }
+      // }
 
-      if (addedSomething)
-        continue;
+      // if (addedSomething)
+      //   continue;
 
       auto addToWorklist = [&](Operation *op) {
-        if (op->use_empty())
-          worklist.push_front(op);
+        // if (op->use_empty())
+        //   worklist.push_front(op);
       };
-      auto result = dispatchOpVisitor(curr, addToWorklist);
+      auto result = dispatchOpVisitor(&op, addToWorklist);
       if (failed(result))
         return failure();
 
       LLVM_DEBUG({
-        llvm::dbgs() << "Elaborating " << *curr << " to\n[";
+        llvm::dbgs() << "Elaborating " << op << " to\n[";
 
-        llvm::interleaveComma(curr->getResults(), llvm::dbgs(), [&](auto res) {
-          if (state.contains(res))
-            llvm::dbgs() << *state.at(res);
-          else
-            llvm::dbgs() << "unknown";
+        llvm::interleaveComma(op.getResults(), llvm::dbgs(), [&](Value res) {
+          llvm::dbgs() << get(res);
         });
 
         llvm::dbgs() << "]\n\n";
       });
 
       if (*result == DeletionKind::Delete)
-        toDelete.insert(curr);
+        toDelete.push_back(&op);
 
-      visited.insert(curr);
-      worklist.pop_back();
+      // visited.insert(curr);
+      // worklist.pop_back();
     }
 
     // FIXME: this assumes that we didn't query the opaque value from an
     // interpreted elaborator value in a way that it can remain used in the IR.
-    for (auto *op : toDelete) {
-      op->dropAllUses();
+    for (auto *op : llvm::reverse(toDelete)) {
+      // op->dropAllUses();
       op->erase();
     }
 
     // Reduce max memory consumption and make sure the values cannot be accessed
     // anymore because we deleted the ops above.
     state.clear();
-    interned.clear();
+    materializer.clear();
 
     return success();
   }
 
+  // LogicalResult elaborate(TestOp testOp) {
+  //   LLVM_DEBUG(llvm::dbgs()
+  //              << "\n=== Elaborating Test @" << testOp.getSymName() << "\n\n");
+
+  //   DenseSet<Operation *> visited;
+  //   std::deque<Operation *> worklist;
+  //   DenseSet<Operation *> toDelete;
+  //   for (auto &op : *testOp.getBody())
+  //     if (op.use_empty())
+  //       worklist.push_back(&op);
+
+  //   while (!worklist.empty()) {
+  //     auto *curr = worklist.back();
+  //     if (visited.contains(curr)) {
+  //       worklist.pop_back();
+  //       continue;
+  //     }
+
+  //     if (curr->getNumRegions() != 0)
+  //       return curr->emitOpError("nested regions not supported");
+
+  //     bool addedSomething = false;
+  //     for (auto val : curr->getOperands()) {
+  //       if (state.contains(val))
+  //         continue;
+
+  //       auto *defOp = val.getDefiningOp();
+  //       assert(defOp && "cannot be a BlockArgument here");
+  //       if (!visited.contains(defOp)) {
+  //         worklist.push_back(defOp);
+  //         addedSomething = true;
+  //       }
+  //     }
+
+  //     if (addedSomething)
+  //       continue;
+
+  //     auto addToWorklist = [&](Operation *op) {
+  //       if (op->use_empty())
+  //         worklist.push_front(op);
+  //     };
+  //     auto result = dispatchOpVisitor(curr, addToWorklist);
+  //     if (failed(result))
+  //       return failure();
+
+  //     LLVM_DEBUG({
+  //       llvm::dbgs() << "Elaborating " << *curr << " to\n[";
+
+  //       llvm::interleaveComma(curr->getResults(), llvm::dbgs(), [&](Value res) {
+  //         if (state.contains(res))
+  //           llvm::dbgs() << state.at(res);
+  //         else
+  //           llvm::dbgs() << "unknown";
+  //       });
+
+  //       llvm::dbgs() << "]\n\n";
+  //     });
+
+  //     if (*result == DeletionKind::Delete)
+  //       toDelete.insert(curr);
+
+  //     visited.insert(curr);
+  //     worklist.pop_back();
+  //   }
+
+  //   // FIXME: this assumes that we didn't query the opaque value from an
+  //   // interpreted elaborator value in a way that it can remain used in the IR.
+  //   for (auto *op : toDelete) {
+  //     op->dropAllUses();
+  //     op->erase();
+  //   }
+
+  //   // Reduce max memory consumption and make sure the values cannot be accessed
+  //   // anymore because we deleted the ops above.
+  //   state.clear();
+  //   materializer.clear();
+
+  //   return success();
+  // }
+
 private:
   std::mt19937 rng;
 
-  // A map used to intern elaborator values. We do this such that we can
-  // compare pointers when, e.g., computing set differences, uniquing the
-  // elements in a set, etc. Otherwise, we'd need to do a deep value comparison
-  // in those situations.
-  // Use a pointer as the key with custom MapInfo because of object slicing when
-  // inserting an object of a derived class of ElaboratorValue.
-  // The custom MapInfo makes sure that we do a value comparison instead of
-  // comparing the pointers.
-  DenseMap<ElaboratorValue *, std::unique_ptr<ElaboratorValue>, InternMapInfo>
-      interned;
+  Internalizer internalizer;
 
   // A map from SSA values to a pointer of an interned elaborator value.
-  DenseMap<Value, ElaboratorValue *> state;
+  DenseMap<Value, ElaboratorValue> state;
+  std::pair<Value, ElaboratorValue> stateCache;
+  Operation *nextOp = nullptr;
 
   // Allows us to materialize ElaboratorValues to the IR operations necessary to
   // obtain an SSA value representing that elaborated value.

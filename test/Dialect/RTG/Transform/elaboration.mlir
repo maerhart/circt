@@ -97,12 +97,12 @@ rtg.test @unmatchedTest : !rtg.dict<num_cpus: i64> {
 }
 
 rtg.target @target0 : !rtg.dict<num_cpus: i32> {
-  %0 = arith.constant 0 : i32
+  %0 = hw.constant 0 : i32
   rtg.yield %0 : i32
 }
 
 rtg.target @target1 : !rtg.dict<num_cpus: i32> {
-  %0 = arith.constant 1 : i32
+  %0 = hw.constant 1 : i32
   rtg.yield %0 : i32
 }
 
