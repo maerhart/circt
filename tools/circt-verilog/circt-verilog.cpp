@@ -50,6 +50,8 @@
 #include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 
 using namespace circt;
+using namespace mlir;
+using namespace llvm;
 
 //===----------------------------------------------------------------------===//
 // Command Line Options
@@ -316,9 +318,9 @@ static void populateLLHDLowering(PassManager &pm) {
     anyPM.addPass(mlir::createCSEPass());
     anyPM.addPass(mlir::createCanonicalizerPass());
   }
-  pm.addNestedPass<hw::HWModuleOp>(llhd::createUnroll());
+  // pm.addNestedPass<hw::HWModuleOp>(llhd::createUnroll());
   pm.addNestedPass<hw::HWModuleOp>(llhd::createBlockArgumentToMux());
-  pm.addNestedPass<hw::HWModuleOp>(llhd::createResolveDynamicSignalAliases());
+  // pm.addNestedPass<hw::HWModuleOp>(llhd::createResolveDynamicSignalAliases());
   {
     auto &anyPM = pm.nestAny();
     anyPM.addPass(mlir::createSROA());
@@ -575,7 +577,6 @@ int main(int argc, char **argv) {
   // clang-format on
 
   // Perform the actual work and use "exit" to avoid slow context teardown.
-  DialectRegistry registry;
   mlir::func::registerInlinerExtension(registry);
   llhd::registerDestructableIntegerExternalModel(registry);
   MLIRContext context(registry);
