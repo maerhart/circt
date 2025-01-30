@@ -23,6 +23,7 @@
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Index/IR/IndexDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -56,6 +57,7 @@ int main(int argc, char **argv) {
   registry.insert<mlir::scf::SCFDialect>();
   registry.insert<mlir::emitc::EmitCDialect>();
   registry.insert<mlir::vector::VectorDialect>();
+  registry.insert<mlir::index::IndexDialect>();
 
   circt::registerAllDialects(registry);
   circt::registerAllPasses();

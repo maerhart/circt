@@ -9,39 +9,69 @@ add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=circt.")
 ################################################################################
 # Declare native Python extension
 ################################################################################
+set(LLVM_OPTIONAL_SOURCES
+  RTGTestModule.cpp
+)
 
+set(PYTHON_BINDINGS_SOURCES
+  CIRCTModule.cpp
+  ESIModule.cpp
+  HWModule.cpp
+  MSFTModule.cpp
+  OMModule.cpp
+  RTGModule.cpp
+  RTGToolModule.cpp
+  SeqModule.cpp
+  SupportModule.cpp
+  SVModule.cpp
+  # Headers must be included explicitly so they are installed.
+  CIRCTModules.h
+  NanobindUtils.h
+)
+
+set(PYTHON_BINDINGS_LINK_LIBS
+  CIRCTCAPIArc
+  CIRCTCAPIComb
+  CIRCTCAPIConversion
+  CIRCTCAPIDC
+  CIRCTCAPIDebug
+  CIRCTCAPIEmit
+  CIRCTCAPIESI
+  CIRCTCAPIExportVerilog
+  CIRCTCAPIFSM
+  CIRCTCAPIHandshake
+  CIRCTCAPIHW
+  CIRCTCAPIHWArith
+  CIRCTCAPILTL
+  CIRCTCAPIMSFT
+  CIRCTCAPIOM
+  CIRCTCAPIRTG
+  CIRCTCAPIRtgTool
+  CIRCTCAPISeq
+  CIRCTCAPISMT
+  CIRCTCAPISV
+  CIRCTCAPIVerif
+  CIRCTCAPITransforms
+  # needed for mlirFrozenRewritePatternSetDestroy
+  # but not the actual passes
+  MLIRCAPITransforms
+)
+
+if (CIRCT_INCLUDE_TESTS)
+  list(APPEND PYTHON_BINDINGS_SOURCES RTGTestModule.cpp)
+  list(APPEND PYTHON_BINDINGS_LINK_LIBS CIRCTCAPIRTGTest)
+endif()
 
 declare_mlir_python_extension(CIRCTBindingsPythonExtension
   MODULE_NAME _circt
   SOURCES
-    CIRCTModule.cpp
-    ESIModule.cpp
-    HWModule.cpp
-    OMModule.cpp
-    MSFTModule.cpp
-    SeqModule.cpp
-    SupportModule.cpp
-    SVModule.cpp
+    ${PYTHON_BINDINGS_SOURCES}
   EMBED_CAPI_LINK_LIBS
-    CIRCTCAPIComb
-    CIRCTCAPIDebug
-    CIRCTCAPIEmit
-    CIRCTCAPIESI
-    CIRCTCAPIExportVerilog
-    CIRCTCAPIFSM
-    CIRCTCAPIHW
-    CIRCTCAPIHWArith
-    CIRCTCAPIHandshake
-    CIRCTCAPILTL
-    CIRCTCAPIMSFT
-    CIRCTCAPIOM
-    CIRCTCAPISV
-    CIRCTCAPISeq
-    CIRCTCAPIVerif
-    CIRCTCAPIConversion
-    MLIRCAPITransforms
+    ${PYTHON_BINDINGS_LINK_LIBS}
   PRIVATE_LINK_LIBS
     LLVMSupport
+  PYTHON_BINDINGS_LIBRARY
+    nanobind
 )
 
 add_dependencies(CIRCTBindingsPythonExtension circt-headers)
@@ -55,6 +85,7 @@ declare_mlir_python_sources(CIRCTBindingsPythonSources
   SOURCES
     __init__.py
     support.py
+    rtgtool_support.py
 )
 
 ################################################################################
@@ -95,6 +126,14 @@ declare_mlir_dialect_python_bindings(
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
   ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+  TD_FILE dialects/HandshakeOps.td
+  SOURCES
+    dialects/handshake.py
+  DIALECT_NAME handshake)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
   TD_FILE dialects/HWOps.td
   SOURCES
     dialects/hw.py
@@ -115,6 +154,24 @@ declare_mlir_dialect_python_bindings(
   SOURCES
     dialects/om.py
   DIALECT_NAME om)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+  TD_FILE dialects/RTGOps.td
+  SOURCES
+    dialects/rtg.py
+  DIALECT_NAME rtg)
+
+if (CIRCT_INCLUDE_TESTS)
+  declare_mlir_dialect_python_bindings(
+    ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
+    ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+    TD_FILE dialects/RTGTestOps.td
+    SOURCES
+      dialects/rtgtest.py
+    DIALECT_NAME rtgtest)
+endif()
 
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
@@ -163,6 +220,14 @@ declare_mlir_dialect_python_bindings(
   SOURCES
     dialects/verif.py
   DIALECT_NAME verif)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+  TD_FILE dialects/SMTOps.td
+  SOURCES
+    dialects/smt.py
+  DIALECT_NAME smt)
 
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects

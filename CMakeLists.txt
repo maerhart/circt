@@ -186,6 +186,9 @@ option(CIRCT_BUILD_TOOLS "Build the CIRCT tools. If OFF, just generate build tar
 set(CIRCT_TOOLS_INSTALL_DIR "${CMAKE_INSTALL_BINDIR}" CACHE PATH
     "Path for binary subdirectory (defaults to '${CMAKE_INSTALL_BINDIR}')")
 
+option(CIRCT_INCLUDE_TESTS
+       "Generate build targets for the CIRCT tests." ON)
+
 list(APPEND CMAKE_MODULE_PATH "${MLIR_MAIN_SRC_DIR}/cmake/modules")
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 include(AddCIRCT)
@@ -510,8 +513,12 @@ option(CIRCT_BINDINGS_PYTHON_ENABLED "Enables CIRCT Python bindings." OFF)
 
 if(CIRCT_BINDINGS_PYTHON_ENABLED)
   message(STATUS "CIRCT Python bindings are enabled.")
-  include(MLIRDetectPythonEnv)
-  mlir_configure_python_dev_packages()
+  set(MLIR_DISABLE_CONFIGURE_PYTHON_DEV_PACKAGES 0)
+  mlir_detect_nanobind_install()
+  # Prime the search like mlir_configure_python_dev_modules
+  find_package(Python3 3.8 COMPONENTS Interpreter Development)
+  find_package(Python3 3.8 COMPONENTS Interpreter Development.Module)
+  find_package(nanobind 2.4.0 CONFIG REQUIRED)
 else()
   message(STATUS "CIRCT Python bindings are disabled.")
   # Lookup python either way as some integration tests use python without the
@@ -618,17 +625,26 @@ endif()
 # Directory setup
 #-------------------------------------------------------------------------------
 
+if (CIRCT_INCLUDE_TESTS)
+  add_definitions(-DCIRCT_INCLUDE_TESTS)
+endif()
+
 add_subdirectory(include/circt)
 add_subdirectory(lib)
 if(CIRCT_INCLUDE_TOOLS)
   add_subdirectory(tools)
 endif()
-if (CIRCT_GTEST_AVAILABLE)
-  add_subdirectory(unittests)
-endif()
-add_subdirectory(test)
-add_subdirectory(integration_test)
 add_subdirectory(frontends)
+
+if (CIRCT_INCLUDE_TESTS)
+  # Test directories are added after everything else so their cmake files can
+  # use targets and target properties defined by the things they test.
+  if (CIRCT_GTEST_AVAILABLE)
+    add_subdirectory(unittests)
+  endif()
+  add_subdirectory(test)
+  add_subdirectory(integration_test)
+endif()
 
 option(CIRCT_INCLUDE_DOCS "Generate build targets for the CIRCT docs.")
 if (CIRCT_INCLUDE_DOCS)

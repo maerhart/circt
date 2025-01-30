@@ -3,6 +3,7 @@ set(LLVM_OPTIONAL_SOURCES
   Arc.cpp
   CHIRRTL.cpp
   Comb.cpp
+  DC.cpp
   Debug.cpp
   Emit.cpp
   ESI.cpp
@@ -16,8 +17,11 @@ set(LLVM_OPTIONAL_SOURCES
   MSFT.cpp
   Moore.cpp
   OM.cpp
+  RTG.cpp
+  RTGTest.cpp
   SV.cpp
   Seq.cpp
+  SMT.cpp
   Verif.cpp
 )
 
@@ -37,6 +41,15 @@ add_circt_public_c_api_library(CIRCTCAPIComb
   MLIRCAPIIR
   CIRCTComb
   CIRCTCombTransforms
+)
+
+add_circt_public_c_api_library(CIRCTCAPIDC
+  DC.cpp
+
+  LINK_LIBS PUBLIC
+  MLIRCAPIIR
+  CIRCTDC
+  CIRCTDCTransforms
 )
 
 add_circt_public_c_api_library(CIRCTCAPIDebug
@@ -91,6 +104,7 @@ add_circt_public_c_api_library(CIRCTCAPIHW
   LINK_LIBS PUBLIC
   MLIRCAPIIR
   CIRCTHW
+  CIRCTHWTransforms
 )
 
 add_circt_public_c_api_library(CIRCTCAPILLHD
@@ -117,6 +131,24 @@ add_circt_public_c_api_library(CIRCTCAPIOM
   CIRCTOM
   CIRCTOMEvaluator
 )
+
+add_circt_public_c_api_library(CIRCTCAPIRTG
+  RTG.cpp
+
+  LINK_LIBS PUBLIC
+  MLIRCAPIIR
+  CIRCTRTGDialect
+)
+
+if(CIRCT_INCLUDE_TESTS)
+  add_circt_public_c_api_library(CIRCTCAPIRTGTest
+    RTGTest.cpp
+
+    LINK_LIBS PUBLIC
+    MLIRCAPIIR
+    CIRCTRTGTestDialect
+  )
+endif()
 
 add_circt_public_c_api_library(CIRCTCAPISeq
   Seq.cpp
@@ -192,4 +224,12 @@ add_circt_public_c_api_library(CIRCTCAPIEmit
   LINK_LIBS PUBLIC
   MLIRCAPIIR
   CIRCTEmit
+)
+
+add_circt_public_c_api_library(CIRCTCAPISMT
+  SMT.cpp
+
+  LINK_LIBS PUBLIC
+  MLIRCAPIIR
+  CIRCTSMT
 )

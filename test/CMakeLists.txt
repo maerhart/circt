@@ -22,7 +22,11 @@ set(CIRCT_TEST_DEPENDS
   circt-capi-om-test
   circt-capi-firrtl-test
   circt-capi-firtool-test
+  circt-capi-rtg-pipelines-test
+  circt-capi-rtg-test
+  circt-capi-rtgtest-test
   circt-as
+  circt-bmc
   circt-dis
   circt-lec
   circt-opt
@@ -33,7 +37,7 @@ set(CIRCT_TEST_DEPENDS
   handshake-runner
   firtool
   hlstool
-  ibistool
+  kanagawatool
   om-linker
   )
 

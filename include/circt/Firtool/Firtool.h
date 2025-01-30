@@ -52,7 +52,6 @@ public:
   }
 
   StringRef getOutputFilename() const { return outputFilename; }
-  StringRef getOmirOutputFile() const { return omirOutFile; }
   StringRef getBlackBoxRootPath() const { return blackBoxRootPath; }
   StringRef getChiselInterfaceOutputDirectory() const {
     return chiselInterfaceOutDirectory;
@@ -97,13 +96,13 @@ public:
   }
   bool shouldConvertProbesToSignals() const { return probesToSignals; }
   bool shouldReplaceSequentialMemories() const { return replSeqMem; }
+  bool shouldDisableLayerSink() const { return disableLayerSink; }
   bool shouldDisableOptimization() const { return disableOptimization; }
   bool shouldAdvancedLayerSink() const { return advancedLayerSink; }
   bool shouldLowerMemories() const { return lowerMemories; }
   bool shouldDedup() const { return !noDedup; }
   bool shouldEnableDebugInfo() const { return enableDebugInfo; }
   bool shouldIgnoreReadEnableMemories() const { return ignoreReadEnableMem; }
-  bool shouldEmitOMIR() const { return emitOMIR; }
   bool shouldExportChiselInterface() const { return exportChiselInterface; }
   bool shouldConvertVecOfBundle() const { return vbToBV; }
   bool shouldEtcDisableInstanceExtraction() const {
@@ -133,6 +132,10 @@ public:
   bool shouldExtractTestCode() const { return extractTestCode; }
   bool shouldFixupEICGWrapper() const { return fixupEICGWrapper; }
   bool shouldAddCompanionAssume() const { return addCompanionAssume; }
+  bool shouldDisableCSEinClasses() const { return disableCSEinClasses; }
+  bool shouldSelectDefaultInstanceChoice() const {
+    return selectDefaultInstanceChoice;
+  }
 
   // Setters, used by the CAPI
   FirtoolOptions &setOutputFilename(StringRef name) {
@@ -187,6 +190,11 @@ public:
     return *this;
   }
 
+  FirtoolOptions &setDisableLayerSink(bool value) {
+    disableLayerSink = value;
+    return *this;
+  }
+
   FirtoolOptions &setDisableOptimization(bool value) {
     disableOptimization = value;
     return *this;
@@ -219,16 +227,6 @@ public:
 
   FirtoolOptions &setDisableAggressiveMergeConnections(bool value) {
     disableAggressiveMergeConnections = value;
-    return *this;
-  }
-
-  FirtoolOptions &setEmitOMIR(bool value) {
-    emitOMIR = value;
-    return *this;
-  }
-
-  FirtoolOptions &setOmirOutFile(StringRef value) {
-    omirOutFile = value;
     return *this;
   }
 
@@ -368,6 +366,16 @@ public:
     return *this;
   }
 
+  FirtoolOptions &setDisableCSEinClasses(bool value) {
+    disableCSEinClasses = value;
+    return *this;
+  }
+
+  FirtoolOptions &setSelectDefaultInstanceChoice(bool value) {
+    selectDefaultInstanceChoice = value;
+    return *this;
+  }
+
 private:
   std::string outputFilename;
   bool disableAnnotationsUnknown;
@@ -379,6 +387,7 @@ private:
   firrtl::PreserveValues::PreserveMode preserveMode;
   bool enableDebugInfo;
   BuildMode buildMode;
+  bool disableLayerSink;
   bool disableOptimization;
   bool exportChiselInterface;
   std::string chiselInterfaceOutDirectory;
@@ -386,8 +395,6 @@ private:
   bool noDedup;
   firrtl::CompanionMode companionMode;
   bool disableAggressiveMergeConnections;
-  bool emitOMIR;
-  std::string omirOutFile;
   bool advancedLayerSink;
   bool lowerMemories;
   std::string blackBoxRootPath;
@@ -416,6 +423,8 @@ private:
   bool stripDebugInfo;
   bool fixupEICGWrapper;
   bool addCompanionAssume;
+  bool disableCSEinClasses;
+  bool selectDefaultInstanceChoice;
 };
 
 void registerFirtoolCLOptions();

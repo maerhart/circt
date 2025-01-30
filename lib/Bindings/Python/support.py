@@ -122,6 +122,10 @@ def type_to_pytype(t) -> ir.Type:
   except ValueError:
     pass
   try:
+    return esi.AnyType(t)
+  except ValueError:
+    pass
+  try:
     return esi.BundleType(t)
   except ValueError:
     pass
@@ -235,6 +239,7 @@ class BackedgeBuilder(AbstractContextManager):
       self.instance_of = instance_of
       self.op_view = op_view
       self.port_name = backedge_name
+      self.loc = loc
       self.erased = False
 
     @property
@@ -290,6 +295,8 @@ class BackedgeBuilder(AbstractContextManager):
       if edge.op_view is not None:
         op = edge.op_view.operation
         msg += "Instance:   " + str(op)
+      if edge.loc is not None:
+        msg += "Location:   " + str(edge.loc)
       errors.append(msg)
 
     if errors:

@@ -866,6 +866,12 @@ def MacroDeclOp : SVOp<"macro.decl", [Symbol]> {
   let assemblyFormat = [{
     $sym_name (`[` $verilogName^ `]`)? (`(` $args^ `)`)?  attr-dict
   }];
+
+  let extraClassDeclaration = [{
+    // Return the Verilog "text macro identifier".  This will be either the
+    // Verilog name, if one was provided or the symbol name.
+    StringRef getMacroIdentifier();
+  }];
 }
 
 
@@ -931,7 +937,7 @@ def FuncOp : SVOp<"func",
      [IsolatedFromAbove, Symbol, OpAsmOpInterface, ProceduralRegion,
       DeclareOpInterfaceMethods<HWModuleLike>,
       DeclareOpInterfaceMethods<PortList>,
-      FunctionOpInterface, HasParent<"mlir::ModuleOp">, 
+      FunctionOpInterface, HasParent<"mlir::ModuleOp">,
       HWEmittableModuleLike]> {
   let summary = "A SystemVerilog function";
   let description = [{
@@ -1058,7 +1064,7 @@ class SVFuncCallBase<string mnemonic, list<Trait> traits = []>: SVOp<mnemonic,
 
     /// Set the callee for this operation.
     void setCalleeFromCallable(mlir::CallInterfaceCallable callee) {
-      (*this)->setAttr(getCalleeAttrName(), callee.get<mlir::SymbolRefAttr>());
+      (*this)->setAttr(getCalleeAttrName(), llvm::cast<mlir::SymbolRefAttr>(callee));
     }
   }];
 }

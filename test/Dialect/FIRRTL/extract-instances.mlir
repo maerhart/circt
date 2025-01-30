@@ -64,13 +64,14 @@ firrtl.circuit "ExtractBlackBoxesSimple" attributes {annotations = [{class = "fi
   // CHECK:    firrtl.propassign %[[extractedInstances_field_0]], %extract_instances_metadata : !firrtl.class<@ExtractInstancesMetadata
   // CHECK:  }
 
-  // CHECK:  firrtl.class @ExtractInstancesSchema(in %name_in: !firrtl.string, out %name: !firrtl.string, in %path_in: !firrtl.path, out %path: !firrtl.path, in %filename_in: !firrtl.string, out %filename: !firrtl.string) {
+  // CHECK:  firrtl.class @ExtractInstancesSchema(in %name_in: !firrtl.string, out %name: !firrtl.string, in %path_in: !firrtl.path, out %path: !firrtl.path, in %filename_in: !firrtl.string, out %filename: !firrtl.string, in %inst_name_in: !firrtl.string, out %inst_name: !firrtl.string) {
   // CHECK:    firrtl.propassign %name, %name_in : !firrtl.string
   // CHECK:    firrtl.propassign %path, %path_in : !firrtl.path
   // CHECK:    firrtl.propassign %filename, %filename_in : !firrtl.string
+  // CHECK:    firrtl.propassign %inst_name, %inst_name_in : !firrtl.string
   // CHECK:  }
 
-  // CHECK:  firrtl.class @ExtractInstancesMetadata(out %[[bb_0_field]]: !firrtl.class<@ExtractInstancesSchema 
+  // CHECK:  firrtl.class @ExtractInstancesMetadata(out %[[bb_0_field]]: !firrtl.class<@ExtractInstancesSchema
   // CHECK-SAME: {
   // CHECK:    %[[V0:.+]] = firrtl.string "bb_0"
   // CHECK:    %[[bb_0:.+]] = firrtl.object @ExtractInstancesSchema
@@ -82,12 +83,15 @@ firrtl.circuit "ExtractBlackBoxesSimple" attributes {annotations = [{class = "fi
   // CHECK:    %[[V4:.+]] = firrtl.object.subfield %[[bb_0]][filename_in]
   // CHECK:    %[[V5:.+]] = firrtl.string "BlackBoxes.txt"
   // CHECK:    firrtl.propassign %[[V4]], %[[V5]] : !firrtl.string
+  // CHECK:    %[[V6:.+]] = firrtl.object.subfield %bb_0[inst_name_in]
+  // CHECK:    %[[V7:.+]] = firrtl.string "bb"
+  // CHECK;    firrtl.propassign %[[V6]], %[[V7]] : !firrtl.string
   // CHECK:    firrtl.propassign %[[bb_0_field]], %[[bb_0]]
   // CHECK:  }
 
   // CHECK:               emit.file "BlackBoxes.txt" {
   // CHECK-NEXT:            sv.verbatim "
-  // CHECK-SAME{LITERAL}:     bb_0 -> {{0}}.{{1}}\0A
+  // CHECK-SAME{LITERAL}:     bb_0 -> {{0}}.{{1}}.bb\0A
   // CHECK-SAME:              symbols = [
   // CHECK-SAME:                @DUTModule
   // CHECK-SAME:                #hw.innerNameRef<@DUTModule::[[WRAPPER_SYM]]>
@@ -185,8 +189,8 @@ firrtl.circuit "ExtractBlackBoxesSimple2" attributes {annotations = [{class = "f
   }
   // CHECK:               emit.file "BlackBoxes.txt" {
   // CHECK-NEXT:            sv.verbatim "
-  // CHECK-SAME{LITERAL}:     prefix_0 -> {{0}}.{{1}}\0A
-  // CHECK-SAME{LITERAL}:     prefix_1 -> {{0}}.{{1}}\0A
+  // CHECK-SAME{LITERAL}:     prefix_0 -> {{0}}.{{1}}.bb2\0A
+  // CHECK-SAME{LITERAL}:     prefix_1 -> {{0}}.{{1}}.bb\0A
   // CHECK-SAME:              symbols = [
   // CHECK-SAME:                @DUTModule
   // CHECK-SAME:                @DUTModule::[[WRAPPER_SYM]]
@@ -289,13 +293,181 @@ firrtl.circuit "ExtractBlackBoxesIntoDUTSubmodule"  {
   }
   // CHECK:               emit.file "BlackBoxes.txt" {
   // CHECK-NEXT:            sv.verbatim "
-  // CHECK-SAME{LITERAL}:     bb_0 -> {{0}}.{{1}}\0A
-  // CHECK-SAME{LITERAL}:     bb_1 -> {{0}}.{{1}}\0A
+  // CHECK-SAME{LITERAL}:     bb_0 -> {{0}}.{{1}}.bb2\0A
+  // CHECK-SAME{LITERAL}:     bb_1 -> {{0}}.{{1}}.bb1\0A
   // CHECK-SAME:              symbols = [
   // CHECK-SAME:                @DUTModule
   // CHECK-SAME:                @DUTModule::[[WRAPPER_SYM]]
   // CHECK-SAME:              ]
 }
+
+//===----------------------------------------------------------------------===//
+// ExtractBlackBoxes Custom Tests
+//
+// These are tests that were not derived from legacy custom SFC tests.
+//===----------------------------------------------------------------------===//
+
+// Test all possible combinations of extraction for modules that are: (1)
+// exclusively under the design, (2) exclusively not under the design, and (3)
+// both under and not under the design.  Modules can be not under the design if
+// they are outside the design or if they are under a layer.
+//
+// Note: this pass does not do any deduplication, so a module that is of type
+// (3) needs to cause extraction outside the design up to the point that it is
+// no longer necessary to do more extraction.
+firrtl.circuit "CombinationsTest" {
+  firrtl.layer @A bind {}
+  firrtl.extmodule @bbox_Foo() attributes {
+    annotations = [
+      {
+        class = "sifive.enterprise.firrtl.ExtractBlackBoxAnnotation",
+        filename = "BlackBoxes.txt",
+        prefix = ""
+      }
+    ],
+    defname = "bbox_Foo"
+  }
+  firrtl.module @Foo() {
+    firrtl.instance bbox_Foo @bbox_Foo()
+  }
+  firrtl.extmodule @bbox_Bar() attributes {
+    annotations = [
+      {
+        class = "sifive.enterprise.firrtl.ExtractBlackBoxAnnotation",
+        filename = "BlackBoxes.txt",
+        prefix = ""
+      }
+    ],
+    defname = "bbox_Bar"
+  }
+  firrtl.module @Bar() {
+    firrtl.instance bbox_Bar @bbox_Bar()
+  }
+  firrtl.extmodule @bbox_Baz() attributes {
+    annotations = [
+      {
+        class = "sifive.enterprise.firrtl.ExtractBlackBoxAnnotation",
+        filename = "BlackBoxes.txt",
+        prefix = ""
+      }
+    ],
+    defname = "bbox_Baz"
+  }
+  firrtl.module @Baz() {
+    firrtl.instance bbox_Baz @bbox_Baz()
+  }
+  firrtl.extmodule @bbox_Qux() attributes {
+    annotations = [
+      {
+        class = "sifive.enterprise.firrtl.ExtractBlackBoxAnnotation",
+        filename = "BlackBoxes.txt",
+        prefix = ""
+      }
+    ],
+    defname = "bbox_Qux"
+  }
+  firrtl.module @Qux() {
+    firrtl.instance bbox_Qux @bbox_Qux()
+  }
+  firrtl.extmodule @bbox_Quz() attributes {
+    annotations = [
+      {
+        class = "sifive.enterprise.firrtl.ExtractBlackBoxAnnotation",
+        filename = "BlackBoxes.txt",
+        prefix = ""
+      }
+    ],
+    defname = "bbox_Quz"
+  }
+  firrtl.module @Quz() {
+    firrtl.instance bbox_Quz @bbox_Quz()
+  }
+  firrtl.module @DUT() attributes {
+    annotations = [
+      {
+        class = "sifive.enterprise.firrtl.MarkDUTAnnotation"
+      }
+    ]
+  } {
+    firrtl.instance foo @Foo()
+    firrtl.instance baz @Baz()
+    firrtl.instance quz1 @Quz()
+    firrtl.layerblock @A {
+      firrtl.instance qux @Qux()
+      firrtl.instance quz2 @Quz()
+    }
+  }
+  firrtl.module @Wrapper() {
+    firrtl.instance dut @DUT()
+    firrtl.instance bar @Bar()
+    firrtl.instance baz @Baz()
+  }
+  firrtl.module @CombinationsTest() {
+    firrtl.instance wrapper @Wrapper()
+    // %sifive_metadata = firrtl.object @SiFive_Metadata()
+  }
+  // firrtl.class @SiFive_Metadata() {}
+}
+
+// CHECK-LABEL: firrtl.circuit "CombinationsTest"
+
+// CHECK-LABEL: firrtl.module @Foo()
+// CHECK-NOT:     firrtl.instance bbox_Foo @bbox_Foo
+
+// CHECK-LABEL: firrtl.module @Bar()
+// CHECK-NEXT:    firrtl.instance bbox_Bar @bbox_Bar
+
+// CHECK-LABEL: firrtl.module @Baz()
+// CHECK-NOT:     firrtl.instance bbox_Baz @bbox_Baz
+
+// CHECK-LABEL: firrtl.module @Qux()
+// CHECK:         firrtl.instance bbox_Qux @bbox_Qux
+
+// CHECK-LABEL: firrtl.module @Quz()
+// CHECK-NOT:     firrtl.instance bbox_Quz @bbox_Quz
+
+// CHECK-LABEL: firrtl.module @DUT()
+//
+// CHECK:         firrtl.layerblock @A {
+// CHECK-NEXT:      firrtl.instance qux @Qux()
+// CHECK-NEXT:      firrtl.instance quz2 {{.*}}@Quz()
+// CHECK-NEXT:      firrtl.instance bbox_Quz {{.*}}@bbox_Quz()
+
+// CHECK-LABEL: firrtl.module @Wrapper()
+// CHECK-NEXT:    firrtl.instance dut {{.*}}@DUT()
+// CHECK-NEXT:    firrtl.instance bbox_Foo {{.*}}@bbox_Foo()
+// CHECK-NEXT:    firrtl.instance bbox_Baz {{.*}}@bbox_Baz()
+// CHECK-NEXT:    firrtl.instance bbox_Quz {{.*}}@bbox_Quz()
+//
+// CHECK-NEXT:    firrtl.instance bar @Bar()
+//
+// CHECK-NEXT:    firrtl.instance baz {{.*}}@Baz()
+// CHECK-NEXT:    firrtl.instance bbox_Baz {{.*}}@bbox_Baz()
+
+// Test that a circuit without a design-under-test has no extraction.
+firrtl.circuit "NoDutBehavior" {
+
+  firrtl.extmodule @bbox_Foo() attributes {
+    annotations = [
+      {
+        class = "sifive.enterprise.firrtl.ExtractBlackBoxAnnotation",
+        filename = "BlackBoxes.txt",
+        prefix = ""
+      }
+    ],
+    defname = "bbox_Foo"
+  }
+  firrtl.module @Foo() {
+    firrtl.instance bbox_Foo @bbox_Foo()
+  }
+
+  firrtl.module @NoDutBehavior() {
+    firrtl.instance foo @Foo()
+  }
+}
+
+// CHECK-LABEL: firrtl.module @Foo
+// CHECK-NEXT:    firrtl.instance bbox_Foo @bbox_Foo()
 
 //===----------------------------------------------------------------------===//
 // ExtractClockGates Simple
@@ -318,7 +490,7 @@ firrtl.circuit "ExtractClockGatesSimple" attributes {annotations = [{class = "si
   }
   // CHECK:               emit.file "ClockGates.txt" {
   // CHECK-NEXT:            sv.verbatim "
-  // CHECK-SAME{LITERAL}:     clock_gate_0 -> {{0}}\0A
+  // CHECK-SAME{LITERAL}:     clock_gate_0 -> {{0}}.gate\0A
   // CHECK-SAME:              symbols = [
   // CHECK-SAME:                @DUTModule
   // CHECK-SAME:              ]
@@ -395,8 +567,8 @@ firrtl.circuit "ExtractClockGatesMixed" attributes {annotations = [{class = "sif
   }
   // CHECK:               emit.file "ClockGates.txt" {
   // CHECK-NEXT:            sv.verbatim "
-  // CHECK-SAME{LITERAL}:     clock_gate_0 -> {{0}}.{{1}}\0A
-  // CHECK-SAME{LITERAL}:     clock_gate_1 -> {{0}}\0A
+  // CHECK-SAME{LITERAL}:     clock_gate_0 -> {{0}}.{{1}}.gate\0A
+  // CHECK-SAME{LITERAL}:     clock_gate_1 -> {{0}}.gate\0A
   // CHECK-SAME:              symbols = [
   // CHECK-SAME:                @DUTModule
   // CHECK-SAME:                @DUTModule::@inst
@@ -443,9 +615,9 @@ firrtl.circuit "ExtractClockGatesComposed" attributes {annotations = [
     %sifive_metadata = firrtl.object @SiFive_Metadata()
     // CHECK:  firrtl.object @SiFive_Metadata(
     // CHECK-SAME: out extractedInstances_field0: !firrtl.class<@ExtractInstancesMetadata
-    // CHECK-SAME: (out mem_wiring_0_field0: !firrtl.class<@ExtractInstancesSchema(in name_in: !firrtl.string, out name: !firrtl.string, in path_in: !firrtl.path, out path: !firrtl.path, in filename_in: !firrtl.string, out filename: !firrtl.string)>
-    // CHECK-SAME: out clock_gate_0_field1: !firrtl.class<@ExtractInstancesSchema(in name_in: !firrtl.string, out name: !firrtl.string, in path_in: !firrtl.path, out path: !firrtl.path, in filename_in: !firrtl.string, out filename: !firrtl.string)>
-    // CHECK-SAME: out clock_gate_1_field3: !firrtl.class<@ExtractInstancesSchema(in name_in: !firrtl.string, out name: !firrtl.string, in path_in: !firrtl.path, out path: !firrtl.path, in filename_in: !firrtl.string, out filename: !firrtl.string)>)>)
+    // CHECK-SAME: (out mem_wiring_0_field0: !firrtl.class<@ExtractInstancesSchema(in name_in: !firrtl.string, out name: !firrtl.string, in path_in: !firrtl.path, out path: !firrtl.path, in filename_in: !firrtl.string, out filename: !firrtl.string, in inst_name_in: !firrtl.string, out inst_name: !firrtl.string)>
+    // CHECK-SAME: out clock_gate_0_field1: !firrtl.class<@ExtractInstancesSchema(in name_in: !firrtl.string, out name: !firrtl.string, in path_in: !firrtl.path, out path: !firrtl.path, in filename_in: !firrtl.string, out filename: !firrtl.string, in inst_name_in: !firrtl.string, out inst_name: !firrtl.string)>
+    // CHECK-SAME: out clock_gate_1_field3: !firrtl.class<@ExtractInstancesSchema(in name_in: !firrtl.string, out name: !firrtl.string, in path_in: !firrtl.path, out path: !firrtl.path, in filename_in: !firrtl.string, out filename: !firrtl.string, in inst_name_in: !firrtl.string, out inst_name: !firrtl.string)>)>)
     %0 = firrtl.object.anyref_cast %sifive_metadata : !firrtl.class<@SiFive_Metadata()>
     firrtl.propassign %metadataObj, %0 : !firrtl.anyref
   }
@@ -453,15 +625,15 @@ firrtl.circuit "ExtractClockGatesComposed" attributes {annotations = [
 
   // CHECK:               emit.file "SeqMems.txt" {
   // CHECK-NEXT:            sv.verbatim "
-  // CHECK-SAME{LITERAL}:     mem_wiring_0 -> {{0}}\0A
+  // CHECK-SAME{LITERAL}:     mem_wiring_0 -> {{0}}.mem_ext\0A
   // CHECK-SAME:              symbols = [
   // CHECK-SAME:                @DUTModule
   // CHECK-SAME:              ]
 
   // CHECK:               emit.file "ClockGates.txt" {
   // CHECK-NEXT:            sv.verbatim "
-  // CHECK-SAME{LITERAL}:     clock_gate_0 -> {{0}}.{{1}}\0A
-  // CHECK-SAME{LITERAL}:     clock_gate_1 -> {{0}}\0A
+  // CHECK-SAME{LITERAL}:     clock_gate_0 -> {{0}}.{{1}}.gate\0A
+  // CHECK-SAME{LITERAL}:     clock_gate_1 -> {{0}}.gate\0A
   // CHECK-SAME:              symbols = [
   // CHECK-SAME:                @DUTModule
   // CHECK-SAME:                #hw.innerNameRef<@DUTModule::[[SYM0]]>
@@ -493,7 +665,7 @@ firrtl.circuit "ExtractSeqMemsSimple2" attributes {annotations = [{class = "sifi
   }
   // CHECK:               emit.file "SeqMems.txt" {
   // CHECK-NEXT:            sv.verbatim "
-  // CHECK-SAME{LITERAL}:     mem_wiring_0 -> {{0}}.{{1}}\0A
+  // CHECK-SAME{LITERAL}:     mem_wiring_0 -> {{0}}.{{1}}.mem_ext\0A
   // CHECK-SAME:              symbols = [
   // CHECK-SAME:                @DUTModule
   // CHECK-SAME:                @DUTModule::[[MEM_SYM]]
@@ -557,8 +729,8 @@ firrtl.circuit "InstSymConflict" {
   }
   // CHECK:               emit.file "BlackBoxes.txt" {
   // CHECK-NEXT:            sv.verbatim "
-  // CHECK-SAME{LITERAL}:     bb_1 -> {{0}}.{{1}}\0A
-  // CHECK-SAME{LITERAL}:     bb_0 -> {{0}}.{{2}}\0A
+  // CHECK-SAME{LITERAL}:     bb_1 -> {{0}}.{{1}}.bb\0A
+  // CHECK-SAME{LITERAL}:     bb_0 -> {{0}}.{{2}}.bb\0A
   // CHECK-SAME:              symbols = [
   // CHECK-SAME:                @DUTModule
   // CHECK-SAME:                #hw.innerNameRef<@DUTModule::@mod1>
@@ -566,20 +738,45 @@ firrtl.circuit "InstSymConflict" {
   // CHECK-SAME:              ]
 }
 
-// Module prefixing should not break extraction.
-// https://github.com/llvm/circt/issues/5961
-// CHECK-LABEL: firrtl.circuit "Plop_Foo"
-firrtl.circuit "Plop_Foo" attributes {annotations = [{class = "sifive.enterprise.firrtl.ExtractClockGatesFileAnnotation", filename = "ckgates.txt", group = "ClockGates"}]} {
-  // CHECK: hw.hierpath @nla_1 [@Plop_Foo::@ClockGates, @Plop_ClockGates::@ckg, @EICG_wrapper]
-  hw.hierpath @nla_1 [@Plop_Foo::@core, @Plop_Bar::@ckg, @EICG_wrapper]
-  firrtl.extmodule private @EICG_wrapper() attributes {defname = "EICG_wrapper"}
-  firrtl.module private @Plop_Bar() {
-    firrtl.instance ckg sym @ckg @EICG_wrapper()
+// Test that clock gate extraction composes with Chisel-time module prefixing.
+// Chisel may add any number of prefixes to the clock gates.  Ensure that this
+// will not block extraction.  Additionally, test that suffixes will block
+// extraction.
+//
+// CHECK-LABEL: firrtl.circuit "PrefixedClockGate"
+firrtl.circuit "PrefixedClockGate" attributes {
+  annotations = [
+    {
+      class = "sifive.enterprise.firrtl.ExtractClockGatesFileAnnotation",
+      filename = "ckgates.txt",
+      group = "ClockGates"
+    }
+  ]
+} {
+  firrtl.extmodule private @Prefix_EICG_wrapper() attributes {
+    defname = "Prefix_EICG_wrapper"
   }
-  // CHECK: firrtl.module private @Plop_ClockGates()
-  // CHECK-LABEL: firrtl.module @Plop_Foo()
-  firrtl.module @Plop_Foo() attributes {annotations = [{class = "sifive.enterprise.firrtl.MarkDUTAnnotation", prefix = "Plop_"}]} {
-    // CHECK: firrtl.instance ClockGates sym @ClockGates @Plop_ClockGates()
-    firrtl.instance core sym @core @Plop_Bar()
+  firrtl.extmodule private @Prefix_EICG_wrapper_Suffix() attributes {
+    defname = "Prefix_EICG_wrapper_Suffix"
+  }
+  // CHECK:      firrtl.module private @ClockGates() {
+  // CHECK-NEXT:   firrtl.instance clockGate_0 @Prefix_EICG_wrapper()
+  // CHECK-NOT:    firrtl.instance clockGate_1 @Prefix_EICG_wrapper_Suffix()
+  //
+  // CHECK:      firrtl.module @Foo
+  // CHECK-NEXT:   firrtl.instance ClockGates {{.*}} @ClockGates()
+  // CHECK-NEXT:   firrtl.instance clockGate_1 @Prefix_EICG_wrapper_Suffix()
+  firrtl.module @Foo() attributes {
+    annotations = [
+      {
+        class = "sifive.enterprise.firrtl.MarkDUTAnnotation"
+      }
+    ]
+  } {
+    firrtl.instance clockGate_0 @Prefix_EICG_wrapper()
+    firrtl.instance clockGate_1 @Prefix_EICG_wrapper_Suffix()
+  }
+  firrtl.module @PrefixedClockGate() {
+    firrtl.instance foo @Foo()
   }
 }

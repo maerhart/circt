@@ -125,6 +125,11 @@ void circtFirtoolOptionsSetBuildMode(CirctFirtoolFirtoolOptions options,
   unwrap(options)->setBuildMode(converted);
 }
 
+void circtFirtoolOptionsSetDisableLayerSink(CirctFirtoolFirtoolOptions options,
+                                            bool value) {
+  unwrap(options)->setDisableLayerSink(value);
+}
+
 void circtFirtoolOptionsSetDisableOptimization(
     CirctFirtoolFirtoolOptions options, bool value) {
   unwrap(options)->setDisableOptimization(value);
@@ -172,16 +177,6 @@ void circtFirtoolOptionsSetCompanionMode(CirctFirtoolFirtoolOptions options,
 void circtFirtoolOptionsSetDisableAggressiveMergeConnections(
     CirctFirtoolFirtoolOptions options, bool value) {
   unwrap(options)->setDisableAggressiveMergeConnections(value);
-}
-
-void circtFirtoolOptionsSetEmitOmir(CirctFirtoolFirtoolOptions options,
-                                    bool value) {
-  unwrap(options)->setEmitOMIR(value);
-}
-
-void circtFirtoolOptionsSetOmirOutFile(CirctFirtoolFirtoolOptions options,
-                                       MlirStringRef value) {
-  unwrap(options)->setOmirOutFile(unwrap(value));
 }
 
 void circtFirtoolOptionsSetLowerMemories(CirctFirtoolFirtoolOptions options,
@@ -319,6 +314,17 @@ void circtFirtoolOptionsSetStripFirDebugInfo(CirctFirtoolFirtoolOptions options,
 void circtFirtoolOptionsSetStripDebugInfo(CirctFirtoolFirtoolOptions options,
                                           bool value) {
   unwrap(options)->setStripDebugInfo(value);
+}
+
+void circtFirtoolOptionsSetDisableCSEinClasses(
+    CirctFirtoolFirtoolOptions options, bool value) {
+
+  unwrap(options)->setDisableCSEinClasses(value);
+}
+
+void circtFirtoolOptionsSetSelectDefaultInstanceChoice(
+    CirctFirtoolFirtoolOptions options, bool value) {
+  unwrap(options)->setSelectDefaultInstanceChoice(value);
 }
 
 //===----------------------------------------------------------------------===//

@@ -6,21 +6,19 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "circt/Dialect/FIRRTL/AnnotationDetails.h"
 #include "circt/Dialect/FIRRTL/FIRRTLInstanceGraph.h"
 #include "circt/Dialect/FIRRTL/FIRRTLOps.h"
 #include "circt/Dialect/FIRRTL/Passes.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/HW/InnerSymbolTable.h"
 #include "circt/Support/Debug.h"
-#include "mlir/IR/ImplicitLocOpBuilder.h"
+#include "mlir/IR/Iterators.h"
 #include "mlir/IR/Threading.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMapInfoVariant.h"
 #include "llvm/ADT/PostOrderIterator.h"
-#include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "firrtl-imdeadcodeelim"
@@ -52,7 +50,7 @@ static bool isDeletableDeclaration(Operation *op) {
   if (auto name = dyn_cast<FNamableOp>(op))
     if (!name.hasDroppableName())
       return false;
-  return !hasDontTouch(op) && AnnotationSet(op).canBeDeleted();
+  return !hasDontTouch(op) && AnnotationSet(op).empty();
 }
 
 namespace {
@@ -240,15 +238,16 @@ void IMDeadCodeElimPass::markBlockExecutable(Block *block) {
   if (!executableBlocks.insert(block).second)
     return; // Already executable.
 
-  auto fmodule = cast<FModuleOp>(block->getParentOp());
-  if (fmodule.isPublic())
+  auto fmodule = dyn_cast<FModuleOp>(block->getParentOp());
+  if (fmodule && fmodule.isPublic())
     markAlive(fmodule);
 
   // Mark ports with don't touch as alive.
   for (auto blockArg : block->getArguments())
     if (hasDontTouch(blockArg)) {
       markAlive(blockArg);
-      markAlive(fmodule);
+      if (fmodule)
+        markAlive(fmodule);
     }
 
   for (auto &op : *block) {
@@ -261,8 +260,14 @@ void IMDeadCodeElimPass::markBlockExecutable(Block *block) {
     else if (isa<FConnectLike>(op))
       // Skip connect op.
       continue;
-    else if (hasUnknownSideEffect(&op))
+    else if (hasUnknownSideEffect(&op)) {
       markUnknownSideEffectOp(&op);
+      // Recursively mark any blocks contained within these operations as
+      // executable.
+      for (auto &region : op.getRegions())
+        for (auto &block : region.getBlocks())
+          markBlockExecutable(&block);
+    }
 
     // TODO: Handle attach etc.
   }
@@ -350,21 +355,40 @@ void IMDeadCodeElimPass::runOnOperation() {
       return;
     }
 
-    // If there is an unknown use of inner sym or hierpath, just mark all of
-    // them alive.
-    for (NamedAttribute namedAttr : op->getAttrs()) {
-      namedAttr.getValue().walk([&](Attribute subAttr) {
-        if (auto innerRef = dyn_cast<hw::InnerRefAttr>(subAttr))
-          if (auto instance = dyn_cast_or_null<firrtl::InstanceOp>(
-                  innerRefNamespace->lookupOp(innerRef)))
-            markAlive(instance);
+    // If there is an unknown symbol or inner symbol use, mark all of them
+    // alive.
+    op->getAttrDictionary().walk([&](Attribute attr) {
+      if (auto innerRef = dyn_cast<hw::InnerRefAttr>(attr)) {
+        // Mark instances alive that are targeted by an inner ref.
+        if (auto instance = dyn_cast_or_null<firrtl::InstanceOp>(
+                innerRefNamespace->lookupOp(innerRef)))
+          markAlive(instance);
+        return;
+      }
 
-        if (auto flatSymbolRefAttr = dyn_cast<FlatSymbolRefAttr>(subAttr))
-          if (auto hierPath = symbolTable->template lookup<hw::HierPathOp>(
-                  flatSymbolRefAttr.getAttr()))
-            markAlive(hierPath);
-      });
-    }
+      if (auto symbolRef = dyn_cast<FlatSymbolRefAttr>(attr)) {
+        auto *symbol = symbolTable->lookup(symbolRef.getAttr());
+        if (!symbol)
+          return;
+
+        // Mark referenced hierarchical paths alive.
+        if (auto hierPath = dyn_cast<hw::HierPathOp>(symbol))
+          markAlive(hierPath);
+
+        // Mark modules referenced by unknown ops alive.
+        if (auto module = dyn_cast<FModuleOp>(symbol)) {
+          if (!isa<firrtl::InstanceOp>(op)) {
+            LLVM_DEBUG(llvm::dbgs()
+                       << "Unknown use of " << module.getModuleNameAttr()
+                       << " in " << op->getName() << "\n");
+            markAlive(module);
+            markBlockExecutable(module.getBodyBlock());
+          }
+        }
+
+        return;
+      }
+    });
   });
 
   // Create a vector of modules in the post order of instance graph.
@@ -398,11 +422,6 @@ void IMDeadCodeElimPass::runOnOperation() {
         hierPathOp =
             symbolTable->template lookup<hw::HierPathOp>(hierPathSym.getAttr());
 
-      if (anno.canBeDeleted()) {
-        if (hierPathOp && portId >= 0)
-          hierPathToElements[hierPathOp].insert(module.getArgument(portId));
-        return false;
-      }
       if (hierPathOp)
         markAlive(hierPathOp);
       if (portId >= 0)
@@ -540,15 +559,12 @@ void IMDeadCodeElimPass::visitSubelement(Operation *op) {
 }
 
 void IMDeadCodeElimPass::rewriteModuleBody(FModuleOp module) {
-  auto *body = module.getBodyBlock();
-  assert(isBlockExecutable(body) &&
+  assert(isBlockExecutable(module.getBodyBlock()) &&
          "unreachable modules must be already deleted");
 
   auto removeDeadNonLocalAnnotations = [&](int _, Annotation anno) -> bool {
     auto hierPathSym = anno.getMember<FlatSymbolRefAttr>("circt.nonlocal");
-    // We only clean up non-local annotations here as local annotations will
-    // be deleted afterwards.
-    if (!anno.canBeDeleted() || !hierPathSym)
+    if (!hierPathSym)
       return false;
     auto hierPathOp =
         symbolTable->template lookup<hw::HierPathOp>(hierPathSym.getAttr());
@@ -561,33 +577,35 @@ void IMDeadCodeElimPass::rewriteModuleBody(FModuleOp module) {
       std::bind(removeDeadNonLocalAnnotations, -1, std::placeholders::_1));
 
   // Walk the IR bottom-up when deleting operations.
-  for (auto &op : llvm::make_early_inc_range(llvm::reverse(*body))) {
-    // Connects to values that we found to be dead can be dropped.
-    if (auto connect = dyn_cast<FConnectLike>(op)) {
-      if (isAssumedDead(connect.getDest())) {
-        LLVM_DEBUG(llvm::dbgs() << "DEAD: " << connect << "\n";);
-        connect.erase();
-        ++numErasedOps;
-      }
-      continue;
-    }
+  module.walk<mlir::WalkOrder::PostOrder, mlir::ReverseIterator>(
+      [&](Operation *op) {
+        // Connects to values that we found to be dead can be dropped.
+        LLVM_DEBUG(llvm::dbgs() << "Visit: " << *op << "\n");
+        if (auto connect = dyn_cast<FConnectLike>(op)) {
+          if (isAssumedDead(connect.getDest())) {
+            LLVM_DEBUG(llvm::dbgs() << "DEAD: " << connect << "\n";);
+            connect.erase();
+            ++numErasedOps;
+          }
+          return;
+        }
 
-    // Delete dead wires, regs, nodes and alloc/read ops.
-    if ((isDeclaration(&op) || !hasUnknownSideEffect(&op)) &&
-        isAssumedDead(&op)) {
-      LLVM_DEBUG(llvm::dbgs() << "DEAD: " << op << "\n";);
-      assert(op.use_empty() && "users should be already removed");
-      op.erase();
-      ++numErasedOps;
-      continue;
-    }
+        // Delete dead wires, regs, nodes and alloc/read ops.
+        if ((isDeclaration(op) || !hasUnknownSideEffect(op)) &&
+            isAssumedDead(op)) {
+          LLVM_DEBUG(llvm::dbgs() << "DEAD: " << *op << "\n";);
+          assert(op->use_empty() && "users should be already removed");
+          op->erase();
+          ++numErasedOps;
+          return;
+        }
 
-    // Remove non-sideeffect op using `isOpTriviallyDead`.
-    if (mlir::isOpTriviallyDead(&op)) {
-      op.erase();
-      ++numErasedOps;
-    }
-  }
+        // Remove non-sideeffect op using `isOpTriviallyDead`.
+        if (mlir::isOpTriviallyDead(op)) {
+          op->erase();
+          ++numErasedOps;
+        }
+      });
 }
 
 void IMDeadCodeElimPass::rewriteModuleSignature(FModuleOp module) {
@@ -801,6 +819,10 @@ void IMDeadCodeElimPass::eraseEmptyModule(FModuleOp module) {
         << "these are instances with symbols";
     return;
   }
+
+  // We cannot delete alive modules.
+  if (liveElements.contains(module))
+    return;
 
   instanceGraph->erase(instanceGraphNode);
   module.erase();

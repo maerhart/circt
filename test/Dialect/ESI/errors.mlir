@@ -46,12 +46,21 @@ hw.module @test(in %m : !sv.modport<@IData::@Noexist>) {
 
 // -----
 
+hw.module @testFifoTypes(in %clk: !seq.clock, in %rst: i1, in %a: !esi.channel<i32, FIFO>, in %b: !esi.channel<i16, FIFO(2)>) {
+  // expected-error @+1 {{input and output types must match}}
+  %fifo = esi.fifo in %a clk %clk rst %rst depth 12 : !esi.channel<i32, FIFO> -> !esi.channel<i16, FIFO(2)>
+  hw.output %fifo : !esi.channel<i16, FIFO(2)>
+}
+
+// -----
+
 esi.service.decl @HostComms {
   esi.service.port @Send : !esi.bundle<[!esi.channel<i16> from "send"]>
 }
 
 hw.module @Loopback (in %clk: i1) {
-  // expected-error @+1 {{Request channel type does not match service port bundle channel type}}
+  // expected-error @+2 {{Request channel type does not match service port bundle channel type}}
+  // expected-note @+1 {{Service port 'send' type: '!esi.channel<i16>'}}
   %dataIn = esi.service.req <@HostComms::@Send> (#esi.appid<"loopback_fromhw">) : !esi.bundle<[!esi.channel<i8> from "send"]>
 }
 
@@ -155,7 +164,7 @@ hw.module.extern @Source(out a: !esi.channel<i1>)
 hw.module.extern @Sink(in %a: !esi.channel<i1>)
 
 hw.module @Top() {
-  // expected-error @+1 {{channels must have at most one use}}
+  // expected-error @+1 {{channels must have at most one consumer}}
   %a = hw.instance "src" @Source() -> (a: !esi.channel<i1>)
   // expected-note @+1 {{channel used here}}
   hw.instance "sink1" @Sink(a: %a: !esi.channel<i1>) -> ()
@@ -189,4 +198,17 @@ hw.module.extern @Sink(in %a: !bundleType)
 hw.module @Top() {
   // expected-error @+1 {{bundles must have exactly one use}}
   %a = hw.instance "src" @Source() -> (a: !bundleType)
+}
+
+// -----
+
+hw.module @wrap_multi_unwrap(in %a_data: i8, in %a_valid: i1, out a_ready: i1) {
+  // expected-error @+1 {{'esi.wrap.vr' op channels must have at most one consumer}}
+  %a_chan, %a_ready = esi.wrap.vr %a_data, %a_valid : i8
+  %true = hw.constant true
+  // expected-note @+1 {{channel used here}}
+  %ap_data, %ap_valid = esi.unwrap.vr %a_chan, %true : i8
+  // expected-note @+1 {{channel used here}}
+  %ab_data, %ab_valid = esi.unwrap.vr %a_chan, %true : i8
+  hw.output %a_ready : i1
 }

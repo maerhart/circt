@@ -29,6 +29,8 @@ constexpr const char *rawAnnotations = "rawAnnotations";
 //===----------------------------------------------------------------------===//
 
 constexpr const char *conventionAnnoClass = "circt.ConventionAnnotation";
+constexpr const char *typeLoweringAnnoClass =
+    "circt.BodyTypeLoweringAnnotation";
 constexpr const char *dontTouchAnnoClass =
     "firrtl.transforms.DontTouchAnnotation";
 constexpr const char *enumComponentAnnoClass =
@@ -47,13 +49,6 @@ constexpr const char *traceNameAnnoClass =
     "chisel3.experimental.Trace$TraceNameAnnotation";
 constexpr const char *traceAnnoClass =
     "chisel3.experimental.Trace$TraceAnnotation";
-
-constexpr const char *omirAnnoClass =
-    "freechips.rocketchip.objectmodel.OMIRAnnotation";
-constexpr const char *omirFileAnnoClass =
-    "freechips.rocketchip.objectmodel.OMIRFileAnnotation";
-constexpr const char *omirTrackerAnnoClass =
-    "freechips.rocketchip.objectmodel.OMIRTracker";
 
 constexpr const char *blackBoxInlineAnnoClass =
     "firrtl.transforms.BlackBoxInlineAnno";
@@ -101,12 +96,12 @@ constexpr const char *viewAnnoClass =
     "sifive.enterprise.grandcentral.ViewAnnotation";
 constexpr const char *companionAnnoClass =
     "sifive.enterprise.grandcentral.ViewAnnotation.companion"; // not in SFC
-constexpr const char *prefixInterfacesAnnoClass =
-    "sifive.enterprise.grandcentral.PrefixInterfacesAnnotation";
 constexpr const char *augmentedGroundTypeClass =
     "sifive.enterprise.grandcentral.AugmentedGroundType"; // not an annotation
 constexpr const char *augmentedBundleTypeClass =
     "sifive.enterprise.grandcentral.AugmentedBundleType"; // not an annotation
+constexpr const char *augmentedVectorTypeClass =
+    "sifive.enterprise.grandcentral.AugmentedVectorType"; // not an annotation
 constexpr const char *dataTapsClass =
     "sifive.enterprise.grandcentral.DataTapsAnnotation";
 constexpr const char *dataTapsBlackboxClass =
@@ -150,8 +145,6 @@ constexpr const char *sitestBlackBoxAnnoClass =
     "sifive.enterprise.firrtl.SitestBlackBoxAnnotation";
 constexpr const char *sitestTestHarnessBlackBoxAnnoClass =
     "sifive.enterprise.firrtl.SitestTestHarnessBlackBoxAnnotation";
-constexpr const char *prefixModulesAnnoClass =
-    "sifive.enterprise.firrtl.NestedPrefixModulesAnnotation";
 constexpr const char *dontObfuscateModuleAnnoClass =
     "sifive.enterprise.firrtl.DontObfuscateModuleAnnotation";
 constexpr const char *elaborationArtefactsDirectoryAnnoClass =
@@ -204,6 +197,9 @@ constexpr const char *wiringSourceAnnoClass =
 
 // Attribute annotations.
 constexpr const char *attributeAnnoClass = "firrtl.AttributeAnnotation";
+
+// Module Prefix Annotations.
+constexpr const char *modulePrefixAnnoClass = "chisel3.ModulePrefixAnnotation";
 
 } // namespace firrtl
 } // namespace circt

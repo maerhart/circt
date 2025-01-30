@@ -23,10 +23,16 @@
 #include "circt/Dialect/LLHD/Transforms/Passes.h"
 #include "circt/Dialect/Moore/MoorePasses.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Dialect/HW/HWDialect.h"
+#include "circt/Dialect/LLHD/IR/LLHDDialect.h"
+#include "circt/Dialect/Moore/MooreDialect.h"
+#include "circt/Dialect/Moore/MoorePasses.h"
+#include "circt/Dialect/Seq/SeqDialect.h"
 #include "circt/Dialect/Sim/SimDialect.h"
 #include "circt/Dialect/Verif/VerifDialect.h"
 #include "circt/Support/Passes.h"
 #include "circt/Support/Version.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/AsmState.h"
@@ -40,12 +46,9 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/WithColor.h"
-#include <mlir/Dialect/ControlFlow/IR/ControlFlow.h>
-#include <mlir/Dialect/Func/Extensions/InlinerExtension.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
+#include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
+#include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 
-using namespace llvm;
-using namespace mlir;
 using namespace circt;
 
 //===----------------------------------------------------------------------===//
@@ -460,11 +463,9 @@ static LogicalResult executeWithSources(MLIRContext *context,
 }
 
 static LogicalResult execute(MLIRContext *context) {
-  // Abort if there are no input files to be processed.
-  if (opts.inputFilenames.empty()) {
-    WithColor::error() << "no input files\n";
-    return failure();
-  }
+  // Default to reading from stdin if no files were provided.
+  if (opts.inputFilenames.empty())
+    opts.inputFilenames.push_back("-");
 
   // Auto-detect the input format if it was not explicitly specified.
   if (opts.format.getNumOccurrences() == 0) {
@@ -554,6 +555,24 @@ int main(int argc, char **argv) {
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv,
                               "Verilog and SystemVerilog frontend\n");
+
+  // Register the dialects.
+  // clang-format off
+  DialectRegistry registry;
+  registry.insert<
+    cf::ControlFlowDialect,
+    comb::CombDialect,
+    debug::DebugDialect,
+    func::FuncDialect,
+    hw::HWDialect,
+    llhd::LLHDDialect,
+    moore::MooreDialect,
+    scf::SCFDialect,
+    seq::SeqDialect,
+    sim::SimDialect,
+    verif::VerifDialect
+  >();
+  // clang-format on
 
   // Perform the actual work and use "exit" to avoid slow context teardown.
   DialectRegistry registry;

@@ -27,21 +27,13 @@ calyx::RegisterOp createRegister(Location loc, OpBuilder &builder,
   return builder.create<RegisterOp>(loc, (prefix + "_reg").str(), width);
 }
 
-calyx::RegisterOp createRegister(Location loc, OpBuilder &builder,
-                                 ComponentOp component, Type type,
-                                 Twine prefix) {
-  OpBuilder::InsertionGuard guard(builder);
-  builder.setInsertionPointToStart(component.getBodyBlock());
-  return builder.create<RegisterOp>(loc, (prefix + "_reg").str(), type);
-}
-
 hw::ConstantOp createConstant(Location loc, OpBuilder &builder,
                               ComponentOp component, size_t width,
                               size_t value) {
   OpBuilder::InsertionGuard g(builder);
   builder.setInsertionPointToStart(component.getBodyBlock());
-  return builder.create<hw::ConstantOp>(loc,
-                                        APInt(width, value, /*unsigned=*/true));
+  return builder.create<hw::ConstantOp>(
+      loc, APInt(width, value, /*isSigned=*/false));
 }
 
 calyx::InstanceOp createInstance(Location loc, OpBuilder &builder,

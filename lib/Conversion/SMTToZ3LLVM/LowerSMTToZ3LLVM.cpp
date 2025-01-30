@@ -561,6 +561,7 @@ struct SolverOpLowering : public SMTLoweringPattern<SolverOp> {
     auto ptrTy = LLVM::LLVMPointerType::get(getContext());
     auto voidTy = LLVM::LLVMVoidType::get(getContext());
     auto ptrToPtrFunc = LLVM::LLVMFunctionType::get(ptrTy, ptrTy);
+    auto ptrPtrToPtrFunc = LLVM::LLVMFunctionType::get(ptrTy, {ptrTy, ptrTy});
     auto ptrToVoidFunc = LLVM::LLVMFunctionType::get(voidTy, ptrTy);
     auto ptrPtrToVoidFunc = LLVM::LLVMFunctionType::get(voidTy, {ptrTy, ptrTy});
 
@@ -579,6 +580,17 @@ struct SolverOpLowering : public SMTLoweringPattern<SolverOp> {
                 {config, paramKey, paramValue});
     }
 
+    // Check if the logic is set anywhere within the solver
+    std::optional<StringRef> logic = std::nullopt;
+    auto setLogicOps = op.getBodyRegion().getOps<smt::SetLogicOp>();
+    if (!setLogicOps.empty()) {
+      // We know from before patterns were applied that there is only one
+      // set_logic op
+      auto setLogicOp = *setLogicOps.begin();
+      logic = setLogicOp.getLogic();
+      rewriter.eraseOp(setLogicOp);
+    }
+
     // Create the context and store a pointer to it in the global variable.
     Value ctx = buildCall(rewriter, loc, "Z3_mk_context", ptrToPtrFunc, config)
                     .getResult();
@@ -591,8 +603,16 @@ struct SolverOpLowering : public SMTLoweringPattern<SolverOp> {
 
     // Create a solver instance, increase its reference counter, and store a
     // pointer to it in the global variable.
-    Value solver = buildCall(rewriter, loc, "Z3_mk_solver", ptrToPtrFunc, ctx)
-                       ->getResult(0);
+    Value solver;
+    if (logic) {
+      auto logicStr = buildString(rewriter, loc, logic.value());
+      solver = buildCall(rewriter, loc, "Z3_mk_solver_for_logic",
+                         ptrPtrToPtrFunc, {ctx, logicStr})
+                   ->getResult(0);
+    } else {
+      solver = buildCall(rewriter, loc, "Z3_mk_solver", ptrToPtrFunc, ctx)
+                   ->getResult(0);
+    }
     buildCall(rewriter, loc, "Z3_solver_inc_ref", ptrPtrToVoidFunc,
               {ctx, solver});
     Value solverAddr =
@@ -661,6 +681,68 @@ struct AssertOpLowering : public SMTLoweringPattern<AssertOp> {
         LLVM::LLVMVoidType::get(getContext()),
         {buildSolverPtr(rewriter, loc), adaptor.getInput()});
 
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+/// Lower `smt.reset` operations to Z3 API calls of the form:
+/// ```
+/// void Z3_API Z3_solver_reset(Z3_context c, Z3_solver s);
+/// ```
+struct ResetOpLowering : public SMTLoweringPattern<ResetOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+
+  LogicalResult
+  matchAndRewrite(ResetOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    buildAPICallWithContext(rewriter, loc, "Z3_solver_reset",
+                            LLVM::LLVMVoidType::get(getContext()),
+                            {buildSolverPtr(rewriter, loc)});
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+/// Lower `smt.push` operations to (repeated) Z3 API calls of the form:
+/// ```
+/// void Z3_API Z3_solver_push(Z3_context c, Z3_solver s);
+/// ```
+struct PushOpLowering : public SMTLoweringPattern<PushOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+  LogicalResult
+  matchAndRewrite(PushOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    // SMTLIB allows multiple levels to be pushed with one push command, but the
+    // Z3 C API doesn't let you provide a number of levels for push calls so
+    // multiple calls have to be created.
+    for (uint32_t i = 0; i < op.getCount(); i++)
+      buildAPICallWithContext(rewriter, loc, "Z3_solver_push",
+                              LLVM::LLVMVoidType::get(getContext()),
+                              {buildSolverPtr(rewriter, loc)});
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+/// Lower `smt.pop` operations to Z3 API calls of the form:
+/// ```
+/// void Z3_API Z3_solver_pop(Z3_context c, Z3_solver s, unsigned n);
+/// ```
+struct PopOpLowering : public SMTLoweringPattern<PopOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+  LogicalResult
+  matchAndRewrite(PopOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    Value constVal = rewriter.create<LLVM::ConstantOp>(
+        loc, rewriter.getI32Type(), op.getCount());
+    buildAPICallWithContext(rewriter, loc, "Z3_solver_pop",
+                            LLVM::LLVMVoidType::get(getContext()),
+                            {buildSolverPtr(rewriter, loc), constVal});
     rewriter.eraseOp(op);
     return success();
   }
@@ -1109,6 +1191,47 @@ struct IntCmpOpLowering : public SMTLoweringPattern<IntCmpOp> {
   }
 };
 
+/// Lower `smt.int2bv` operations to the following Z3 API function calls.
+/// ```
+/// Z3_ast Z3_API Z3_mk_int2bv(Z3_context c, unsigned n, Z3_ast t1);
+/// ```
+struct Int2BVOpLowering : public SMTLoweringPattern<Int2BVOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+
+  LogicalResult
+  matchAndRewrite(Int2BVOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Value widthConst =
+        rewriter.create<LLVM::ConstantOp>(op->getLoc(), rewriter.getI32Type(),
+                                          op.getResult().getType().getWidth());
+    rewriter.replaceOp(op,
+                       buildPtrAPICall(rewriter, op.getLoc(), "Z3_mk_int2bv",
+                                       {widthConst, adaptor.getInput()}));
+    return success();
+  }
+};
+
+/// Lower `smt.bv2int` operations to the following Z3 API function call.
+/// ```
+/// Z3_ast Z3_API Z3_mk_bv2int(Z3_context c, Z3_ast t1, bool is_signed)
+/// ```
+struct BV2IntOpLowering : public SMTLoweringPattern<BV2IntOp> {
+  using SMTLoweringPattern::SMTLoweringPattern;
+
+  LogicalResult
+  matchAndRewrite(BV2IntOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // FIXME: ideally we don't want to use i1 here, since bools can sometimes be
+    // compiled to wider widths in LLVM
+    Value isSignedConst = rewriter.create<LLVM::ConstantOp>(
+        op->getLoc(), rewriter.getI1Type(), op.getIsSigned());
+    rewriter.replaceOp(op,
+                       buildPtrAPICall(rewriter, op.getLoc(), "Z3_mk_bv2int",
+                                       {adaptor.getInput(), isSignedConst}));
+    return success();
+  }
+};
+
 /// Lower `smt.bv.cmp` operations to one of the following Z3 API function calls,
 /// performing two's complement comparison, depending on the predicate
 /// attribute.
@@ -1375,11 +1498,12 @@ void circt::populateSMTToZ3LLVMConversionPatterns(
   // Other lowering patterns. Refer to their implementation directly for more
   // information.
   patterns.add<BVConstantOpLowering, DeclareFunOpLowering, AssertOpLowering,
-               CheckOpLowering, SolverOpLowering, ApplyFuncOpLowering,
-               YieldOpLowering, RepeatOpLowering, ExtractOpLowering,
-               BoolConstantOpLowering, IntConstantOpLowering,
-               ArrayBroadcastOpLowering, BVCmpOpLowering, IntCmpOpLowering,
-               IntAbsOpLowering, QuantifierLowering<ForallOp>,
+               ResetOpLowering, PushOpLowering, PopOpLowering, CheckOpLowering,
+               SolverOpLowering, ApplyFuncOpLowering, YieldOpLowering,
+               RepeatOpLowering, ExtractOpLowering, BoolConstantOpLowering,
+               IntConstantOpLowering, ArrayBroadcastOpLowering, BVCmpOpLowering,
+               IntCmpOpLowering, IntAbsOpLowering, Int2BVOpLowering,
+               BV2IntOpLowering, QuantifierLowering<ForallOp>,
                QuantifierLowering<ExistsOp>>(converter, patterns.getContext(),
                                              globals, options);
 }
@@ -1387,6 +1511,35 @@ void circt::populateSMTToZ3LLVMConversionPatterns(
 void LowerSMTToZ3LLVMPass::runOnOperation() {
   LowerSMTToZ3LLVMOptions options;
   options.debug = debug;
+
+  // Check that the lowering is possible
+  // Specifically, check that the use of set-logic ops is valid for z3
+  auto setLogicCheck = getOperation().walk([&](SolverOp solverOp)
+                                               -> WalkResult {
+    // Check that solver ops only contain one set-logic op and that they're at
+    // the start of the body
+    auto setLogicOps = solverOp.getBodyRegion().getOps<smt::SetLogicOp>();
+    auto numSetLogicOps = std::distance(setLogicOps.begin(), setLogicOps.end());
+    if (numSetLogicOps > 1) {
+      return solverOp.emitError(
+          "multiple set-logic operations found in one solver operation - Z3 "
+          "only supports setting the logic once");
+    }
+    if (numSetLogicOps == 1)
+      // Check the only ops before the set-logic op are ConstantLike
+      for (auto &blockOp : solverOp.getBodyRegion().getOps()) {
+        if (isa<smt::SetLogicOp>(blockOp))
+          break;
+        if (!blockOp.hasTrait<OpTrait::ConstantLike>()) {
+          return solverOp.emitError("set-logic operation must be the first "
+                                    "non-constant operation in a solver "
+                                    "operation");
+        }
+      }
+    return WalkResult::advance();
+  });
+  if (setLogicCheck.wasInterrupted())
+    return signalPassFailure();
 
   // Set up the type converter
   LLVMTypeConverter converter(&getContext());

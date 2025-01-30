@@ -3,14 +3,14 @@
 #  SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 from __future__ import annotations
-from re import T
 
 from .common import Clock, Input, Output, Reset
 from .dialects import comb, msft, sv
 from .module import generator, modparams, Module, _BlockContext
 from .signals import ArraySignal, BitsSignal, BitVectorSignal, Signal
 from .signals import get_slice_bounds, _FromCirctValue
-from .types import dim, types, Array, Bits, InOut, Type
+from .support import get_user_loc
+from .types import dim, types, Array, Bits, InOut, Type, UInt
 
 from .circt import ir
 from .circt.support import BackedgeBuilder
@@ -82,7 +82,8 @@ def Wire(type: Type, name: str = None):
     def __init__(self):
       self._backedge = BackedgeBuilder.create(type._type,
                                               "wire" if name is None else name,
-                                              None)
+                                              None,
+                                              loc=get_user_loc())
       super().__init__(self._backedge.result, type)
       if name is not None:
         self.name = name
@@ -134,7 +135,8 @@ def Reg(type: Type,
         clk: Signal = None,
         rst: Signal = None,
         rst_value=0,
-        ce: Signal = None):
+        ce: Signal = None,
+        name: str = None) -> Signal:
   """Declare a register. Must assign exactly once."""
 
   class RegisterValue(type._get_value_class()):
@@ -146,7 +148,7 @@ def Reg(type: Type,
       self._wire = None
 
   # Create a wire and register it.
-  wire = Wire(type)
+  wire = Wire(type, name)
   if rst_value is not None and not isinstance(rst_value, Signal):
     rst_value = type(rst_value)
   value = RegisterValue(wire.reg(clk=clk, rst=rst, rst_value=rst_value, ce=ce),
@@ -197,7 +199,7 @@ def ControlReg(clk: Signal,
                                                instance_name=name).out
 
 
-def Mux(sel: BitVectorSignal, *data_inputs: typing.List[Signal]):
+def Mux(sel: BitVectorSignal, *data_inputs: typing.List[Signal]) -> Signal:
   """Create a single mux from a list of values."""
   num_inputs = len(data_inputs)
   if num_inputs == 0:
@@ -251,3 +253,29 @@ def SystolicArray(row_inputs: ArraySignal, col_inputs: ArraySignal, pe_builder):
   dummy_op.operation.erase()
 
   return _FromCirctValue(array.peOutputs)
+
+
+@modparams
+def Counter(width: int):
+  """Construct a counter with the specified width. Increment the counter on the
+  if the increment signal is asserted."""
+
+  class Counter(Module):
+    clk = Clock()
+    rst = Reset()
+    clear = Input(Bits(1))
+    increment = Input(Bits(1))
+    out = Output(UInt(width))
+
+    @generator
+    def construct(ports):
+      count = Reg(UInt(width),
+                  clk=ports.clk,
+                  rst=ports.rst,
+                  rst_value=0,
+                  ce=ports.increment)
+      next = (count + 1).as_uint(width)
+      count.assign(Mux(ports.clear, next, UInt(width)(0)))
+      ports.out = count
+
+  return Counter

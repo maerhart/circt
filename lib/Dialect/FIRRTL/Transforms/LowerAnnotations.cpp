@@ -12,10 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "circt/Dialect/FIRRTL/FIRRTLOps.h"
-#include "circt/Dialect/FIRRTL/Passes.h"
-#include "mlir/Pass/Pass.h"
-
 #include "circt/Dialect/FIRRTL/AnnotationDetails.h"
 #include "circt/Dialect/FIRRTL/CHIRRTLDialect.h"
 #include "circt/Dialect/FIRRTL/FIRRTLAnnotationHelper.h"
@@ -25,15 +21,12 @@
 #include "circt/Dialect/FIRRTL/FIRRTLOps.h"
 #include "circt/Dialect/FIRRTL/FIRRTLTypes.h"
 #include "circt/Dialect/FIRRTL/FIRRTLUtils.h"
-#include "circt/Dialect/FIRRTL/FIRRTLVisitors.h"
-#include "circt/Dialect/FIRRTL/Namespace.h"
 #include "circt/Dialect/FIRRTL/Passes.h"
 #include "circt/Dialect/HW/HWAttributes.h"
-#include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/SV/SVAttributes.h"
 #include "circt/Support/Debug.h"
 #include "mlir/IR/Diagnostics.h"
-#include "llvm/ADT/APSInt.h"
+#include "mlir/Pass/Pass.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Debug.h"
@@ -253,10 +246,10 @@ static LogicalResult applyDUTAnno(const AnnoPathValue &target,
   if (!target.isLocal())
     return mlir::emitError(loc) << "must be local";
 
-  if (!isa<OpAnnoTarget>(target.ref) || !isa<FModuleOp>(op))
+  if (!isa<OpAnnoTarget>(target.ref) || !isa<FModuleLike>(op))
     return mlir::emitError(loc) << "can only target to a module";
 
-  auto moduleOp = cast<FModuleOp>(op);
+  auto moduleOp = cast<FModuleLike>(op);
 
   // DUT has public visibility.
   moduleOp.setPublic();
@@ -316,6 +309,108 @@ static LogicalResult applyConventionAnno(const AnnoPathValue &target,
   }
 
   return error() << "can only target to a module or extmodule";
+}
+
+static LogicalResult applyBodyTypeLoweringAnno(const AnnoPathValue &target,
+                                               DictionaryAttr anno,
+                                               ApplyState &state) {
+  auto *op = target.ref.getOp();
+  auto loc = op->getLoc();
+  auto error = [&]() {
+    auto diag = mlir::emitError(loc);
+    diag << typeLoweringAnnoClass;
+    return diag;
+  };
+
+  auto opTarget = dyn_cast<OpAnnoTarget>(target.ref);
+  if (!opTarget)
+    return error() << "must target a module object";
+
+  if (!target.isLocal())
+    return error() << "must be local";
+
+  auto moduleOp = dyn_cast<FModuleOp>(op);
+
+  if (!moduleOp)
+    return error() << "can only target to a module";
+
+  auto conventionStrAttr =
+      tryGetAs<StringAttr>(anno, anno, "convention", loc, conventionAnnoClass);
+
+  if (!conventionStrAttr)
+    return failure();
+
+  auto conventionStr = conventionStrAttr.getValue();
+  auto conventionOpt = parseConvention(conventionStr);
+  if (!conventionOpt)
+    return error() << "unknown convention " << conventionStr;
+
+  auto convention = *conventionOpt;
+
+  if (convention == Convention::Internal)
+    // Convention is internal by default so there is nothing to change
+    return success();
+
+  auto conventionAttr = ConventionAttr::get(op->getContext(), convention);
+
+  // `includeHierarchy` only valid in BodyTypeLowering.
+  bool includeHierarchy = false;
+  if (auto includeHierarchyAttr = tryGetAs<BoolAttr>(
+          anno, anno, "includeHierarchy", loc, conventionAnnoClass))
+    includeHierarchy = includeHierarchyAttr.getValue();
+
+  if (includeHierarchy) {
+    // If includeHierarchy is true, update the convention for all modules in
+    // the hierarchy.
+    for (auto *node :
+         llvm::post_order(state.instancePathCache.instanceGraph[moduleOp])) {
+      if (!node)
+        continue;
+      if (auto fmodule = dyn_cast<FModuleOp>(*node->getModule()))
+        fmodule->setAttr("body_type_lowering", conventionAttr);
+    }
+  } else {
+    // Update the convention.
+    moduleOp->setAttr("body_type_lowering", conventionAttr);
+  }
+
+  return success();
+}
+
+static LogicalResult applyModulePrefixAnno(const AnnoPathValue &target,
+                                           DictionaryAttr anno,
+                                           ApplyState &state) {
+  auto *op = target.ref.getOp();
+  auto loc = op->getLoc();
+  auto error = [&]() {
+    auto diag = mlir::emitError(loc);
+    diag << modulePrefixAnnoClass << " ";
+    return diag;
+  };
+
+  auto opTarget = dyn_cast<OpAnnoTarget>(target.ref);
+  if (!opTarget)
+    return error() << "must target an operation";
+
+  if (!isa<SeqMemOp, CombMemOp, MemOp>(opTarget.getOp()))
+    return error() << "must target a memory operation";
+
+  if (!target.isLocal())
+    return error() << "must be local";
+
+  auto prefixStrAttr =
+      tryGetAs<StringAttr>(anno, anno, "prefix", loc, modulePrefixAnnoClass);
+  if (!prefixStrAttr)
+    return failure();
+
+  if (auto mem = dyn_cast<SeqMemOp>(op))
+    mem.setPrefixAttr(prefixStrAttr);
+  else if (auto mem = dyn_cast<CombMemOp>(op))
+    mem.setPrefixAttr(prefixStrAttr);
+  else if (auto mem = dyn_cast<MemOp>(op))
+    mem.setPrefixAttr(prefixStrAttr);
+
+  return success();
 }
 
 static LogicalResult applyAttributeAnnotation(const AnnoPathValue &target,
@@ -522,19 +617,14 @@ static llvm::StringMap<AnnoRecord> annotationRecords{{
     {memTapSourceClass, {stdResolve, applyWithoutTarget<true>}},
     {memTapPortClass, {stdResolve, applyWithoutTarget<true>}},
     {memTapBlackboxClass, {stdResolve, applyWithoutTarget<true>}},
-    // OMIR Annotations
-    {omirAnnoClass, {noResolve, applyOMIR}},
-    {omirTrackerAnnoClass, {stdResolve, applyWithoutTarget<true>}},
-    {omirFileAnnoClass, NoTargetAnnotation},
     // Miscellaneous Annotations
     {conventionAnnoClass, {stdResolve, applyConventionAnno}},
+    {typeLoweringAnnoClass, {stdResolve, applyBodyTypeLoweringAnno}},
     {dontTouchAnnoClass,
      {stdResolve, applyWithoutTarget<true, true, WireOp, NodeOp, RegOp,
                                      RegResetOp, InstanceOp, MemOp, CombMemOp,
                                      MemoryPortOp, SeqMemOp>}},
-    {prefixModulesAnnoClass,
-     {stdResolve,
-      applyWithoutTarget<true, FModuleOp, FExtModuleOp, InstanceOp>}},
+    {modulePrefixAnnoClass, {stdResolve, applyModulePrefixAnno}},
     {dutAnnoClass, {stdResolve, applyDUTAnno}},
     {extractSeqMemsAnnoClass, NoTargetAnnotation},
     {injectDUTHierarchyAnnoClass, NoTargetAnnotation},
@@ -572,7 +662,6 @@ static llvm::StringMap<AnnoRecord> annotationRecords{{
     {testBenchDirAnnoClass, NoTargetAnnotation},
     {testHarnessHierAnnoClass, NoTargetAnnotation},
     {testHarnessPathAnnoClass, NoTargetAnnotation},
-    {prefixInterfacesAnnoClass, NoTargetAnnotation},
     {extractAssertAnnoClass, NoTargetAnnotation},
     {extractAssumeAnnoClass, NoTargetAnnotation},
     {extractCoverageAnnoClass, NoTargetAnnotation},

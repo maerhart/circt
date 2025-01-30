@@ -309,7 +309,9 @@ void ConstantOp::build(OpBuilder &builder, OperationState &result,
 void ConstantOp::build(OpBuilder &builder, OperationState &result, Type type,
                        int64_t value) {
   auto numBits = cast<IntegerType>(type).getWidth();
-  build(builder, result, APInt(numBits, (uint64_t)value, /*isSigned=*/true));
+  build(builder, result,
+        APInt(numBits, (uint64_t)value, /*isSigned=*/true,
+              /*implicitTrunc=*/true));
 }
 
 void ConstantOp::getAsmResultNames(
@@ -1476,7 +1478,7 @@ void InstanceOp::build(OpBuilder &builder, OperationState &result,
   FunctionType funcType = resolvedModType->getFuncType();
   build(builder, result, funcType.getResults(), name,
         FlatSymbolRefAttr::get(SymbolTable::getSymbolName(module)), inputs,
-        argNames, resultNames, parameters, innerSym);
+        argNames, resultNames, parameters, innerSym, /*doNotPrint=*/{});
 }
 
 std::optional<size_t> InstanceOp::getTargetResultIndex() {

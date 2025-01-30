@@ -15,12 +15,11 @@
 #include "circt/Dialect/FIRRTL/Passes.h"
 #include "circt/Support/Debug.h"
 #include "mlir/IR/Dominance.h"
-#include "mlir/IR/Iterators.h"
 #include "mlir/IR/Threading.h"
-#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/ControlFlowSinkUtils.h"
+#include "llvm/ADT/PostOrderIterator.h"
 
 #define DEBUG_TYPE "firrtl-layer-sink"
 
@@ -84,7 +83,7 @@ public:
 
   /// True if the given operation is NOT moveable due to some effect.
   bool effectful(Operation *op) const {
-    if (!AnnotationSet(op).canBeDeleted() || hasDontTouch(op))
+    if (!AnnotationSet(op).empty() || hasDontTouch(op))
       return true;
     if (auto name = dyn_cast<FNamableOp>(op))
       if (!name.hasDroppableName())
@@ -112,9 +111,18 @@ private:
     });
   }
 
+  /// Record whether the module-like op contains any effectful op.
   void update(FModuleLike moduleOp) {
-    if (!AnnotationSet(moduleOp).canBeDeleted())
-      return markEffectful(moduleOp);
+    // If the module op has any annotations, then we pretend the module contains
+    // some kind of important effect, so that we cannot sink its instances.
+    if (auto annos = getAnnotationsIfPresent(moduleOp))
+      if (!annos.empty())
+        return markEffectful(moduleOp);
+
+    for (auto annos : moduleOp.getPortAnnotations())
+      if (!cast<ArrayAttr>(annos).empty())
+        return markEffectful(moduleOp);
+
     auto *op = moduleOp.getOperation();
     // Regular modules may be pure.
     if (auto m = dyn_cast<FModuleOp>(op))

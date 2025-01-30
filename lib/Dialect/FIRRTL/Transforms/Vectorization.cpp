@@ -13,7 +13,6 @@
 
 #include "circt/Dialect/FIRRTL/FIRRTLOps.h"
 #include "circt/Dialect/FIRRTL/FIRRTLTypes.h"
-#include "circt/Dialect/FIRRTL/FIRRTLUtils.h"
 #include "circt/Dialect/FIRRTL/Passes.h"
 #include "circt/Support/Debug.h"
 #include "circt/Support/LLVM.h"
@@ -97,7 +96,7 @@ void VectorizationPass::runOnOperation() {
               VectorCreateToLogicElementwise<XorPrimOp, ElementwiseXorPrimOp>>(
           &getContext());
   mlir::FrozenRewritePatternSet frozenPatterns(std::move(patterns));
-  (void)applyPatternsAndFoldGreedily(getOperation(), frozenPatterns);
+  (void)applyPatternsGreedily(getOperation(), frozenPatterns);
 }
 
 std::unique_ptr<mlir::Pass> circt::firrtl::createVectorizationPass() {

@@ -282,7 +282,8 @@ LogicalResult canonicalizePassthoughCall(mlir::CallOpInterface callOp,
                                          SymbolHandler &symbolCache,
                                          PatternRewriter &rewriter) {
   auto defOp = cast<DefineOp>(symbolCache.getDefinition(
-      callOp.getCallableForCallee().get<SymbolRefAttr>().getLeafReference()));
+      llvm::cast<SymbolRefAttr>(callOp.getCallableForCallee())
+          .getLeafReference()));
   if (defOp.isPassthrough()) {
     symbolCache.removeUser(defOp, callOp);
     rewriter.replaceOp(callOp, callOp.getArgOperands());
@@ -446,7 +447,8 @@ ICMPCanonicalizer::matchAndRewrite(comb::ICmpOp op,
           }
           rewriter.replaceOpWithNewOp<comb::ICmpOp>(
               op, op.getPredicate(), andOp,
-              getConstant(APInt(*optionalWidth, rhs.getZExtValue())),
+              getConstant(APInt(*optionalWidth, rhs.getZExtValue(),
+                                /*isSigned=*/false, /*implicitTrunc=*/true)),
               op.getTwoState());
           return success();
         }
@@ -464,7 +466,8 @@ ICMPCanonicalizer::matchAndRewrite(comb::ICmpOp op,
           }
           rewriter.replaceOpWithNewOp<comb::ICmpOp>(
               op, op.getPredicate(), orOp,
-              getConstant(APInt(*optionalWidth, rhs.getZExtValue())),
+              getConstant(APInt(*optionalWidth, rhs.getZExtValue(),
+                                /*isSigned=*/false, /*implicitTrunc=*/true)),
               op.getTwoState());
           return success();
         }
@@ -800,8 +803,8 @@ void ArcCanonicalizerPass::runOnOperation() {
   symbolPatterns.add<MemWritePortEnableAndMaskCanonicalizer>(
       &getContext(), cache, names, statistics, arcMapping);
 
-  if (failed(mlir::applyPatternsAndFoldGreedily(
-          getOperation(), std::move(symbolPatterns), config)))
+  if (failed(mlir::applyPatternsGreedily(getOperation(),
+                                         std::move(symbolPatterns), config)))
     return signalPassFailure();
 
   numArcArgsRemoved = statistics.removeUnusedArcArgumentsPatternNumArgsRemoved;
@@ -815,8 +818,8 @@ void ArcCanonicalizerPass::runOnOperation() {
                KeepOneVecOp>(&getContext());
 
   // Don't test for convergence since it is often not reached.
-  (void)mlir::applyPatternsAndFoldGreedily(getOperation(), std::move(patterns),
-                                           config);
+  (void)mlir::applyPatternsGreedily(getOperation(), std::move(patterns),
+                                    config);
 }
 
 std::unique_ptr<mlir::Pass> arc::createArcCanonicalizerPass() {

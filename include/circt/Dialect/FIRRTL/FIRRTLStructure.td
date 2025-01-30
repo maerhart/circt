@@ -36,7 +36,8 @@ def CircuitOp : FIRRTLOp<"circuit",
     DefaultValuedAttr<AnnotationArrayAttr, "{}">:$annotations,
     OptionalAttr<SymbolRefArrayAttr>:$enable_layers,
     OptionalAttr<SymbolRefArrayAttr>:$disable_layers,
-    OptionalAttr<LayerSpecializationAttr>:$default_layer_specialization
+    OptionalAttr<LayerSpecializationAttr>:$default_layer_specialization,
+    OptionalAttr<ArrayAttr>:$select_inst_choice
   );
   let results = (outs);
   let regions = (region SizedRegion<1>:$body);
@@ -134,7 +135,8 @@ def FModuleOp : FIRRTLModuleLike<"module", [SingleBlock, NoTerminator]> {
     the module.
   }];
   let arguments =
-      (ins ConventionAttr:$convention,
+      (ins SymbolNameAttr:$sym_name,
+           ConventionAttr:$convention,
            DenseBoolArrayAttr:$portDirections,
            ArrayRefAttr:$portLocations,
            ArrayRefAttr:$portAnnotations,
@@ -196,7 +198,8 @@ def FExtModuleOp : FIRRTLModuleLike<"extmodule"> {
     port must be removed by LowerXMR pass.
   }];
   let arguments = 
-      (ins OptionalAttr<StrAttr>:$defname,
+      (ins SymbolNameAttr:$sym_name,
+           OptionalAttr<StrAttr>:$defname,
            ParamDeclArrayAttr:$parameters,
            ConventionAttr:$convention,
            DenseBoolArrayAttr:$portDirections,
@@ -239,7 +242,8 @@ def FIntModuleOp : FIRRTLModuleLike<"intmodule"> {
     The "firrtl.intmodule" operation represents a compiler intrinsic.
   }];
   let arguments = 
-      (ins StrAttr:$intrinsic,
+      (ins SymbolNameAttr:$sym_name,
+           StrAttr:$intrinsic,
            ParamDeclArrayAttr:$parameters,
            DenseBoolArrayAttr:$portDirections,
            ArrayRefAttr:$portLocations,
@@ -285,7 +289,8 @@ def FMemModuleOp : FIRRTLModuleLike<"memmodule"> {
     are not directly lowered to registers by the compiler.
   }];
   let arguments =
-      (ins UI32Attr:$numReadPorts, UI32Attr:$numWritePorts,
+      (ins SymbolNameAttr:$sym_name,
+           UI32Attr:$numReadPorts, UI32Attr:$numWritePorts,
            UI32Attr:$numReadWritePorts, UI32Attr:$dataWidth, UI32Attr:$maskBits,
            UI32Attr:$readLatency, UI32Attr:$writeLatency, UI64Attr:$depth,
            ArrayAttr:$extraPorts,
@@ -455,6 +460,7 @@ def LayerOp : FIRRTLOp<
   let assemblyFormat = [{
     $sym_name `` $convention attr-dict-with-keyword $body
   }];
+  let hasVerifier = 1;
 }
 
 def OptionOp : FIRRTLOp<"option", [
@@ -506,6 +512,42 @@ def OptionCaseOp : FIRRTLOp<
   let results = (outs);
   let assemblyFormat = [{
     $sym_name attr-dict
+  }];
+}
+
+def FormalOp : FIRRTLOp<"formal", [
+  HasParent<"firrtl::CircuitOp">,
+  DeclareOpInterfaceMethods<Symbol>,
+  DeclareOpInterfaceMethods<SymbolUserOpInterface>
+]> {
+  let summary = "Define a formal unit test";
+  let description = [{
+    The `firrtl.formal` operation defines a formal verification unit test. The
+    defines a unique symbol name that can be used to refer to it. The design to
+    be tested and any necessary test harness is defined by the separate
+    `firrtl.module` op referenced by `moduleName`. Additional parameters may be
+    specified for the unit test. Input ports of the target module are considered
+    to be symbolic values during the test; output ports are ignored.
+
+    This operation may be used to mark unit tests in a FIRRTL design, which
+    other tools may later pick up and run automatically. It is intended to lower
+    to the `verif.formal` operation. See `verif.formal` for more details.
+
+    Example:
+    ```mlir
+    firrtl.module @MyTest(in %a: !firrtl.uint<42>) {}
+    firrtl.formal @myTestA, @MyTest {bound = 42}
+    firrtl.formal @myTestB, @MyTest {mode = "induction", userAttr = 9001}
+    ```
+  }];
+
+  let arguments = (ins
+    SymbolNameAttr:$sym_name,
+    FlatSymbolRefAttr:$moduleName,
+    DictionaryAttr:$parameters
+  );
+  let assemblyFormat = [{
+    $sym_name `,` $moduleName $parameters attr-dict-with-keyword
   }];
 }
 

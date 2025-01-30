@@ -1,4 +1,4 @@
-// RUN: circt-opt -pass-pipeline='builtin.module(firrtl.circuit(firrtl-imconstprop))' --split-input-file  %s | FileCheck %s
+// RUN: circt-opt --firrtl-imconstprop --split-input-file --allow-unregistered-dialect %s | FileCheck %s
 
 firrtl.circuit "Test" {
 
@@ -883,77 +883,6 @@ firrtl.circuit "RefSubOpPropagate" {
 
 // -----
 
-// OMIR annotation should not block removal.
-//   - See: https://github.com/llvm/circt/issues/6199
-//
-// CHECK-LABEL: firrtl.circuit "OMIRRemoval"
-firrtl.circuit "OMIRRemoval" {
-  firrtl.module @OMIRRemoval(
-    out %a: !firrtl.uint<1>,
-    out %b: !firrtl.uint<2>,
-    out %c: !firrtl.uint<3>,
-    out %d: !firrtl.uint<4>
-  ) {
-    %c1_ui1  = firrtl.constant 1  : !firrtl.uint<1>
-    %c3_ui2  = firrtl.constant 3  : !firrtl.uint<2>
-    %c7_ui3  = firrtl.constant 7  : !firrtl.uint<3>
-    %c15_ui4 = firrtl.constant 15 : !firrtl.uint<4>
-
-    // CHECK-NOT: %tmp_0
-    %tmp_0 = firrtl.node %c1_ui1 {
-      annotations = [
-        {
-           class = "freechips.rocketchip.objectmodel.OMIRTracker",
-           id = 0 : i64,
-           type = "OMReferenceTarget"
-        }
-      ]} : !firrtl.uint<1>
-    firrtl.matchingconnect %a, %tmp_0 : !firrtl.uint<1>
-
-    // CHECK-NOT: %tmp_1
-    %tmp_1 = firrtl.node %c3_ui2 {
-      annotations = [
-        {
-           class = "freechips.rocketchip.objectmodel.OMIRTracker",
-           id = 1 : i64,
-           type = "OMMemberReferenceTarget"
-        }
-      ]} : !firrtl.uint<2>
-    firrtl.matchingconnect %b, %tmp_1 : !firrtl.uint<2>
-
-    // CHECK-NOT: %tmp_2
-    %tmp_2 = firrtl.node %c7_ui3 {
-      annotations = [
-        {
-           class = "freechips.rocketchip.objectmodel.OMIRTracker",
-           id = 3 : i64,
-           type = "OMMemberInstanceTarget"
-        }
-      ]} : !firrtl.uint<3>
-    firrtl.matchingconnect %c, %tmp_2 : !firrtl.uint<3>
-
-    // Adding one additional annotation will block removal.
-    //
-    // CHECK: %tmp_3
-    %tmp_3 = firrtl.node %c15_ui4 {
-      annotations = [
-        {
-           class = "freechips.rocketchip.objectmodel.OMIRTracker",
-           id = 4 : i64,
-           type = "OMReferenceTarget"
-        },
-        {
-           class = "circt.test"
-        }
-      ]} : !firrtl.uint<4>
-    // CHECK-NEXT: firrtl.matchingconnect %d, %c15_ui4
-    firrtl.matchingconnect %d, %tmp_3 : !firrtl.uint<4>
-  }
-}
-
-
-// -----
-
 firrtl.circuit "Layers" {
   // CHECK-LABEL: firrtl.module @Layers
   firrtl.layer @A bind {}
@@ -966,4 +895,39 @@ firrtl.circuit "Layers" {
       %b = firrtl.node sym @sym_b %a : !firrtl.uint<1>
     }
   }
+}
+
+// -----
+
+// CHECK-LABEL: firrtl.circuit "PublicTop"
+firrtl.circuit "PublicTop" {
+  // CHECK-LABEL: firrtl.module private @Foo
+  firrtl.module private @Foo(in %a: !firrtl.uint<1>) {
+    // CHECK-NOT: firrtl.constant 0
+    // CHECK: firrtl.int.verif.assert %a
+    firrtl.int.verif.assert %a : !firrtl.uint<1>
+  }
+  // CHECK-LABEL: firrtl.module private @Bar
+  firrtl.module private @Bar(in %a: !firrtl.uint<1>) {
+    // CHECK-NOT: firrtl.constant 0
+    // CHECK: firrtl.int.verif.assert %a
+    firrtl.int.verif.assert %a : !firrtl.uint<1>
+  }
+  firrtl.module @PublicTop() {
+    %c0_ui1 = firrtl.constant 0 : !firrtl.uint<1>
+    %foo_a = firrtl.instance foo @Foo(in a: !firrtl.uint<1>)
+    %bar_a = firrtl.instance bar @Bar(in a: !firrtl.uint<1>)
+    firrtl.matchingconnect %foo_a, %c0_ui1 : !firrtl.uint<1>
+    firrtl.matchingconnect %bar_a, %c0_ui1 : !firrtl.uint<1>
+  }
+  firrtl.module private @PrivateTop1(in %a: !firrtl.uint<1>) {
+    %foo_a = firrtl.instance foo @Foo(in a: !firrtl.uint<1>)
+    firrtl.matchingconnect %foo_a, %a : !firrtl.uint<1>
+  }
+  firrtl.module private @PrivateTop2(in %a: !firrtl.uint<1>) {
+    %bar_a = firrtl.instance bar @Bar(in a: !firrtl.uint<1>)
+    firrtl.matchingconnect %bar_a, %a : !firrtl.uint<1>
+  }
+  firrtl.formal @Test, @PrivateTop1 {}
+  "some_unknown_dialect.op"() { magic = @PrivateTop2 } : () -> ()
 }

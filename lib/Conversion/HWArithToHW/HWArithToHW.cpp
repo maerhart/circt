@@ -119,6 +119,8 @@ static bool isSignednessType(Type type) {
           })
           .Case<hw::InOutType>(
               [](auto type) { return isSignednessType(type.getElementType()); })
+          .Case<hw::TypeAliasType>(
+              [](auto type) { return isSignednessType(type.getInnerType()); })
           .Default([](auto type) { return false; });
 
   return match;
@@ -378,6 +380,10 @@ Type HWArithToHWTypeConverter::removeSignedness(Type type) {
           .Case<hw::InOutType>([this](auto type) {
             return hw::InOutType::get(removeSignedness(type.getElementType()));
           })
+          .Case<hw::TypeAliasType>([this](auto type) {
+            return hw::TypeAliasType::get(
+                type.getRef(), removeSignedness(type.getInnerType()));
+          })
           .Default([](auto type) { return type; });
 
   return convertedType;
@@ -387,27 +393,25 @@ HWArithToHWTypeConverter::HWArithToHWTypeConverter() {
   // Pass any type through the signedness remover.
   addConversion([this](Type type) { return removeSignedness(type); });
 
-  addTargetMaterialization(
-      [&](mlir::OpBuilder &builder, mlir::Type resultType,
-          mlir::ValueRange inputs,
-          mlir::Location loc) -> std::optional<mlir::Value> {
-        if (inputs.size() != 1)
-          return std::nullopt;
-        return builder
-            .create<UnrealizedConversionCastOp>(loc, resultType, inputs[0])
-            ->getResult(0);
-      });
+  addTargetMaterialization([&](mlir::OpBuilder &builder, mlir::Type resultType,
+                               mlir::ValueRange inputs,
+                               mlir::Location loc) -> mlir::Value {
+    if (inputs.size() != 1)
+      return Value();
+    return builder
+        .create<UnrealizedConversionCastOp>(loc, resultType, inputs[0])
+        ->getResult(0);
+  });
 
-  addSourceMaterialization(
-      [&](mlir::OpBuilder &builder, mlir::Type resultType,
-          mlir::ValueRange inputs,
-          mlir::Location loc) -> std::optional<mlir::Value> {
-        if (inputs.size() != 1)
-          return std::nullopt;
-        return builder
-            .create<UnrealizedConversionCastOp>(loc, resultType, inputs[0])
-            ->getResult(0);
-      });
+  addSourceMaterialization([&](mlir::OpBuilder &builder, mlir::Type resultType,
+                               mlir::ValueRange inputs,
+                               mlir::Location loc) -> mlir::Value {
+    if (inputs.size() != 1)
+      return Value();
+    return builder
+        .create<UnrealizedConversionCastOp>(loc, resultType, inputs[0])
+        ->getResult(0);
+  });
 }
 
 //===----------------------------------------------------------------------===//

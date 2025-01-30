@@ -734,10 +734,46 @@ firrtl.circuit "Test" attributes {rawAnnotations = [
 // -----
 
 firrtl.circuit "Test" attributes {rawAnnotations =[
-  {class = "circt.ConventionAnnotation", target = "~Test|Test", convention = "scalarized"}
+  {class = "circt.ConventionAnnotation", target = "~Test|Test", convention = "scalarized"},
+  {class = "circt.BodyTypeLoweringAnnotation", target = "~Test|Test", convention = "scalarized", includeHierarchy = false}
   ]} {
-  // CHECK: attributes {convention = #firrtl<convention scalarized>}
+  // CHECK: attributes {body_type_lowering = #firrtl<convention scalarized>, convention = #firrtl<convention scalarized>}
   firrtl.module @Test() attributes {convention = #firrtl<convention internal>} {}
+}
+
+// -----
+
+firrtl.circuit "Test" attributes {rawAnnotations = [
+    {class = "circt.ConventionAnnotation", target = "~Test|Test", convention = "scalarized"},
+    {class = "circt.BodyTypeLoweringAnnotation", target = "~Test|Test", convention = "scalarized", includeHierarchy = true}
+  ]} {
+  // CHECK: @Test() attributes {body_type_lowering = #firrtl<convention scalarized>, convention = #firrtl<convention scalarized>}
+  firrtl.module @Test() attributes {convention = #firrtl<convention internal>} {
+    firrtl.instance child @Child()
+  }
+
+  // CHECK: @Child() attributes {body_type_lowering = #firrtl<convention scalarized>}
+  firrtl.module @Child() attributes {convention = #firrtl<convention internal>} {}
+
+  // CHECK: @Child2() {
+  firrtl.module @Child2() attributes {convention = #firrtl<convention internal>} {}
+}
+
+// -----
+
+firrtl.circuit "Test" attributes {rawAnnotations =[
+  {class = "chisel3.ModulePrefixAnnotation", target = "~Test|Test>comb", prefix = "Prefix_"},
+  {class = "chisel3.ModulePrefixAnnotation", target = "~Test|Test>seq", prefix = "Prefix_"},
+  {class = "chisel3.ModulePrefixAnnotation", target = "~Test|Test>mem", prefix = "Prefix_"}
+  ]} {
+  firrtl.module @Test() {
+    // CHECK: %comb = chirrtl.combmem {prefix = "Prefix_"} : !chirrtl.cmemory<vector<uint<1>, 2>, 256>
+    %comb = chirrtl.combmem : !chirrtl.cmemory<vector<uint<1>, 2>, 256>
+    // CHECK: %seq = chirrtl.seqmem Undefined {prefix = "Prefix_"} : !chirrtl.cmemory<vector<uint<1>, 2>, 256>
+    %seq = chirrtl.seqmem Undefined : !chirrtl.cmemory<vector<uint<1>, 2>, 256>
+    // CHECK: %mem_w = firrtl.mem Undefined {depth = 8 : i64, name = "mem", portNames = ["w"], prefix = "Prefix_", readLatency = 0 : i32, writeLatency = 1 : i32} : !firrtl.bundle<addr: uint<3>, en: uint<1>, clk: clock, data: uint<4>, mask: uint<1>> 
+    %mem_w = firrtl.mem Undefined  {depth = 8 : i64, name = "mem", portNames = ["w"], readLatency = 0 : i32, writeLatency = 1 : i32} : !firrtl.bundle<addr: uint<3>, en: uint<1>, clk: clock, data: uint<4>, mask: uint<1>>
+  }
 }
 
 // -----

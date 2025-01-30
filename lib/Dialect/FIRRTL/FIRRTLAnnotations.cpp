@@ -191,16 +191,6 @@ bool AnnotationSet::removeDontTouch(Operation *op) {
   return changed;
 }
 
-bool AnnotationSet::canBeDeleted() const {
-  return llvm::all_of(annotations, [](Attribute attr) {
-    return Annotation(attr).canBeDeleted();
-  });
-}
-
-bool AnnotationSet::canBeDeleted(Operation *op) {
-  return AnnotationSet(op).canBeDeleted();
-}
-
 /// Add more annotations to this AttributeSet.
 void AnnotationSet::addAnnotations(ArrayRef<Annotation> newAnnotations) {
   if (newAnnotations.empty())
@@ -438,18 +428,6 @@ void Annotation::removeMember(StringRef name) {
   setDict(DictionaryAttr::getWithSorted(dict.getContext(), attributes));
 }
 
-bool Annotation::canBeDeleted() {
-
-  // The only annotations which can be deleted are OM-affiliated.
-  if (!isClass(omirTrackerAnnoClass))
-    return false;
-
-  auto tpe = getMember<StringAttr>("type");
-  return tpe &&
-         (tpe == "OMReferenceTarget" || tpe == "OMMemberReferenceTarget" ||
-          tpe == "OMMemberInstanceTarget");
-}
-
 void Annotation::dump() { attr.dump(); }
 
 //===----------------------------------------------------------------------===//
@@ -578,41 +556,4 @@ FIRRTLType PortAnnoTarget::getType() const {
     return type_cast<FIRRTLType>(op->getResult(getPortNo()).getType());
   llvm_unreachable("unknown operation kind");
   return {};
-}
-
-//===----------------------------------------------------------------------===//
-// Annotation Details
-//===----------------------------------------------------------------------===//
-
-/// Check if an OMIR type is a string-encoded value that the FIRRTL dialect
-/// simply passes through as a string without any decoding.
-bool circt::firrtl::isOMIRStringEncodedPassthrough(StringRef type) {
-  return type == "OMID" || type == "OMReference" || type == "OMBigInt" ||
-         type == "OMLong" || type == "OMString" || type == "OMDouble" ||
-         type == "OMBigDecimal" || type == "OMDeleted";
-}
-
-//===----------------------------------------------------------------------===//
-// Utilities for Specific Annotations
-//
-// TODO: Remove these in favor of first-class annotations.
-//===----------------------------------------------------------------------===//
-
-LogicalResult circt::firrtl::extractDUT(const FModuleOp mod, FModuleOp &dut) {
-  if (!AnnotationSet(mod).hasAnnotation(dutAnnoClass))
-    return success();
-
-  // TODO: This check is duplicated multiple places. This should be factored
-  // out as part of the annotation lowering pass.
-  if (dut) {
-    auto diag = emitError(mod->getLoc())
-                << "is marked with a '" << dutAnnoClass << "', but '"
-                << dut.getModuleName()
-                << "' also had such an annotation (this should "
-                   "be impossible!)";
-    diag.attachNote(dut.getLoc()) << "the first DUT was found here";
-    return failure();
-  }
-  dut = mod;
-  return success();
 }

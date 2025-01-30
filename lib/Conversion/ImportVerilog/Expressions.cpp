@@ -69,6 +69,28 @@ struct RvalueExprVisitor {
     return {};
   }
 
+  // Handle hierarchical values, such as `x = Top.sub.var`.
+  Value visit(const slang::ast::HierarchicalValueExpression &expr) {
+    auto hierLoc = context.convertLocation(expr.symbol.location);
+    if (auto value = context.valueSymbols.lookup(&expr.symbol)) {
+      if (isa<moore::RefType>(value.getType())) {
+        auto readOp = builder.create<moore::ReadOp>(hierLoc, value);
+        if (context.rvalueReadCallback)
+          context.rvalueReadCallback(readOp);
+        value = readOp.getResult();
+      }
+      return value;
+    }
+
+    // Emit an error for those hierarchical values not recorded in the
+    // `valueSymbols`.
+    auto d = mlir::emitError(loc, "unknown hierarchical name `")
+             << expr.symbol.name << "`";
+    d.attachNote(hierLoc) << "no rvalue generated for "
+                          << slang::ast::toString(expr.symbol.kind);
+    return {};
+  }
+
   // Handle type conversions (explicit and implicit).
   Value visit(const slang::ast::ConversionExpression &expr) {
     auto type = context.convertType(*expr.type);
@@ -787,6 +809,76 @@ struct RvalueExprVisitor {
     return visitAssignmentPattern(expr, *count);
   }
 
+  Value visit(const slang::ast::StreamingConcatenationExpression &expr) {
+    SmallVector<Value> operands;
+    for (auto stream : expr.streams()) {
+      auto operandLoc = context.convertLocation(stream.operand->sourceRange);
+      if (!stream.constantWithWidth.has_value() && stream.withExpr) {
+        mlir::emitError(operandLoc)
+            << "Moore only support streaming "
+               "concatenation with fixed size 'with expression'";
+        return {};
+      }
+      Value value;
+      if (stream.constantWithWidth.has_value()) {
+        value = context.convertRvalueExpression(*stream.withExpr);
+        auto type = cast<moore::UnpackedType>(value.getType());
+        auto intType = moore::IntType::get(
+            context.getContext(), type.getBitSize().value(), type.getDomain());
+        // Do not care if it's signed, because we will not do expansion.
+        value = context.materializeConversion(intType, value, false, loc);
+      } else {
+        value = context.convertRvalueExpression(*stream.operand);
+      }
+
+      if (!value)
+        return {};
+      value = context.convertToSimpleBitVector(value);
+      if (!value) {
+        return {};
+      }
+      operands.push_back(value);
+    }
+    Value value;
+
+    if (operands.size() == 1) {
+      // There must be at least one element, otherwise slang will report an
+      // error.
+      value = operands.front();
+    } else {
+      value = builder.create<moore::ConcatOp>(loc, operands).getResult();
+    }
+
+    if (expr.sliceSize == 0) {
+      return value;
+    }
+
+    auto type = cast<moore::IntType>(value.getType());
+    SmallVector<Value> slicedOperands;
+    auto iterMax = type.getWidth() / expr.sliceSize;
+    auto remainSize = type.getWidth() % expr.sliceSize;
+
+    for (size_t i = 0; i < iterMax; i++) {
+      auto extractResultType = moore::IntType::get(
+          context.getContext(), expr.sliceSize, type.getDomain());
+
+      auto extracted = builder.create<moore::ExtractOp>(
+          loc, extractResultType, value, i * expr.sliceSize);
+      slicedOperands.push_back(extracted);
+    }
+    // Handle other wire
+    if (remainSize) {
+      auto extractResultType = moore::IntType::get(
+          context.getContext(), remainSize, type.getDomain());
+
+      auto extracted = builder.create<moore::ExtractOp>(
+          loc, extractResultType, value, iterMax * expr.sliceSize);
+      slicedOperands.push_back(extracted);
+    }
+
+    return builder.create<moore::ConcatOp>(loc, slicedOperands);
+  }
+
   /// Emit an error for all other expressions.
   template <typename T>
   Value visit(T &&node) {
@@ -816,6 +908,20 @@ struct LvalueExprVisitor {
     if (auto value = context.valueSymbols.lookup(&expr.symbol))
       return value;
     auto d = mlir::emitError(loc, "unknown name `") << expr.symbol.name << "`";
+    d.attachNote(context.convertLocation(expr.symbol.location))
+        << "no lvalue generated for " << slang::ast::toString(expr.symbol.kind);
+    return {};
+  }
+
+  // Handle hierarchical values, such as `Top.sub.var = x`.
+  Value visit(const slang::ast::HierarchicalValueExpression &expr) {
+    if (auto value = context.valueSymbols.lookup(&expr.symbol))
+      return value;
+
+    // Emit an error for those hierarchical values not recorded in the
+    // `valueSymbols`.
+    auto d = mlir::emitError(loc, "unknown hierarchical name `")
+             << expr.symbol.name << "`";
     d.attachNote(context.convertLocation(expr.symbol.location))
         << "no lvalue generated for " << slang::ast::toString(expr.symbol.kind);
     return {};
@@ -923,6 +1029,75 @@ struct LvalueExprVisitor {
     return builder.create<moore::DynExtractRefOp>(
         loc, moore::RefType::get(cast<moore::UnpackedType>(type)), value,
         dynLowBit);
+  }
+
+  Value visit(const slang::ast::StreamingConcatenationExpression &expr) {
+    SmallVector<Value> operands;
+    for (auto stream : expr.streams()) {
+      auto operandLoc = context.convertLocation(stream.operand->sourceRange);
+      if (!stream.constantWithWidth.has_value() && stream.withExpr) {
+        mlir::emitError(operandLoc)
+            << "Moore only support streaming "
+               "concatenation with fixed size 'with expression'";
+        return {};
+      }
+      Value value;
+      if (stream.constantWithWidth.has_value()) {
+        value = context.convertLvalueExpression(*stream.withExpr);
+        auto type = cast<moore::UnpackedType>(
+            cast<moore::RefType>(value.getType()).getNestedType());
+        auto intType = moore::RefType::get(moore::IntType::get(
+            context.getContext(), type.getBitSize().value(), type.getDomain()));
+        // Do not care if it's signed, because we will not do expansion.
+        value = context.materializeConversion(intType, value, false, loc);
+      } else {
+        value = context.convertLvalueExpression(*stream.operand);
+      }
+
+      if (!value)
+        return {};
+      operands.push_back(value);
+    }
+    Value value;
+    if (operands.size() == 1) {
+      // There must be at least one element, otherwise slang will report an
+      // error.
+      value = operands.front();
+    } else {
+      value = builder.create<moore::ConcatRefOp>(loc, operands).getResult();
+    }
+
+    if (expr.sliceSize == 0) {
+      return value;
+    }
+
+    auto type = cast<moore::IntType>(
+        cast<moore::RefType>(value.getType()).getNestedType());
+    SmallVector<Value> slicedOperands;
+    auto widthSum = type.getWidth();
+    auto domain = type.getDomain();
+    auto iterMax = widthSum / expr.sliceSize;
+    auto remainSize = widthSum % expr.sliceSize;
+
+    for (size_t i = 0; i < iterMax; i++) {
+      auto extractResultType = moore::RefType::get(
+          moore::IntType::get(context.getContext(), expr.sliceSize, domain));
+
+      auto extracted = builder.create<moore::ExtractRefOp>(
+          loc, extractResultType, value, i * expr.sliceSize);
+      slicedOperands.push_back(extracted);
+    }
+    // Handle other wire
+    if (remainSize) {
+      auto extractResultType = moore::RefType::get(
+          moore::IntType::get(context.getContext(), remainSize, domain));
+
+      auto extracted = builder.create<moore::ExtractRefOp>(
+          loc, extractResultType, value, iterMax * expr.sliceSize);
+      slicedOperands.push_back(extracted);
+    }
+
+    return builder.create<moore::ConcatRefOp>(loc, slicedOperands);
   }
 
   Value visit(const slang::ast::MemberAccessExpression &expr) {

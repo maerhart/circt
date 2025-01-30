@@ -460,7 +460,7 @@ func.func @func_range_no_smt_type(%arg0: !smt.func<(!smt.bool) !smt.func<(!smt.b
 // -----
 
 func.func @func_range_no_smt_type(%arg0: !smt.func<(!smt.bool) !smt.bool>) {
-  // expected-error @below {{0 operands present, but expected 1}}
+  // expected-error @below {{got 0 operands and 1 types}}
   smt.apply_func %arg0() : !smt.func<(!smt.bool) !smt.bool>
   return
 }
@@ -469,5 +469,29 @@ func.func @func_range_no_smt_type(%arg0: !smt.func<(!smt.bool) !smt.bool>) {
 
 // expected-error @below {{sort parameter types must be any non-function SMT type}}
 func.func @sort_type_no_smt_type(%arg0: !smt.sort<"sortname"[i32]>) {
+  return
+}
+
+// -----
+
+func.func @negative_push() {
+  // expected-error @below {{smt.push' op attribute 'count' failed to satisfy constraint: 32-bit signless integer attribute whose value is non-negative}}
+  smt.push -1
+  return
+}
+
+// -----
+
+func.func @negative_pop() {
+  // expected-error @below {{smt.pop' op attribute 'count' failed to satisfy constraint: 32-bit signless integer attribute whose value is non-negative}}
+  smt.pop -1
+  return
+}
+
+// -----
+
+func.func @set_logic_outside_solver() {
+  // expected-error @below {{'smt.set_logic' op expects parent op 'smt.solver'}}
+  smt.set_logic "AUFLIA"
   return
 }

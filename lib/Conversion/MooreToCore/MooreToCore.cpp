@@ -166,7 +166,8 @@ struct InstanceOpConversion : public OpConversionPattern<InstanceOp> {
     auto instOp = rewriter.create<hw::InstanceOp>(
         op.getLoc(), op.getResultTypes(), instName, moduleName, op.getInputs(),
         op.getInputNamesAttr(), op.getOutputNamesAttr(),
-        /*Parameter*/ rewriter.getArrayAttr({}), /*InnerSymbol*/ nullptr);
+        /*Parameter*/ rewriter.getArrayAttr({}), /*InnerSymbol*/ nullptr,
+        /*doNotPrint*/ nullptr);
 
     // Replace uses chain and erase the original op.
     op.replaceAllUsesWith(instOp.getResults());
@@ -392,10 +393,26 @@ struct WaitEventOpConversion : public OpConversionPattern<WaitEventOp> {
     // Helper function to detect if a certain change occurred between a value
     // before the `llhd.wait` and after.
     auto computeTrigger = [&](Value before, Value after, Edge edge) -> Value {
-      before = typeConverter->materializeTargetConversion(
-          rewriter, loc, rewriter.getI1Type(), before);
-      after = typeConverter->materializeTargetConversion(
-          rewriter, loc, rewriter.getI1Type(), after);
+      assert(before.getType() == after.getType() &&
+             "mismatched types after clone op");
+      auto beforeType = cast<IntType>(before.getType());
+
+      // 9.4.2 IEEE 1800-2017: An edge event shall be detected only on the LSB
+      // of the expression
+      if (beforeType.getWidth() != 1 && edge != Edge::AnyChange) {
+        constexpr int LSB = 0;
+        beforeType =
+            IntType::get(rewriter.getContext(), 1, beforeType.getDomain());
+        before =
+            rewriter.create<moore::ExtractOp>(loc, beforeType, before, LSB);
+        after = rewriter.create<moore::ExtractOp>(loc, beforeType, after, LSB);
+      }
+
+      auto intType = rewriter.getIntegerType(beforeType.getWidth());
+      before = typeConverter->materializeTargetConversion(rewriter, loc,
+                                                          intType, before);
+      after = typeConverter->materializeTargetConversion(rewriter, loc, intType,
+                                                         after);
 
       if (edge == Edge::AnyChange)
         return rewriter.create<comb::ICmpOp>(loc, ICmpPredicate::ne, before,
@@ -429,10 +446,8 @@ struct WaitEventOpConversion : public OpConversionPattern<WaitEventOp> {
     // value corresponds to the detect op's input.
     SmallVector<Value> triggers;
     for (auto [detectOp, before] : llvm::zip(detectOps, valuesBefore)) {
-      // TODO: Support multi-bit values. Edge detection occurs per-bit.
-      if (auto intType = dyn_cast<IntType>(before.getType());
-          !intType || intType.getWidth() != 1)
-        return detectOp->emitError() << "requires single bit operand";
+      if (!isa<IntType>(before.getType()))
+        return detectOp->emitError() << "requires int operand";
 
       rewriter.setInsertionPoint(detectOp);
       auto trigger =
@@ -551,6 +566,34 @@ struct ConstantOpConv : public OpConversionPattern<ConstantOp> {
     auto type = rewriter.getIntegerType(value.getBitWidth());
     rewriter.replaceOpWithNewOp<hw::ConstantOp>(
         op, type, rewriter.getIntegerAttr(type, value));
+    return success();
+  }
+};
+
+struct StringConstantOpConv : public OpConversionPattern<StringConstantOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(moore::StringConstantOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    const auto str = op.getValue();
+    const unsigned byteWidth = str.size() * 8;
+    const auto resultType =
+        typeConverter->convertType(op.getResult().getType());
+    if (const auto intType = mlir::dyn_cast<IntegerType>(resultType)) {
+      if (intType.getWidth() < byteWidth) {
+        return rewriter.notifyMatchFailure(op,
+                                           "invalid string constant type size");
+      }
+    } else {
+      return rewriter.notifyMatchFailure(op, "invalid string constant type");
+    }
+    APInt value(byteWidth, 0);
+    for (size_t i = 0; i < str.size(); ++i) {
+      const auto asciiChar = static_cast<uint8_t>(str[i]);
+      value |= APInt(byteWidth, asciiChar) << (8 * (str.size() - 1 - i));
+    }
+    rewriter.replaceOpWithNewOp<hw::ConstantOp>(
+        op, resultType, rewriter.getIntegerAttr(resultType, value));
     return success();
   }
 };
@@ -1145,6 +1188,84 @@ struct ShrOpConversion : public OpConversionPattern<ShrOp> {
   }
 };
 
+struct PowUOpConversion : public OpConversionPattern<PowUOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(PowUOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Type resultType = typeConverter->convertType(op.getResult().getType());
+
+    Location loc = op.getLoc();
+    auto intType = cast<IntType>(op.getRhs().getType());
+
+    // transform a ** b into scf.for 0 to b step 1 { init *= a }, init = 1
+    Type integerType = rewriter.getIntegerType(intType.getWidth());
+    Value lowerBound = rewriter.create<hw::ConstantOp>(loc, integerType, 0);
+    Value upperBound =
+        rewriter.create<ConversionOp>(loc, integerType, op.getRhs());
+    Value step = rewriter.create<hw::ConstantOp>(loc, integerType, 1);
+
+    Value initVal = rewriter.create<hw::ConstantOp>(loc, resultType, 1);
+    Value lhsVal = rewriter.create<ConversionOp>(loc, resultType, op.getLhs());
+
+    auto forOp = rewriter.create<scf::ForOp>(
+        loc, lowerBound, upperBound, step, ValueRange(initVal),
+        [&](OpBuilder &builder, Location loc, Value i, ValueRange iterArgs) {
+          Value loopVar = iterArgs.front();
+          Value mul = rewriter.create<comb::MulOp>(loc, lhsVal, loopVar);
+          rewriter.create<scf::YieldOp>(loc, ValueRange(mul));
+        });
+
+    rewriter.replaceOp(op, forOp.getResult(0));
+
+    return success();
+  }
+};
+
+struct PowSOpConversion : public OpConversionPattern<PowSOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(PowSOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Type resultType = typeConverter->convertType(op.getResult().getType());
+
+    Location loc = op.getLoc();
+    auto intType = cast<IntType>(op.getRhs().getType());
+    // transform a ** b into scf.for 0 to b step 1 { init *= a }, init = 1
+    Type integerType = rewriter.getIntegerType(intType.getWidth());
+    Value lhsVal = rewriter.create<ConversionOp>(loc, resultType, op.getLhs());
+    Value rhsVal = rewriter.create<ConversionOp>(loc, integerType, op.getRhs());
+    Value constZero = rewriter.create<hw::ConstantOp>(loc, integerType, 0);
+    Value constZeroResult = rewriter.create<hw::ConstantOp>(loc, resultType, 0);
+    Value isNegative = rewriter.create<comb::ICmpOp>(loc, ICmpPredicate::slt,
+                                                     rhsVal, constZero);
+
+    // if the exponent is negative, return 0
+    lhsVal =
+        rewriter.create<comb::MuxOp>(loc, isNegative, constZeroResult, lhsVal);
+    Value upperBound =
+        rewriter.create<comb::MuxOp>(loc, isNegative, constZero, rhsVal);
+
+    Value lowerBound = constZero;
+    Value step = rewriter.create<hw::ConstantOp>(loc, integerType, 1);
+    Value initVal = rewriter.create<hw::ConstantOp>(loc, resultType, 1);
+
+    auto forOp = rewriter.create<scf::ForOp>(
+        loc, lowerBound, upperBound, step, ValueRange(initVal),
+        [&](OpBuilder &builder, Location loc, Value i, ValueRange iterArgs) {
+          auto loopVar = iterArgs.front();
+          auto mul = rewriter.create<comb::MulOp>(loc, lhsVal, loopVar);
+          rewriter.create<scf::YieldOp>(loc, ValueRange(mul));
+        });
+
+    rewriter.replaceOp(op, forOp.getResult(0));
+
+    return success();
+  }
+};
+
 struct AShrOpConversion : public OpConversionPattern<AShrOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -1387,9 +1508,9 @@ static void populateLegality(ConversionTarget &target,
   target.addLegalOp<debug::ScopeOp>();
 
   target.addDynamicallyLegalOp<
-      cf::CondBranchOp, cf::BranchOp, scf::IfOp, scf::YieldOp, func::CallOp,
-      func::ReturnOp, UnrealizedConversionCastOp, hw::OutputOp, hw::InstanceOp,
-      debug::ArrayOp, debug::StructOp, debug::VariableOp>(
+      cf::CondBranchOp, cf::BranchOp, scf::IfOp, scf::ForOp, scf::YieldOp,
+      func::CallOp, func::ReturnOp, UnrealizedConversionCastOp, hw::OutputOp,
+      hw::InstanceOp, debug::ArrayOp, debug::StructOp, debug::VariableOp>(
       [&](Operation *op) { return converter.isLegal(op); });
 
   target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
@@ -1417,6 +1538,16 @@ static void populateTypeConversion(TypeConverter &typeConverter) {
       return hw::ArrayType::get(elementType, type.getSize());
     return {};
   });
+
+  // FIXME: Unpacked arrays support more element types than their packed
+  // variants, and as such, mapping them to hw::Array is somewhat naive. See
+  // also the analogous note below concerning unpacked struct type conversion.
+  typeConverter.addConversion(
+      [&](UnpackedArrayType type) -> std::optional<Type> {
+        if (auto elementType = typeConverter.convertType(type.getElementType()))
+          return hw::ArrayType::get(elementType, type.getSize());
+        return {};
+      });
 
   typeConverter.addConversion([&](StructType type) -> std::optional<Type> {
     SmallVector<hw::StructType::FieldInfo> fields;
@@ -1489,10 +1620,9 @@ static void populateTypeConversion(TypeConverter &typeConverter) {
 
   typeConverter.addTargetMaterialization(
       [&](mlir::OpBuilder &builder, mlir::Type resultType,
-          mlir::ValueRange inputs,
-          mlir::Location loc) -> std::optional<mlir::Value> {
+          mlir::ValueRange inputs, mlir::Location loc) -> mlir::Value {
         if (inputs.size() != 1 || !inputs[0])
-          return std::nullopt;
+          return Value();
         return builder
             .create<UnrealizedConversionCastOp>(loc, resultType, inputs[0])
             .getResult(0);
@@ -1500,10 +1630,9 @@ static void populateTypeConversion(TypeConverter &typeConverter) {
 
   typeConverter.addSourceMaterialization(
       [&](mlir::OpBuilder &builder, mlir::Type resultType,
-          mlir::ValueRange inputs,
-          mlir::Location loc) -> std::optional<mlir::Value> {
+          mlir::ValueRange inputs, mlir::Location loc) -> mlir::Value {
         if (inputs.size() != 1)
-          return std::nullopt;
+          return Value();
         return builder
             .create<UnrealizedConversionCastOp>(loc, resultType, inputs[0])
             ->getResult(0);
@@ -1531,7 +1660,7 @@ static void populateOpConversion(RewritePatternSet &patterns,
     ReadOpConversion,
     StructExtractOpConversion, StructExtractRefOpConversion,
     ExtractRefOpConversion, StructCreateOpConversion, ConditionalOpConversion,
-    YieldOpConversion, OutputOpConversion,
+    YieldOpConversion, OutputOpConversion, StringConstantOpConv,
 
     // Patterns of unary operations.
     ReduceAndOpConversion, ReduceOrOpConversion, ReduceXorOpConversion,
@@ -1548,6 +1677,9 @@ static void populateOpConversion(RewritePatternSet &patterns,
     BinaryOpConversion<AndOp, comb::AndOp>,
     BinaryOpConversion<OrOp, comb::OrOp>,
     BinaryOpConversion<XorOp, comb::XorOp>,
+
+    // Patterns of power operations.
+    PowUOpConversion, PowSOpConversion,
 
     // Patterns of relational operations.
     ICmpOpConversion<UltOp, ICmpPredicate::ult>,

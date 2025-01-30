@@ -260,20 +260,21 @@ struct ClockGateOpLowering : public OpConversionPattern<seq::ClockGateOp> {
   LogicalResult
   matchAndRewrite(seq::ClockGateOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<arith::AndIOp>(op, adaptor.getInput(),
-                                               adaptor.getEnable());
+    rewriter.replaceOpWithNewOp<LLVM::AndOp>(op, adaptor.getInput(),
+                                             adaptor.getEnable());
     return success();
   }
 };
 
+/// Lower 'seq.clock_inv x' to 'llvm.xor x true'
 struct ClockInvOpLowering : public OpConversionPattern<seq::ClockInverterOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
   matchAndRewrite(seq::ClockInverterOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto constTrue = rewriter.create<hw::ConstantOp>(op->getLoc(), APInt(1, 1));
-    rewriter.replaceOpWithNewOp<arith::XOrIOp>(op, adaptor.getInput(),
-                                               constTrue);
+    auto constTrue = rewriter.create<LLVM::ConstantOp>(op->getLoc(),
+                                                       rewriter.getI1Type(), 1);
+    rewriter.replaceOpWithNewOp<LLVM::XOrOp>(op, adaptor.getInput(), constTrue);
     return success();
   }
 };
@@ -648,6 +649,7 @@ void LowerArcToLLVMPass::runOnOperation() {
   populateHWToLLVMConversionPatterns(converter, patterns, globals,
                                      constAggregateGlobalsMap);
   populateHWToLLVMTypeConversions(converter);
+  populateCombToArithConversionPatterns(converter, patterns);
   populateCombToLLVMConversionPatterns(converter, patterns);
   populateCombToArithConversionPatterns(converter, patterns);
 

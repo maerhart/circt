@@ -43,8 +43,8 @@ firrtl.circuit "TopLevel" {
   // COMMON-SAME: out %sink_data: [[SINK_DATA_TYPE:!firrtl.uint<64>]]
   firrtl.module @TopLevel(in %source: !firrtl.bundle<valid: uint<1>, ready flip: uint<1>, data: uint<64>>,
                           out %sink: !firrtl.bundle<valid: uint<1>, ready flip: uint<1>, data: uint<64>>) {
-    // SIG: %source = firrtl.wire interesting_name : !firrtl.bundle<valid: uint<1>, ready flip: uint<1>, data: uint<64>> 
-    // SIG: %sink = firrtl.wire interesting_name : !firrtl.bundle<valid: uint<1>, ready flip: uint<1>, data: uint<64>> 
+    // SIG: %source = firrtl.wire interesting_name : !firrtl.bundle<valid: uint<1>, ready flip: uint<1>, data: uint<64>>
+    // SIG: %sink = firrtl.wire interesting_name : !firrtl.bundle<valid: uint<1>, ready flip: uint<1>, data: uint<64>>
     // COMMON: %inst_source_valid, %inst_source_ready, %inst_source_data, %inst_sink_valid, %inst_sink_ready, %inst_sink_data
     // COMMON-SAME: = firrtl.instance "" @Simple(
     // COMMON-SAME: in source_valid: !firrtl.uint<1>, out source_ready: !firrtl.uint<1>, in source_data: !firrtl.uint<64>, out sink_valid: !firrtl.uint<1>, in sink_ready: !firrtl.uint<1>, out sink_data: !firrtl.uint<64>
@@ -758,8 +758,8 @@ firrtl.circuit "TopLevel" {
 //     b <= a[sel][sel]
 
   firrtl.module private @multidimRead(
-    in %a: !firrtl.vector<vector<uint<2>, 2>, 2>, 
-    in %sel: !firrtl.uint<2>, 
+    in %a: !firrtl.vector<vector<uint<2>, 2>, 2>,
+    in %sel: !firrtl.uint<2>,
     out %b: !firrtl.uint<2>) {
     %0 = firrtl.subaccess %a[%sel] : !firrtl.vector<vector<uint<2>, 2>, 2>, !firrtl.uint<2>
     %1 = firrtl.subaccess %0[%sel] : !firrtl.vector<uint<2>, 2>, !firrtl.uint<2>
@@ -915,9 +915,9 @@ firrtl.circuit "TopLevel" {
 // Handle zero-length vector subaccess
   // CHECK-LABEL: zvec
   firrtl.module private @zvec(
-      in %i: !firrtl.vector<bundle<a: uint<8>, b: uint<4>>, 0>, 
-      in %sel: !firrtl.uint<1>, 
-      out %foo: !firrtl.vector<uint<1>, 0>, 
+      in %i: !firrtl.vector<bundle<a: uint<8>, b: uint<4>>, 0>,
+      in %sel: !firrtl.uint<1>,
+      out %foo: !firrtl.vector<uint<1>, 0>,
       out %o: !firrtl.uint<8>)
     {
     %c0_ui1 = firrtl.constant 0 : !firrtl.uint<1>
@@ -1402,5 +1402,77 @@ firrtl.circuit "UnrealizedConversion" {
     %b = builtin.unrealized_conversion_cast %a : !hw.struct<data: i64, tag: i1> to !firrtl.bundle<data: uint<64>, tag: uint<1>>
     %w = firrtl.wire : !firrtl.bundle<data: uint<64>, tag: uint<1>>
     firrtl.matchingconnect %w, %b : !firrtl.bundle<data: uint<64>, tag: uint<1>>
+  }
+}
+
+firrtl.circuit "Conventions1" {
+  // COMMON-LABEL: @Conventions1
+  // AGGREGATE-SAME: %input_0
+  // AGGREGATE-NEXT: firrtl.reg
+  // AGGREGATE-SAME: !firrtl.vector<uint<8>, 1>
+  firrtl.module public @Conventions1(in %input: !firrtl.vector<uint<8>, 1>, in %clk: !firrtl.clock, out %port: !firrtl.vector<uint<8>, 1>) attributes {convention = #firrtl<convention scalarized>, body_type_lowering = #firrtl<convention internal>}{
+    %r = firrtl.reg interesting_name %clk : !firrtl.clock, !firrtl.vector<uint<8>, 1>
+    firrtl.matchingconnect %r, %input : !firrtl.vector<uint<8>, 1>
+    firrtl.matchingconnect %port, %r : !firrtl.vector<uint<8>, 1>
+  }
+  // COMMON-LABEL: @Conventions2
+  // AGGREGATE-SAME: %input_0: !firrtl.uint<8>
+  // AGGREGATE-NEXT: firrtl.reg
+  // AGGREGATE-SAME: !firrtl.uint<8>
+  firrtl.module private @Conventions2(in %input: !firrtl.vector<uint<8>, 1>, in %clk: !firrtl.clock, out %port: !firrtl.vector<uint<8>, 1>) attributes {convention = #firrtl<convention scalarized>, body_type_lowering = #firrtl<convention scalarized>}{
+    %r = firrtl.reg interesting_name %clk : !firrtl.clock, !firrtl.vector<uint<8>, 1>
+    firrtl.matchingconnect %r, %input : !firrtl.vector<uint<8>, 1>
+    firrtl.matchingconnect %port, %r : !firrtl.vector<uint<8>, 1>
+  }
+  // COMMON-LABEL: @Conventions3
+  // AGGREGATE-SAME: %input: !firrtl.vector<uint<8>, 1>
+  // AGGREGATE-NEXT: firrtl.reg
+  // AGGREGATE-SAME: !firrtl.vector<uint<8>, 1>
+  firrtl.module private @Conventions3(in %input: !firrtl.vector<uint<8>, 1>, in %clk: !firrtl.clock, out %port: !firrtl.vector<uint<8>, 1>) attributes {convention = #firrtl<convention internal>, body_type_lowering = #firrtl<convention internal>}{
+    %r = firrtl.reg interesting_name %clk : !firrtl.clock, !firrtl.vector<uint<8>, 1>
+    firrtl.matchingconnect %r, %input : !firrtl.vector<uint<8>, 1>
+    firrtl.matchingconnect %port, %r : !firrtl.vector<uint<8>, 1>
+  }
+  // COMMON-LABEL: @Conventions4
+  // AGGREGATE-SAME: %input: !firrtl.vector<uint<8>, 1>
+  // AGGREGATE-NEXT: firrtl.reg
+  // AGGREGATE-SAME: !firrtl.uint<8>
+  firrtl.module private @Conventions4(in %input: !firrtl.vector<uint<8>, 1>, in %clk: !firrtl.clock, out %port: !firrtl.vector<uint<8>, 1>) attributes {convention = #firrtl<convention internal>, body_type_lowering = #firrtl<convention scalarized>}{
+    %r = firrtl.reg interesting_name %clk : !firrtl.clock, !firrtl.vector<uint<8>, 1>
+    firrtl.matchingconnect %r, %input : !firrtl.vector<uint<8>, 1>
+    firrtl.matchingconnect %port, %r : !firrtl.vector<uint<8>, 1>
+  }
+}
+
+// Test that memories have their prefixes copied when lowering.
+// https://github.com/llvm/circt/issues/7835
+firrtl.circuit "MemoryPrefixCopying" {
+  // COMMON-LABEL: firrtl.module @MemoryPrefixCopying
+  firrtl.module @MemoryPrefixCopying() {
+    // COMMON:      firrtl.mem
+    // COMMON-SAME:   prefix = "Foo_"
+    %mem_r = firrtl.mem Undefined {
+      depth = 64 : i64,
+      name = "ram",
+      portNames = ["r"],
+      prefix = "Foo_",
+      readLatency = 1 : i32,
+      writeLatency = 1 : i32
+    } : !firrtl.bundle<addr: uint<6>, en: uint<1>, clk: clock, data flip: vector<uint<8>, 1>>
+  }
+}
+
+
+firrtl.circuit "DiscardableAttributes" {
+  // COMMON-LABEL: firrtl.module @DiscardableAttributes
+  firrtl.module @DiscardableAttributes(in %clock: !firrtl.clock, in %reset: !firrtl.uint<1>, in %a: !firrtl.bundle<a: uint<1>>) {
+    // CHECK-NEXT: %node_a = firrtl.node %a_a {foo}
+    // CHECK-NEXT: %wire_a = firrtl.wire {foo = "bar"}
+    // CHECK-NEXT: %reg_a = firrtl.reg %clock {foo}
+    // CHECK-NEXT: %regreset_a = firrtl.regreset %clock, %reset, %a_a {foo}
+    %node = firrtl.node %a {foo}: !firrtl.bundle<a: uint<1>>
+    %wire = firrtl.wire {foo = "bar"} : !firrtl.bundle<a: uint<1>>
+    %reg = firrtl.reg %clock {foo}: !firrtl.clock, !firrtl.bundle<a: uint<1>>
+    %regreset = firrtl.regreset %clock, %reset, %a {foo}: !firrtl.clock, !firrtl.uint<1>, !firrtl.bundle<a: uint<1>>, !firrtl.bundle<a: uint<1>>
   }
 }
