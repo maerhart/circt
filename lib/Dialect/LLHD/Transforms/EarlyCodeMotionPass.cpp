@@ -64,14 +64,15 @@ void EarlyCodeMotionPass::runOnProcess(llhd::ProcessOp proc) {
   });
   auto probeResult = proc.walk([&](llhd::PrbOp prbOp) {
     if (blockingAssignedSigs.contains(prbOp.getSignal())) {
-      prbOp.emitError("blocking assignments and reads of the same signal in "
-                      "the same process not supported");
+      // prbOp.emitError("blocking assignments and reads of the same signal in "
+      //                 "the same process not supported");
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
   });
   if (probeResult.wasInterrupted())
-    return signalPassFailure();
+    return;
+  //  signalPassFailure();
 
   DenseMap<Block *, unsigned> entryDistance;
   SmallPtrSet<Block *, 32> workDone;

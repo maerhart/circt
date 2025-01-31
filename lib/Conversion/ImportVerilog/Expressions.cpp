@@ -441,12 +441,14 @@ struct RvalueExprVisitor {
       assert(constValue->size() <= 32);
 
       auto lowBit = constValue->integer().as<uint32_t>().value();
-      return builder.create<moore::ExtractOp>(loc, type, value, lowBit);
+      return builder.create<moore::ExtractOp>(loc, type, value, expr.value().type->getFixedRange().translateIndex(lowBit));
     }
     auto lowBit = context.convertRvalueExpression(expr.selector());
     if (!lowBit)
       return {};
-    return builder.create<moore::DynExtractOp>(loc, type, value, lowBit);
+    Value offset = builder.create<moore::ConstantOp>(loc, cast<moore::IntType>(lowBit.getType()), expr.value().type->getFixedRange().lower());
+    Value selector = builder.create<moore::SubOp>(loc, lowBit, offset);
+    return builder.create<moore::DynExtractOp>(loc, type, value, selector);
   }
 
   // Handle range bits selections.
@@ -510,8 +512,11 @@ struct RvalueExprVisitor {
         dynLowBit = context.convertRvalueExpression(expr.left());
     }
     if (leftConst && rightConst)
-      return builder.create<moore::ExtractOp>(loc, type, value, constLowBit);
-    return builder.create<moore::DynExtractOp>(loc, type, value, dynLowBit);
+      return builder.create<moore::ExtractOp>(loc, type, value, expr.value().type->getFixedRange().translateIndex(constLowBit));
+
+    Value offset = builder.create<moore::ConstantOp>(loc, cast<moore::IntType>(dynLowBit.getType()), expr.value().type->getFixedRange().lower());
+    Value selector = builder.create<moore::SubOp>(loc, dynLowBit, offset);
+    return builder.create<moore::DynExtractOp>(loc, type, value, selector);
   }
 
   Value visit(const slang::ast::MemberAccessExpression &expr) {
@@ -863,7 +868,7 @@ struct RvalueExprVisitor {
           context.getContext(), expr.sliceSize, type.getDomain());
 
       auto extracted = builder.create<moore::ExtractOp>(
-          loc, extractResultType, value, i * expr.sliceSize);
+          loc, extractResultType, value, expr.type->getFixedRange().translateIndex(i * expr.sliceSize));
       slicedOperands.push_back(extracted);
     }
     // Handle other wire
@@ -872,7 +877,7 @@ struct RvalueExprVisitor {
           context.getContext(), remainSize, type.getDomain());
 
       auto extracted = builder.create<moore::ExtractOp>(
-          loc, extractResultType, value, iterMax * expr.sliceSize);
+          loc, extractResultType, value, expr.type->getFixedRange().translateIndex(iterMax * expr.sliceSize));
       slicedOperands.push_back(extracted);
     }
 

@@ -321,25 +321,25 @@ static void populateLLHDLowering(PassManager &pm) {
   // pm.addNestedPass<hw::HWModuleOp>(llhd::createUnroll());
   pm.addNestedPass<hw::HWModuleOp>(llhd::createBlockArgumentToMux());
   // pm.addNestedPass<hw::HWModuleOp>(llhd::createResolveDynamicSignalAliases());
-  {
-    auto &anyPM = pm.nestAny();
-    anyPM.addPass(mlir::createSROA());
-  }
+  // {
+  //   auto &anyPM = pm.nestAny();
+  //   anyPM.addPass(mlir::createSROA());
+  // }
   pm.addNestedPass<hw::HWModuleOp>(llhd::createEarlyCodeMotionPass());
-  pm.addNestedPass<hw::HWModuleOp>(llhd::createTemporalCodeMotionPass());
+  // pm.addNestedPass<hw::HWModuleOp>(llhd::createTemporalCodeMotionPass());
   {
     auto &anyPM = pm.nestAny();
     anyPM.addPass(mlir::createCSEPass());
     anyPM.addPass(mlir::createCanonicalizerPass());
   }
-  pm.addNestedPass<hw::HWModuleOp>(llhd::createDesequentialization());
-  pm.addPass(llhd::createProcessLoweringPass());
-  pm.addNestedPass<hw::HWModuleOp>(llhd::createSig2Reg());
-  {
-    auto &anyPM = pm.nestAny();
-    anyPM.addPass(mlir::createCSEPass());
-    anyPM.addPass(mlir::createCanonicalizerPass());
-  }
+  // pm.addNestedPass<hw::HWModuleOp>(llhd::createDesequentialization());
+  // pm.addPass(llhd::createProcessLoweringPass());
+  // pm.addNestedPass<hw::HWModuleOp>(llhd::createSig2Reg());
+  // {
+  //   auto &anyPM = pm.nestAny();
+  //   anyPM.addPass(mlir::createCSEPass());
+  //   anyPM.addPass(mlir::createCanonicalizerPass());
+  // }
 }
 
 /// Populate the given pass manager with transformations as configured by the

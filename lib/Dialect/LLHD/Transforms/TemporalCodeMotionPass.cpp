@@ -126,10 +126,9 @@ LogicalResult TemporalCodeMotionPass::runOnProcess(llhd::ProcessOp procOp) {
     (void)numTRSuccs;
     // NOTE: Above error checks make this impossible to trigger, but the above
     // are changed this one might have to be promoted to a proper error message.
-    assert((numTRSuccs == 1 ||
-            (numTRSuccs == 2 && trAnalysis.isOwnTRSuccessor(currTR))) &&
-           "only TRs with a single TR as possible successor are "
-           "supported for now.");
+    if (!((numTRSuccs == 1 ||
+            (numTRSuccs == 2 && trAnalysis.isOwnTRSuccessor(currTR)))))
+      return failure();
 
     if (trAnalysis.hasSingleExitBlock(currTR))
       continue;

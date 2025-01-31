@@ -41,7 +41,12 @@ void FooWiresPass::runOnOperation() {
             defOp->setAttr("sv.namehint", wire.getNameAttr());
         wire->erase();
       });
-  getOperation().walk([&](mlir::func::FuncOp wire) { wire->erase(); });
+  mlir::SymbolTableCollection table;
+  mlir::SymbolUserMap symUser(table, getOperation());
+  getOperation().walk([&](mlir::func::FuncOp wire) {
+    if (symUser.useEmpty(wire))
+      wire->erase();
+  });
 }
 
 std::unique_ptr<mlir::Pass> circt::hw::createFooWiresPass() {
