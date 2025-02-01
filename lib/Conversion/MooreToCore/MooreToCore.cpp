@@ -28,6 +28,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 
 namespace circt {
 #define GEN_PASS_DEF_CONVERTMOORETOCORE
@@ -222,10 +223,16 @@ struct ProcedureOpConversion : public OpConversionPattern<ProcedureOp> {
   LogicalResult
   matchAndRewrite(ProcedureOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    bool isAlwaysStar = op.getKind() == ProcedureKind::Always;
+    op.getBody().walk([&](WaitEventOp waitEvent){
+      isAlwaysStar = false;
+      return WalkResult::interrupt();
+    });
+
     // Collect values to observe before we do any modifications to the region.
     SmallVector<Value> observedValues;
     if (op.getKind() == ProcedureKind::AlwaysComb ||
-        op.getKind() == ProcedureKind::AlwaysLatch) {
+        op.getKind() == ProcedureKind::AlwaysLatch || isAlwaysStar) {
       auto setInsertionPoint = [&](Value value) {
         rewriter.setInsertionPoint(op);
       };
@@ -263,9 +270,18 @@ struct ProcedureOpConversion : public OpConversionPattern<ProcedureOp> {
     // We need to add an empty entry block because it is not allowed in MLIR to
     // branch back to the entry block. Instead we put the logic in the second
     // block and branch to that.
-    rewriter.createBlock(&newOp.getBody());
+    auto *entryBlock = rewriter.createBlock(&newOp.getBody());
     auto *block = &op.getBody().front();
+    if (isAlwaysStar) {
+      auto *b = rewriter.createBlock(&newOp.getBody());
+      rewriter.create<llhd::WaitOp>(loc, observedValues, Value(), ValueRange{},
+                                    block);
+      rewriter.setInsertionPointToEnd(entryBlock);
+      block = b;
+    }
+
     rewriter.create<cf::BranchOp>(loc, block);
+
     rewriter.inlineRegionBefore(op.getBody(), newOp.getBody(),
                                 newOp.getBody().end());
 
@@ -1517,10 +1533,13 @@ static void populateLegality(ConversionTarget &target,
   target.addLegalOp<debug::ScopeOp>();
 
   target.addDynamicallyLegalOp<
-      cf::CondBranchOp, cf::BranchOp, scf::IfOp, scf::ForOp, scf::YieldOp,
+      cf::CondBranchOp, cf::BranchOp, 
       func::CallOp, func::ReturnOp, UnrealizedConversionCastOp, hw::OutputOp,
       hw::InstanceOp, debug::ArrayOp, debug::StructOp, debug::VariableOp>(
       [&](Operation *op) { return converter.isLegal(op); });
+
+  target.addDynamicallyLegalOp<scf::IfOp, scf::ForOp, scf::YieldOp>(
+      [&](Operation *op) { return converter.isLegal(op) && !op->getParentOfType<llhd::ProcessOp>(); });
 
   target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
     return converter.isSignatureLegal(op.getFunctionType()) &&
@@ -1747,6 +1766,7 @@ static void populateOpConversion(RewritePatternSet &patterns,
                                                             typeConverter);
   hw::populateHWModuleLikeTypeConversionPattern(
       hw::HWModuleOp::getOperationName(), patterns, typeConverter);
+      populateSCFToControlFlowConversionPatterns(patterns);
 }
 
 //===----------------------------------------------------------------------===//

@@ -39,12 +39,17 @@ using namespace mlir;
 
 /// More a 'llhd.drv' operation before the 'moveBefore' operation by adjusting
 /// the 'enable' operand.
-static void moveDriveOpBefore(llhd::DrvOp drvOp, Block *dominator,
+static LogicalResult moveDriveOpBefore(llhd::DrvOp drvOp, Block *dominator,
                               Operation *moveBefore,
+                              DominanceInfo &info,
                               DenseMap<Block *, Value> &mem) {
   OpBuilder builder(drvOp);
   builder.setInsertionPoint(moveBefore);
   Block *drvParentBlock = drvOp->getBlock();
+
+  for (auto operand : drvOp->getOperands())
+    if (!info.dominates(operand, moveBefore))
+      return failure();
 
   // Find sequence of branch decisions and add them as a sequence of
   // instructions to the TR exiting block
@@ -57,6 +62,8 @@ static void moveDriveOpBefore(llhd::DrvOp drvOp, Block *dominator,
 
   drvOp.getEnableMutable().assign(finalValue);
   drvOp->moveBefore(moveBefore);
+
+  return success();
 }
 
 namespace {
@@ -225,7 +232,8 @@ LogicalResult TemporalCodeMotionPass::runOnProcess(llhd::ProcessOp procOp) {
       builder.setInsertionPoint(moveBefore);
       SmallVector<llhd::DrvOp> drives(block->getOps<llhd::DrvOp>());
       for (auto drive : drives)
-        moveDriveOpBefore(drive, dominator, moveBefore, mem);
+        if (failed(moveDriveOpBefore(drive, dominator, moveBefore, dom, mem)))
+          return failure();
 
       for (Block *succ : block->getSuccessors()) {
         if (succ == exitingBlock ||
@@ -240,11 +248,11 @@ LogicalResult TemporalCodeMotionPass::runOnProcess(llhd::ProcessOp procOp) {
     }
 
     // Merge entry and exit block of each TR, remove all other blocks
-    if (entryBlock != exitingBlock) {
-      entryBlock->getTerminator()->erase();
-      entryBlock->getOperations().splice(entryBlock->end(),
-                                         exitingBlock->getOperations());
-    }
+    // if (entryBlock != exitingBlock) {
+    //   entryBlock->getTerminator()->erase();
+    //   entryBlock->getOperations().splice(entryBlock->end(),
+    //                                      exitingBlock->getOperations());
+    // }
   }
 
   IRRewriter rewriter(procOp);

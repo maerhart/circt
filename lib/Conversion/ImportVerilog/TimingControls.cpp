@@ -119,7 +119,7 @@ static LogicalResult handleRoot(Context &context,
     // empty wait op and let `Context::convertTimingControl` populate it once
     // the statement has been lowered.
   case TimingControlKind::ImplicitEvent:
-    implicitWaitOp = builder.create<moore::WaitEventOp>(loc);
+    // implicitWaitOp = builder.create<moore::WaitEventOp>(loc);
     return success();
 
     // Handle event control.

@@ -327,11 +327,11 @@ static void populateLLHDLowering(PassManager &pm) {
   // }
   pm.addNestedPass<hw::HWModuleOp>(llhd::createEarlyCodeMotionPass());
   // pm.addNestedPass<hw::HWModuleOp>(llhd::createTemporalCodeMotionPass());
-  {
-    auto &anyPM = pm.nestAny();
-    anyPM.addPass(mlir::createCSEPass());
-    anyPM.addPass(mlir::createCanonicalizerPass());
-  }
+  // {
+  //   auto &anyPM = pm.nestAny();
+  //   anyPM.addPass(mlir::createCSEPass());
+  //   anyPM.addPass(mlir::createCanonicalizerPass());
+  // }
   // pm.addNestedPass<hw::HWModuleOp>(llhd::createDesequentialization());
   // pm.addPass(llhd::createProcessLoweringPass());
   // pm.addNestedPass<hw::HWModuleOp>(llhd::createSig2Reg());
@@ -413,8 +413,6 @@ static LogicalResult executeWithSources(MLIRContext *context,
   OwningOpRef<ModuleOp> module;
   switch (opts.format) {
   case Format::SV: {
-    auto parserTimer = ts.nest("SystemVerilog Parser");
-
     // If the user requested for the files to be only preprocessed, do so and
     // print the results to the configured output file.
     if (opts.loweringMode == LoweringMode::OnlyPreprocess) {
