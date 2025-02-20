@@ -506,8 +506,13 @@ struct ModuleVisitor : public BaseVisitor {
 
   // Handle procedures.
   LogicalResult visit(const slang::ast::ProceduralBlockSymbol &procNode) {
+    procNode.procedureKind.
+    auto procKind = convertProcedureKind(procNode.procedureKind);
+    if (context.options.lowerAlwaysAtStarAsComb && procKind == moore::ProcedureKind::Always)
+      procNode.getBody().
+
     auto procOp = builder.create<moore::ProcedureOp>(
-        loc, convertProcedureKind(procNode.procedureKind));
+        loc, );
     OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPointToEnd(&procOp.getBody().emplaceBlock());
     Context::ValueSymbolScope scope(context.valueSymbols);

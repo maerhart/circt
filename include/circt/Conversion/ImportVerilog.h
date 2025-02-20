@@ -111,6 +111,9 @@ struct ImportVerilogOptions {
   /// `<name>=<value>`.
   std::vector<std::string> paramOverrides;
 
+  /// Replace always @(*) with always_comb.
+  bool lowerAlwaysAtStarAsComb = true;
+
   //===--------------------------------------------------------------------===//
   // Diagnostics Control
   //===--------------------------------------------------------------------===//

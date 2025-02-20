@@ -215,6 +215,11 @@ struct CLOptions {
                "top-level modules"),
       cl::value_desc("<name>=<value>"), cl::Prefix, cl::cat(cat)};
 
+  cl::opt<bool> lowerAlwaysAtStarAsComb{
+      "lower-always-at-star-as-comb",
+      cl::desc("Replace always @(*) with always_comb."),
+      cl::init(true), cl::cat(cat)};
+
   //===--------------------------------------------------------------------===//
   // Diagnostics control
   //===--------------------------------------------------------------------===//
@@ -377,6 +382,7 @@ static LogicalResult executeWithSources(MLIRContext *context,
   if (opts.loweringMode != LoweringMode::OnlyLint)
     options.topModules = opts.topModules;
   options.paramOverrides = opts.paramOverrides;
+  options.lowerAlwaysAtStarAsComb = opts.lowerAlwaysAtStarAsComb;
 
   options.warningOptions = opts.warningOptions;
   if (opts.errorLimit.getNumOccurrences() > 0)
