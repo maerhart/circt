@@ -43,6 +43,9 @@ public:
             TestOp, TargetOp, YieldOp, ValidateOp, TestSuccessOp, TestFailureOp,
             // Integers
             RandomNumberInRangeOp,
+            // Infinite Precision Integer Ops
+            IntAddOp, IntSubOp, IntMulOp, IntDivOp, IntModOp, IntPowOp,
+            IntCmpOp, IntAndOp, IntOrOp, IntXorOp, IntShlOp, IntShrOp,
             // Sequences
             SequenceOp, GetSequenceOp, SubstituteSequenceOp,
             RandomizeSequenceOp, EmbedSequenceOp, InterleaveSequencesOp,
@@ -109,6 +112,18 @@ public:
   HANDLE(InterleaveSequencesOp, Unhandled);
   HANDLE(EmbedSequenceOp, Unhandled);
   HANDLE(RandomNumberInRangeOp, Unhandled);
+  HANDLE(IntAddOp, Unhandled);
+  HANDLE(IntSubOp, Unhandled);
+  HANDLE(IntMulOp, Unhandled);
+  HANDLE(IntDivOp, Unhandled);
+  HANDLE(IntModOp, Unhandled);
+  HANDLE(IntPowOp, Unhandled);
+  HANDLE(IntCmpOp, Unhandled);
+  HANDLE(IntAndOp, Unhandled);
+  HANDLE(IntOrOp, Unhandled);
+  HANDLE(IntXorOp, Unhandled);
+  HANDLE(IntShlOp, Unhandled);
+  HANDLE(IntShrOp, Unhandled);
   HANDLE(OnContextOp, Unhandled);
   HANDLE(ContextSwitchOp, Unhandled);
   HANDLE(SetCreateOp, Unhandled);

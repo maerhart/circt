@@ -759,6 +759,189 @@ def RandomNumberInRangeOp : RTGOp<"random_number_in_range", [
   let assemblyFormat = "` ` `[` $lowerBound `,` $upperBound `]` attr-dict";
 }
 
+//===- Infinite Precision Integer Operations ------------------------------===//
+
+def IntAddOp : RTGOp<"int.add", [Pure, SameOperandsAndResultType]> {
+  let summary = "infinite precision integer addition";
+  let description = [{
+    Adds two infinite precision integers. The operation automatically extends
+    operands to prevent overflow and normalizes the result to the minimum
+    bitwidth required.
+  }];
+
+  let arguments = (ins IntType:$lhs, IntType:$rhs);
+  let results = (outs IntType:$result);
+
+  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+  let hasFolder = 1;
+}
+
+def IntSubOp : RTGOp<"int.sub", [Pure, SameOperandsAndResultType]> {
+  let summary = "infinite precision integer subtraction";
+  let description = [{
+    Subtracts two infinite precision integers. The operation automatically
+    extends operands to prevent overflow and normalizes the result.
+  }];
+
+  let arguments = (ins IntType:$lhs, IntType:$rhs);
+  let results = (outs IntType:$result);
+
+  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+  let hasFolder = 1;
+}
+
+def IntMulOp : RTGOp<"int.mul", [Pure, SameOperandsAndResultType]> {
+  let summary = "infinite precision integer multiplication";
+  let description = [{
+    Multiplies two infinite precision integers. The operation automatically
+    extends operands to prevent overflow and normalizes the result.
+  }];
+
+  let arguments = (ins IntType:$lhs, IntType:$rhs);
+  let results = (outs IntType:$result);
+
+  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+  let hasFolder = 1;
+}
+
+def IntDivOp : RTGOp<"int.div", [Pure, SameOperandsAndResultType]> {
+  let summary = "infinite precision integer signed division";
+  let description = [{
+    Performs signed division of two infinite precision integers. The result
+    is truncated towards zero.
+  }];
+
+  let arguments = (ins IntType:$lhs, IntType:$rhs);
+  let results = (outs IntType:$result);
+
+  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+  let hasFolder = 1;
+}
+
+def IntModOp : RTGOp<"int.mod", [Pure, SameOperandsAndResultType]> {
+  let summary = "infinite precision integer signed modulo";
+  let description = [{
+    Computes the signed remainder of dividing two infinite precision integers.
+  }];
+
+  let arguments = (ins IntType:$lhs, IntType:$rhs);
+  let results = (outs IntType:$result);
+
+  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+  let hasFolder = 1;
+}
+
+def IntPowOp : RTGOp<"int.pow", [Pure, SameOperandsAndResultType]> {
+  let summary = "infinite precision integer exponentiation";
+  let description = [{
+    Computes base raised to the power of exponent. The exponent must be
+    non-negative. The operation automatically extends operands to prevent
+    overflow and normalizes the result.
+  }];
+
+  let arguments = (ins IntType:$base, IntType:$exponent);
+  let results = (outs IntType:$result);
+
+  let assemblyFormat = "$base `,` $exponent attr-dict";
+  let hasFolder = 1;
+}
+
+def IntCmpPredicateAttr : I64EnumAttr<"IntCmpPredicate",
+    "rtg.int comparison predicate",
+    [
+      I64EnumAttrCase<"eq", 0, "eq">,
+      I64EnumAttrCase<"ne", 1, "ne">,
+      I64EnumAttrCase<"slt", 2, "slt">,
+      I64EnumAttrCase<"sle", 3, "sle">,
+      I64EnumAttrCase<"sgt", 4, "sgt">,
+      I64EnumAttrCase<"sge", 5, "sge">,
+    ]> {
+  let cppNamespace = "::circt::rtg";
+}
+
+def IntCmpOp : RTGOp<"int.cmp", [Pure]> {
+  let summary = "infinite precision integer comparison";
+  let description = [{
+    Compares two infinite precision integers according to the specified
+    predicate and returns a boolean result.
+  }];
+
+  let arguments = (ins IntCmpPredicateAttr:$predicate,
+                       IntType:$lhs,
+                       IntType:$rhs);
+  let results = (outs I1:$result);
+
+  let assemblyFormat = "$predicate `,` $lhs `,` $rhs attr-dict";
+  let hasFolder = 1;
+}
+
+def IntAndOp : RTGOp<"int.and", [Pure, SameOperandsAndResultType]> {
+  let summary = "infinite precision integer bitwise AND";
+  let description = [{
+    Performs bitwise AND of two infinite precision integers.
+  }];
+
+  let arguments = (ins IntType:$lhs, IntType:$rhs);
+  let results = (outs IntType:$result);
+
+  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+  let hasFolder = 1;
+}
+
+def IntOrOp : RTGOp<"int.or", [Pure, SameOperandsAndResultType]> {
+  let summary = "infinite precision integer bitwise OR";
+  let description = [{
+    Performs bitwise OR of two infinite precision integers.
+  }];
+
+  let arguments = (ins IntType:$lhs, IntType:$rhs);
+  let results = (outs IntType:$result);
+
+  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+  let hasFolder = 1;
+}
+
+def IntXorOp : RTGOp<"int.xor", [Pure, SameOperandsAndResultType]> {
+  let summary = "infinite precision integer bitwise XOR";
+  let description = [{
+    Performs bitwise XOR of two infinite precision integers.
+  }];
+
+  let arguments = (ins IntType:$lhs, IntType:$rhs);
+  let results = (outs IntType:$result);
+
+  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+  let hasFolder = 1;
+}
+
+def IntShlOp : RTGOp<"int.shl", [Pure, SameOperandsAndResultType]> {
+  let summary = "infinite precision integer left shift";
+  let description = [{
+    Performs left shift of an infinite precision integer by the specified
+    amount. The operation extends the operand to prevent overflow.
+  }];
+
+  let arguments = (ins IntType:$lhs, IntType:$rhs);
+  let results = (outs IntType:$result);
+
+  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+  let hasFolder = 1;
+}
+
+def IntShrOp : RTGOp<"int.shr", [Pure, SameOperandsAndResultType]> {
+  let summary = "infinite precision integer arithmetic right shift";
+  let description = [{
+    Performs arithmetic right shift (sign-extending) of an infinite precision
+    integer by the specified amount.
+  }];
+
+  let arguments = (ins IntType:$lhs, IntType:$rhs);
+  let results = (outs IntType:$result);
+
+  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+  let hasFolder = 1;
+}
+
 //===- Misc Operations ----------------------------------------------------===//
 
 def CommentOp : RTGOp<"comment", []> {

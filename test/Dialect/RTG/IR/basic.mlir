@@ -431,3 +431,160 @@ rtg.test @continuation_in_set() {
   %set = rtg.set_create : !rtg.continuation<index>
 }
 
+// CHECK-LABEL: rtg.test @int_type_and_attr
+rtg.test @int_type_and_attr() {
+  // Test rtg.int constants
+  // CHECK: [[V0:%.+]] = rtg.constant #rtg.int<0>
+  %0 = rtg.constant #rtg.int<0> : !rtg.int
+
+  // CHECK: [[V1:%.+]] = rtg.constant #rtg.int<42>
+  %1 = rtg.constant #rtg.int<42> : !rtg.int
+
+  // CHECK: [[V2:%.+]] = rtg.constant #rtg.int<-17>
+  %2 = rtg.constant #rtg.int<-17> : !rtg.int
+
+  // Large positive number
+  // CHECK: [[V3:%.+]] = rtg.constant #rtg.int<9223372036854775807>
+  %3 = rtg.constant #rtg.int<9223372036854775807> : !rtg.int
+
+  // Large negative number
+  // CHECK: [[V4:%.+]] = rtg.constant #rtg.int<-9223372036854775808>
+  %4 = rtg.constant #rtg.int<-9223372036854775808> : !rtg.int
+}
+
+// CHECK-LABEL: rtg.test @int_arithmetic_ops
+rtg.test @int_arithmetic_ops() {
+  // CHECK: [[A:%.+]] = rtg.constant #rtg.int<10>
+  %a = rtg.constant #rtg.int<10> : !rtg.int
+  // CHECK: [[B:%.+]] = rtg.constant #rtg.int<20>
+  %b = rtg.constant #rtg.int<20> : !rtg.int
+
+  // Addition
+  // CHECK: [[ADD:%.+]] = rtg.int.add [[A]], [[B]]
+  %add = rtg.int.add %a, %b
+
+  // Subtraction
+  // CHECK: [[SUB:%.+]] = rtg.int.sub [[B]], [[A]]
+  %sub = rtg.int.sub %b, %a
+
+  // Multiplication
+  // CHECK: [[MUL:%.+]] = rtg.int.mul [[A]], [[B]]
+  %mul = rtg.int.mul %a, %b
+
+  // Division
+  // CHECK: [[DIV:%.+]] = rtg.int.div [[B]], [[A]]
+  %div = rtg.int.div %b, %a
+
+  // Modulo
+  // CHECK: [[MOD:%.+]] = rtg.int.mod [[B]], [[A]]
+  %mod = rtg.int.mod %b, %a
+
+  // Power
+  // CHECK: [[C3:%.+]] = rtg.constant #rtg.int<3>
+  %c3 = rtg.constant #rtg.int<3> : !rtg.int
+  // CHECK: [[POW:%.+]] = rtg.int.pow [[A]], [[C3]]
+  %pow = rtg.int.pow %a, %c3
+}
+
+// CHECK-LABEL: rtg.test @int_bitwise_ops
+rtg.test @int_bitwise_ops() {
+  // CHECK: [[A:%.+]] = rtg.constant #rtg.int<15>
+  %a = rtg.constant #rtg.int<15> : !rtg.int
+  // CHECK: [[B:%.+]] = rtg.constant #rtg.int<7>
+  %b = rtg.constant #rtg.int<7> : !rtg.int
+
+  // Bitwise AND
+  // CHECK: [[AND:%.+]] = rtg.int.and [[A]], [[B]]
+  %and = rtg.int.and %a, %b
+
+  // Bitwise OR
+  // CHECK: [[OR:%.+]] = rtg.int.or [[A]], [[B]]
+  %or = rtg.int.or %a, %b
+
+  // Bitwise XOR
+  // CHECK: [[XOR:%.+]] = rtg.int.xor [[A]], [[B]]
+  %xor = rtg.int.xor %a, %b
+
+  // Left shift
+  // CHECK: [[C2:%.+]] = rtg.constant #rtg.int<2>
+  %c2 = rtg.constant #rtg.int<2> : !rtg.int
+  // CHECK: [[SHL:%.+]] = rtg.int.shl [[A]], [[C2]]
+  %shl = rtg.int.shl %a, %c2
+
+  // Arithmetic right shift
+  // CHECK: [[SHR:%.+]] = rtg.int.shr [[A]], [[C2]]
+  %shr = rtg.int.shr %a, %c2
+}
+
+// CHECK-LABEL: rtg.test @int_overflow_prevention
+rtg.test @int_overflow_prevention() {
+  // Test that operations correctly handle potential overflow
+  // CHECK: [[LARGE1:%.+]] = rtg.constant #rtg.int<9223372036854775807>
+  %large1 = rtg.constant #rtg.int<9223372036854775807> : !rtg.int
+  // CHECK: [[LARGE2:%.+]] = rtg.constant #rtg.int<9223372036854775807>
+  %large2 = rtg.constant #rtg.int<9223372036854775807> : !rtg.int
+
+  // This should not overflow - result will be automatically extended
+  // CHECK: [[SUM:%.+]] = rtg.int.add [[LARGE1]], [[LARGE2]]
+  %sum = rtg.int.add %large1, %large2
+
+  // Multiplication should also extend appropriately
+  // CHECK: [[PROD:%.+]] = rtg.int.mul [[LARGE1]], [[LARGE2]]
+  %prod = rtg.int.mul %large1, %large2
+}
+
+// CHECK-LABEL: rtg.test @int_negative_numbers
+rtg.test @int_negative_numbers() {
+  // CHECK: [[NEG5:%.+]] = rtg.constant #rtg.int<-5>
+  %neg5 = rtg.constant #rtg.int<-5> : !rtg.int
+  // CHECK: [[POS3:%.+]] = rtg.constant #rtg.int<3>
+  %pos3 = rtg.constant #rtg.int<3> : !rtg.int
+
+  // Operations with negative numbers
+  // CHECK: [[ADD_NEG:%.+]] = rtg.int.add [[NEG5]], [[POS3]]
+  %add_neg = rtg.int.add %neg5, %pos3
+
+  // CHECK: [[SUB_NEG:%.+]] = rtg.int.sub [[NEG5]], [[POS3]]
+  %sub_neg = rtg.int.sub %neg5, %pos3
+
+  // CHECK: [[MUL_NEG:%.+]] = rtg.int.mul [[NEG5]], [[POS3]]
+  %mul_neg = rtg.int.mul %neg5, %pos3
+
+  // Negation via 0 - x
+  // CHECK: [[ZERO:%.+]] = rtg.constant #rtg.int<0>
+  %zero = rtg.constant #rtg.int<0> : !rtg.int
+  // CHECK: [[NEGATED:%.+]] = rtg.int.sub [[ZERO]], [[NEG5]]
+  %negated = rtg.int.sub %zero, %neg5
+}
+
+// CHECK-LABEL: rtg.test @int_comparisons
+rtg.test @int_comparisons() {
+  // CHECK: [[A:%.+]] = rtg.constant #rtg.int<10>
+  %a = rtg.constant #rtg.int<10> : !rtg.int
+  // CHECK: [[B:%.+]] = rtg.constant #rtg.int<20>
+  %b = rtg.constant #rtg.int<20> : !rtg.int
+
+  // Equal
+  // CHECK: [[EQ:%.+]] = rtg.int.cmp eq, [[A]], [[A]]
+  %eq = rtg.int.cmp eq, %a, %a
+
+  // Not equal
+  // CHECK: [[NE:%.+]] = rtg.int.cmp ne, [[A]], [[B]]
+  %ne = rtg.int.cmp ne, %a, %b
+
+  // Less than
+  // CHECK: [[SLT:%.+]] = rtg.int.cmp slt, [[A]], [[B]]
+  %slt = rtg.int.cmp slt, %a, %b
+
+  // Less than or equal
+  // CHECK: [[SLE:%.+]] = rtg.int.cmp sle, [[A]], [[B]]
+  %sle = rtg.int.cmp sle, %a, %b
+
+  // Greater than
+  // CHECK: [[SGT:%.+]] = rtg.int.cmp sgt, [[B]], [[A]]
+  %sgt = rtg.int.cmp sgt, %b, %a
+
+  // Greater than or equal
+  // CHECK: [[SGE:%.+]] = rtg.int.cmp sge, [[B]], [[A]]
+  %sge = rtg.int.cmp sge, %b, %a
+}

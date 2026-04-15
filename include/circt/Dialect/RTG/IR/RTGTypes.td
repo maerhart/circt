@@ -209,6 +209,19 @@ def StringType : RTGTypeDef<"String"> {
   let assemblyFormat = "";
 }
 
+def IntType : RTGTypeDef<"Int"> {
+  let summary = "an infinite precision integer type";
+  let description = [{
+    This type represents an infinite precision integer. Values of this type
+    are represented using arbitrary precision integers that are automatically
+    extended and normalized during arithmetic operations to prevent overflow
+    and truncation.
+  }];
+
+  let mnemonic = "int";
+  let assemblyFormat = "";
+}
+
 //===----------------------------------------------------------------------===//
 // Types for ISA targets
 //===----------------------------------------------------------------------===//

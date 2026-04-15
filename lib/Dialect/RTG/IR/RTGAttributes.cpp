@@ -17,8 +17,191 @@ using namespace circt;
 using namespace rtg;
 
 //===----------------------------------------------------------------------===//
+// IPInt Implementation
+//===----------------------------------------------------------------------===//
+
+IPInt::IPInt(llvm::APSInt value) : value(normalize(std::move(value))) {}
+
+IPInt::IPInt(int64_t val)
+    : value(normalize(llvm::APSInt(llvm::APInt(64, val, true), false))) {}
+
+llvm::APSInt IPInt::normalize(llvm::APSInt value) {
+  // Compute the minimum bitwidth needed to represent this value
+  unsigned minBitWidth = value.getSignificantBits();
+
+  // Ensure at least 1 bit
+  if (minBitWidth == 0)
+    minBitWidth = 1;
+
+  // Truncate to minimum bitwidth if needed
+  if (value.getBitWidth() > minBitWidth)
+    value = value.truncSSat(minBitWidth);
+
+  return value;
+}
+
+std::pair<llvm::APSInt, llvm::APSInt>
+IPInt::extendToCommonWidth(const llvm::APSInt &lhs, const llvm::APSInt &rhs) {
+  // Calculate the width needed (use the larger of the two)
+  unsigned width = std::max(lhs.getBitWidth(), rhs.getBitWidth());
+
+  // Sign-extend both operands to the common width
+  llvm::APSInt extLhs = lhs;
+  llvm::APSInt extRhs = rhs;
+
+  if (extLhs.getBitWidth() < width)
+    extLhs = extLhs.extend(width);
+  if (extRhs.getBitWidth() < width)
+    extRhs = extRhs.extend(width);
+
+  return {extLhs, extRhs};
+}
+
+IPInt IPInt::add(const IPInt &rhs) const {
+  // For addition: max(width_a, width_b) + 1 bit needed to prevent overflow
+  unsigned maxWidth = std::max(value.getBitWidth(), rhs.value.getBitWidth());
+  unsigned resultWidth = maxWidth + 1;
+
+  llvm::APSInt lhsExt = value.extend(resultWidth);
+  llvm::APSInt rhsExt = rhs.value.extend(resultWidth);
+
+  return IPInt(lhsExt + rhsExt);
+}
+
+IPInt IPInt::sub(const IPInt &rhs) const {
+  // For subtraction: max(width_a, width_b) + 1 bit needed to prevent overflow
+  unsigned maxWidth = std::max(value.getBitWidth(), rhs.value.getBitWidth());
+  unsigned resultWidth = maxWidth + 1;
+
+  llvm::APSInt lhsExt = value.extend(resultWidth);
+  llvm::APSInt rhsExt = rhs.value.extend(resultWidth);
+
+  return IPInt(lhsExt - rhsExt);
+}
+
+IPInt IPInt::mul(const IPInt &rhs) const {
+  // For multiplication: width_a + width_b bits needed to prevent overflow
+  unsigned resultWidth = value.getBitWidth() + rhs.value.getBitWidth();
+
+  llvm::APSInt lhsExt = value.extend(resultWidth);
+  llvm::APSInt rhsExt = rhs.value.extend(resultWidth);
+
+  return IPInt(lhsExt * rhsExt);
+}
+
+IPInt IPInt::sdiv(const IPInt &rhs) const {
+  auto [lhsExt, rhsExt] = extendToCommonWidth(value, rhs.value);
+  llvm::APSInt result(lhsExt.sdiv(rhsExt), false);
+  return IPInt(result);
+}
+
+IPInt IPInt::smod(const IPInt &rhs) const {
+  auto [lhsExt, rhsExt] = extendToCommonWidth(value, rhs.value);
+  llvm::APSInt result(lhsExt.srem(rhsExt), false);
+  return IPInt(result);
+}
+
+IPInt IPInt::pow(const IPInt &exponent) const {
+  // Exponent must be non-negative
+  assert(exponent.value.isNonNegative() && "Exponent must be non-negative");
+
+  // Handle special cases
+  if (exponent.value.isZero())
+    return IPInt(llvm::APSInt(llvm::APInt(1, 1), false)); // Any number^0 = 1
+
+  if (value.isZero())
+    return IPInt(llvm::APSInt(llvm::APInt(1, 0), false)); // 0^n = 0 (n > 0)
+
+  if (exponent.value.isOne())
+    return *this; // base^1 = base
+
+  // For power operation: approximate result bitwidth as base_width * exponent
+  // This is conservative but prevents overflow
+  uint64_t exp = exponent.value.getZExtValue();
+  unsigned resultWidth = value.getBitWidth() * exp;
+
+  // Perform exponentiation by repeated multiplication
+  llvm::APSInt base = value.extend(resultWidth);
+  llvm::APSInt result(llvm::APInt(resultWidth, 1), false);
+
+  for (uint64_t i = 0; i < exp; ++i) {
+    result *= base;
+  }
+
+  return IPInt(result);
+}
+
+IPInt IPInt::and_(const IPInt &rhs) const {
+  auto [lhsExt, rhsExt] = extendToCommonWidth(value, rhs.value);
+  return IPInt(lhsExt & rhsExt);
+}
+
+IPInt IPInt::or_(const IPInt &rhs) const {
+  auto [lhsExt, rhsExt] = extendToCommonWidth(value, rhs.value);
+  return IPInt(lhsExt | rhsExt);
+}
+
+IPInt IPInt::xor_(const IPInt &rhs) const {
+  auto [lhsExt, rhsExt] = extendToCommonWidth(value, rhs.value);
+  return IPInt(lhsExt ^ rhsExt);
+}
+
+IPInt IPInt::shl(const IPInt &rhs) const {
+  // For shift operations, we need to ensure the result has enough bits
+  // Extend LHS by the shift amount to prevent overflow
+  llvm::APSInt lhsExt = value;
+  uint64_t shiftAmt = rhs.value.getExtValue();
+  lhsExt = lhsExt.extend(lhsExt.getBitWidth() + shiftAmt);
+  return IPInt(lhsExt << shiftAmt);
+}
+
+IPInt IPInt::ashr(const IPInt &rhs) const {
+  uint64_t shiftAmt = rhs.value.getExtValue();
+  llvm::APSInt result(value.ashr(shiftAmt), false);
+  return IPInt(result);
+}
+
+bool IPInt::eq(const IPInt &rhs) const {
+  auto [lhsExt, rhsExt] = extendToCommonWidth(value, rhs.value);
+  return lhsExt == rhsExt;
+}
+
+bool IPInt::ne(const IPInt &rhs) const { return !eq(rhs); }
+
+bool IPInt::slt(const IPInt &rhs) const {
+  auto [lhsExt, rhsExt] = extendToCommonWidth(value, rhs.value);
+  return lhsExt < rhsExt;
+}
+
+bool IPInt::sle(const IPInt &rhs) const {
+  auto [lhsExt, rhsExt] = extendToCommonWidth(value, rhs.value);
+  return lhsExt <= rhsExt;
+}
+
+bool IPInt::sgt(const IPInt &rhs) const {
+  auto [lhsExt, rhsExt] = extendToCommonWidth(value, rhs.value);
+  return lhsExt > rhsExt;
+}
+
+bool IPInt::sge(const IPInt &rhs) const {
+  auto [lhsExt, rhsExt] = extendToCommonWidth(value, rhs.value);
+  return lhsExt >= rhsExt;
+}
+
+//===----------------------------------------------------------------------===//
 // Helpers
 //===----------------------------------------------------------------------===//
+
+namespace circt {
+namespace rtg {
+
+// Hash function for IPInt (must be in rtg namespace for ADL)
+llvm::hash_code hash_value(const IPInt &val) {
+  return llvm::hash_value(val.getValue());
+}
+
+} // namespace rtg
+} // namespace circt
 
 namespace llvm {
 template <typename T>
@@ -233,8 +416,40 @@ LogicalResult VirtualRegisterConfigAttr::verify(
 Type LabelAttr::getType() const { return LabelType::get(getContext()); }
 
 //===----------------------------------------------------------------------===//
+// IntAttr Storage
+//===----------------------------------------------------------------------===//
+
+namespace circt {
+namespace rtg {
+namespace detail {
+struct IntAttrStorage : public mlir::AttributeStorage {
+  using KeyTy = IPInt;
+  IntAttrStorage(IPInt value) : value(std::move(value)) {}
+
+  KeyTy getAsKey() const { return value; }
+
+  bool operator==(const KeyTy &key) const { return value == key; }
+
+  static llvm::hash_code hashKey(const KeyTy &key) { return hash_value(key); }
+
+  static IntAttrStorage *construct(mlir::AttributeStorageAllocator &allocator,
+                                   KeyTy &&key) {
+    return new (allocator.allocate<IntAttrStorage>())
+        IntAttrStorage(std::move(key));
+  }
+
+  IPInt value;
+};
+} // namespace detail
+} // namespace rtg
+} // namespace circt
+
+//===----------------------------------------------------------------------===//
 // TableGen generated logic.
 //===----------------------------------------------------------------------===//
+
+#define GET_ATTRDEF_CLASSES
+#include "circt/Dialect/RTG/IR/RTGAttributes.cpp.inc"
 
 void RTGDialect::registerAttributes() {
   addAttributes<
@@ -243,5 +458,25 @@ void RTGDialect::registerAttributes() {
       >();
 }
 
-#define GET_ATTRDEF_CLASSES
-#include "circt/Dialect/RTG/IR/RTGAttributes.cpp.inc"
+//===----------------------------------------------------------------------===//
+// IntAttr
+//===----------------------------------------------------------------------===//
+
+Type IntAttr::getType() const { return IntType::get(getContext()); }
+
+IPInt IntAttr::getValue() const { return getImpl()->value; }
+
+Attribute IntAttr::parse(AsmParser &odsParser, Type odsType) {
+  llvm::APInt val;
+  if (odsParser.parseLess() || odsParser.parseInteger(val) ||
+      odsParser.parseGreater())
+    return {};
+
+  // Convert APInt to APSInt (always treat as signed)
+  llvm::APSInt sval(val, false);
+  return IntAttr::get(odsParser.getContext(), IPInt(sval));
+}
+
+void IntAttr::print(AsmPrinter &odsPrinter) const {
+  odsPrinter << "<" << getValue().getValue() << ">";
+}

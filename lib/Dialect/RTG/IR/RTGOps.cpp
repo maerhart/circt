@@ -1379,6 +1379,210 @@ LogicalResult ResumeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// IntAddOp
+//===----------------------------------------------------------------------===//
+
+OpFoldResult IntAddOp::fold(FoldAdaptor adaptor) {
+  auto lhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getLhs());
+  auto rhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getRhs());
+  if (!lhsAttr || !rhsAttr)
+    return {};
+
+  IPInt result = lhsAttr.getValue().add(rhsAttr.getValue());
+  return IntAttr::get(getContext(), result);
+}
+
+//===----------------------------------------------------------------------===//
+// IntSubOp
+//===----------------------------------------------------------------------===//
+
+OpFoldResult IntSubOp::fold(FoldAdaptor adaptor) {
+  auto lhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getLhs());
+  auto rhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getRhs());
+  if (!lhsAttr || !rhsAttr)
+    return {};
+
+  IPInt result = lhsAttr.getValue().sub(rhsAttr.getValue());
+  return IntAttr::get(getContext(), result);
+}
+
+//===----------------------------------------------------------------------===//
+// IntMulOp
+//===----------------------------------------------------------------------===//
+
+OpFoldResult IntMulOp::fold(FoldAdaptor adaptor) {
+  auto lhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getLhs());
+  auto rhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getRhs());
+  if (!lhsAttr || !rhsAttr)
+    return {};
+
+  IPInt result = lhsAttr.getValue().mul(rhsAttr.getValue());
+  return IntAttr::get(getContext(), result);
+}
+
+//===----------------------------------------------------------------------===//
+// IntDivOp
+//===----------------------------------------------------------------------===//
+
+OpFoldResult IntDivOp::fold(FoldAdaptor adaptor) {
+  auto lhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getLhs());
+  auto rhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getRhs());
+  if (!lhsAttr || !rhsAttr)
+    return {};
+
+  // Don't fold division by zero
+  if (rhsAttr.getValue().getValue().isZero())
+    return {};
+
+  IPInt result = lhsAttr.getValue().sdiv(rhsAttr.getValue());
+  return IntAttr::get(getContext(), result);
+}
+
+//===----------------------------------------------------------------------===//
+// IntModOp
+//===----------------------------------------------------------------------===//
+
+OpFoldResult IntModOp::fold(FoldAdaptor adaptor) {
+  auto lhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getLhs());
+  auto rhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getRhs());
+  if (!lhsAttr || !rhsAttr)
+    return {};
+
+  // Don't fold modulo by zero
+  if (rhsAttr.getValue().getValue().isZero())
+    return {};
+
+  IPInt result = lhsAttr.getValue().smod(rhsAttr.getValue());
+  return IntAttr::get(getContext(), result);
+}
+
+//===----------------------------------------------------------------------===//
+// IntPowOp
+//===----------------------------------------------------------------------===//
+
+OpFoldResult IntPowOp::fold(FoldAdaptor adaptor) {
+  auto baseAttr = dyn_cast_or_null<IntAttr>(adaptor.getBase());
+  auto expAttr = dyn_cast_or_null<IntAttr>(adaptor.getExponent());
+  if (!baseAttr || !expAttr)
+    return {};
+
+  // Don't fold if exponent is negative (invalid)
+  if (expAttr.getValue().getValue().isNegative())
+    return {};
+
+  IPInt result = baseAttr.getValue().pow(expAttr.getValue());
+  return IntAttr::get(getContext(), result);
+}
+
+//===----------------------------------------------------------------------===//
+// IntCmpOp
+//===----------------------------------------------------------------------===//
+
+OpFoldResult IntCmpOp::fold(FoldAdaptor adaptor) {
+  auto lhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getLhs());
+  auto rhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getRhs());
+  if (!lhsAttr || !rhsAttr)
+    return {};
+
+  bool result;
+  const IPInt &lhs = lhsAttr.getValue();
+  const IPInt &rhs = rhsAttr.getValue();
+
+  switch (getPredicate()) {
+  case IntCmpPredicate::eq:
+    result = lhs.eq(rhs);
+    break;
+  case IntCmpPredicate::ne:
+    result = lhs.ne(rhs);
+    break;
+  case IntCmpPredicate::slt:
+    result = lhs.slt(rhs);
+    break;
+  case IntCmpPredicate::sle:
+    result = lhs.sle(rhs);
+    break;
+  case IntCmpPredicate::sgt:
+    result = lhs.sgt(rhs);
+    break;
+  case IntCmpPredicate::sge:
+    result = lhs.sge(rhs);
+    break;
+  }
+
+  return IntegerAttr::get(IntegerType::get(getContext(), 1), result ? 1 : 0);
+}
+
+//===----------------------------------------------------------------------===//
+// IntAndOp
+//===----------------------------------------------------------------------===//
+
+OpFoldResult IntAndOp::fold(FoldAdaptor adaptor) {
+  auto lhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getLhs());
+  auto rhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getRhs());
+  if (!lhsAttr || !rhsAttr)
+    return {};
+
+  IPInt result = lhsAttr.getValue().and_(rhsAttr.getValue());
+  return IntAttr::get(getContext(), result);
+}
+
+//===----------------------------------------------------------------------===//
+// IntOrOp
+//===----------------------------------------------------------------------===//
+
+OpFoldResult IntOrOp::fold(FoldAdaptor adaptor) {
+  auto lhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getLhs());
+  auto rhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getRhs());
+  if (!lhsAttr || !rhsAttr)
+    return {};
+
+  IPInt result = lhsAttr.getValue().or_(rhsAttr.getValue());
+  return IntAttr::get(getContext(), result);
+}
+
+//===----------------------------------------------------------------------===//
+// IntXorOp
+//===----------------------------------------------------------------------===//
+
+OpFoldResult IntXorOp::fold(FoldAdaptor adaptor) {
+  auto lhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getLhs());
+  auto rhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getRhs());
+  if (!lhsAttr || !rhsAttr)
+    return {};
+
+  IPInt result = lhsAttr.getValue().xor_(rhsAttr.getValue());
+  return IntAttr::get(getContext(), result);
+}
+
+//===----------------------------------------------------------------------===//
+// IntShlOp
+//===----------------------------------------------------------------------===//
+
+OpFoldResult IntShlOp::fold(FoldAdaptor adaptor) {
+  auto lhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getLhs());
+  auto rhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getRhs());
+  if (!lhsAttr || !rhsAttr)
+    return {};
+
+  IPInt result = lhsAttr.getValue().shl(rhsAttr.getValue());
+  return IntAttr::get(getContext(), result);
+}
+
+//===----------------------------------------------------------------------===//
+// IntShrOp
+//===----------------------------------------------------------------------===//
+
+OpFoldResult IntShrOp::fold(FoldAdaptor adaptor) {
+  auto lhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getLhs());
+  auto rhsAttr = dyn_cast_or_null<IntAttr>(adaptor.getRhs());
+  if (!lhsAttr || !rhsAttr)
+    return {};
+
+  IPInt result = lhsAttr.getValue().ashr(rhsAttr.getValue());
+  return IntAttr::get(getContext(), result);
+}
+
+//===----------------------------------------------------------------------===//
 // TableGen generated logic.
 //===----------------------------------------------------------------------===//
 

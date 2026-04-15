@@ -6,6 +6,8 @@ func.func @dummy2(%arg0: !rtg.array<index>) -> () {return}
 func.func @dummy3(%arg0: !rtg.array<i8>) -> () {return}
 func.func @dummy6(%arg0: index) -> () {return}
 func.func @dummy7(%arg0: !rtgtest.ireg) -> () {return}
+func.func @dummy8(%arg0: !rtg.int) -> () {return}
+func.func @dummy9(%arg0: i1) -> () {return}
 
 // CHECK-LABEL: @interleaveSequences
 rtg.test @interleaveSequences(seq0 = %seq0: !rtg.randomized_sequence) {
@@ -120,6 +122,102 @@ rtg.test @testRegisterToIndex() {
   // CHECK-NEXT: func.call @dummy6([[V0]])
   %1 = rtg.isa.register_to_index %0 : !rtgtest.ireg
   func.call @dummy6(%1) : (index) -> ()
+}
+
+// CHECK-LABEL: @int_arithmetic_folding
+rtg.test @int_arithmetic_folding() {
+  %a = rtg.constant #rtg.int<10> : !rtg.int
+  %b = rtg.constant #rtg.int<20> : !rtg.int
+  %c3 = rtg.constant #rtg.int<3> : !rtg.int
+
+  // CHECK-DAG: [[V0:%.+]] = rtg.constant #rtg.int<30>
+  // CHECK-DAG: [[V1:%.+]] = rtg.constant #rtg.int<-10>
+  // CHECK-DAG: [[V2:%.+]] = rtg.constant #rtg.int<200>
+  // CHECK-DAG: [[V3:%.+]] = rtg.constant #rtg.int<2>
+  // CHECK-DAG: [[V4:%.+]] = rtg.constant #rtg.int<0>
+  // CHECK-DAG: [[V5:%.+]] = rtg.constant #rtg.int<1000>
+
+  %add = rtg.int.add %a, %b
+  %sub = rtg.int.sub %a, %b
+  %mul = rtg.int.mul %a, %b
+  %div = rtg.int.div %b, %a
+  %mod = rtg.int.mod %b, %a
+  %pow = rtg.int.pow %a, %c3
+
+  // CHECK-NEXT: func.call @dummy8([[V0]])
+  func.call @dummy8(%add) : (!rtg.int) -> ()
+  // CHECK-NEXT: func.call @dummy8([[V1]])
+  func.call @dummy8(%sub) : (!rtg.int) -> ()
+  // CHECK-NEXT: func.call @dummy8([[V2]])
+  func.call @dummy8(%mul) : (!rtg.int) -> ()
+  // CHECK-NEXT: func.call @dummy8([[V3]])
+  func.call @dummy8(%div) : (!rtg.int) -> ()
+  // CHECK-NEXT: func.call @dummy8([[V4]])
+  func.call @dummy8(%mod) : (!rtg.int) -> ()
+  // CHECK-NEXT: func.call @dummy8([[V5]])
+  func.call @dummy8(%pow) : (!rtg.int) -> ()
+}
+
+// CHECK-LABEL: @int_bitwise_folding
+rtg.test @int_bitwise_folding() {
+  %a = rtg.constant #rtg.int<15> : !rtg.int
+  %b = rtg.constant #rtg.int<7> : !rtg.int
+  %c2 = rtg.constant #rtg.int<2> : !rtg.int
+
+  // CHECK-DAG: [[V0:%.+]] = rtg.constant #rtg.int<7>
+  // CHECK-DAG: [[V1:%.+]] = rtg.constant #rtg.int<15>
+  // CHECK-DAG: [[V2:%.+]] = rtg.constant #rtg.int<8>
+  // CHECK-DAG: [[V3:%.+]] = rtg.constant #rtg.int<60>
+  // CHECK-DAG: [[V4:%.+]] = rtg.constant #rtg.int<3>
+
+  %and = rtg.int.and %a, %b
+  %or = rtg.int.or %a, %b
+  %xor = rtg.int.xor %a, %b
+  %shl = rtg.int.shl %a, %c2
+  %shr = rtg.int.shr %a, %c2
+
+  // CHECK-NEXT: func.call @dummy8([[V0]])
+  func.call @dummy8(%and) : (!rtg.int) -> ()
+  // CHECK-NEXT: func.call @dummy8([[V1]])
+  func.call @dummy8(%or) : (!rtg.int) -> ()
+  // CHECK-NEXT: func.call @dummy8([[V2]])
+  func.call @dummy8(%xor) : (!rtg.int) -> ()
+  // CHECK-NEXT: func.call @dummy8([[V3]])
+  func.call @dummy8(%shl) : (!rtg.int) -> ()
+  // CHECK-NEXT: func.call @dummy8([[V4]])
+  func.call @dummy8(%shr) : (!rtg.int) -> ()
+}
+
+// CHECK-LABEL: @int_comparison_folding
+rtg.test @int_comparison_folding() {
+  %a = rtg.constant #rtg.int<10> : !rtg.int
+  %b = rtg.constant #rtg.int<20> : !rtg.int
+
+  // CHECK-DAG: [[TRUE:%.+]] = rtg.constant true
+  // CHECK-DAG: [[FALSE:%.+]] = rtg.constant false
+
+  %eq = rtg.int.cmp eq, %a, %a
+  %ne = rtg.int.cmp ne, %a, %b
+  %slt = rtg.int.cmp slt, %a, %b
+  %sle = rtg.int.cmp sle, %a, %b
+  %sgt = rtg.int.cmp sgt, %b, %a
+  %sge = rtg.int.cmp sge, %b, %a
+  %eq_false = rtg.int.cmp eq, %a, %b
+
+  // CHECK-NEXT: func.call @dummy9([[TRUE]])
+  func.call @dummy9(%eq) : (i1) -> ()
+  // CHECK-NEXT: func.call @dummy9([[TRUE]])
+  func.call @dummy9(%ne) : (i1) -> ()
+  // CHECK-NEXT: func.call @dummy9([[TRUE]])
+  func.call @dummy9(%slt) : (i1) -> ()
+  // CHECK-NEXT: func.call @dummy9([[TRUE]])
+  func.call @dummy9(%sle) : (i1) -> ()
+  // CHECK-NEXT: func.call @dummy9([[TRUE]])
+  func.call @dummy9(%sgt) : (i1) -> ()
+  // CHECK-NEXT: func.call @dummy9([[TRUE]])
+  func.call @dummy9(%sge) : (i1) -> ()
+  // CHECK-NEXT: func.call @dummy9([[FALSE]])
+  func.call @dummy9(%eq_false) : (i1) -> ()
 }
 
 // CHECK-LABEL: @testIndexToRegister

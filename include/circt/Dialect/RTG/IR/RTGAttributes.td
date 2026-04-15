@@ -138,6 +138,24 @@ def TupleAttr : RTGAttrDef<"Tuple", [
   let assemblyFormat = "`<` $elements `>`";
 }
 
+def IntAttr : RTGAttrDef<"Int", [
+  DeclareAttrInterfaceMethods<TypedAttrInterface>,
+]> {
+  let summary = "an infinite precision integer value";
+  let description = [{
+    This represents an infinite precision integer value. The value is stored
+    using an IPInt (Infinite Precision Integer) which wraps APSInt and ensures
+    automatic normalization to the minimum bitwidth required to represent the
+    value.
+  }];
+
+  let parameters = (ins "::circt::rtg::IPInt":$value);
+
+  let mnemonic = "int";
+  let hasCustomAssemblyFormat = true;
+  let genStorageClass = false;
+}
+
 //===----------------------------------------------------------------------===//
 // Attributes for ISA targets
 //===----------------------------------------------------------------------===//
